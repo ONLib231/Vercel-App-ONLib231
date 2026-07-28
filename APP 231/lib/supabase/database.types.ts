@@ -131,5 +131,15 @@ export interface Database {
         Relationships: [];
       };
     };
+    // The generic schema type @supabase/supabase-js's query builder expects
+    // (GenericSchema, from @supabase/postgrest-js) requires these four keys
+    // to exist alongside Tables — even empty — or type resolution for
+    // .from(table).select(...) can silently degrade to `never` instead of
+    // the real Row type. We don't model views, stored procedures, enums, or
+    // composite types in this hand-authored file, so they're empty here.
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }
