@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentAuthUser } from "@/lib/user";
 import type { OrderViewModel, VendorApplicationRow, VendorDashboardStats, VendorNavUser } from "@/types/vendor";
+import type { StoreRow } from "@/types/marketplace";
 
 /**
  * Static fallback so the Vendor Dashboard renders correctly (matching the
@@ -56,7 +57,7 @@ export async function getVendorApplication(): Promise<VendorApplicationRow | nul
 }
 
 /** The store owned by the signed-in vendor (created automatically when their application is approved). */
-export async function getMyStore() {
+export async function getMyStore(): Promise<StoreRow | null> {
   try {
     const user = await getCurrentAuthUser();
     if (!user) return null;
