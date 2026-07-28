@@ -1,40 +1,22 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentAuthUser, getNavUser } from "@/lib/user";
+import { formatMoney, orderCodeFor, statusLabelFor } from "@/lib/delivery-format";
 import type {
   DeliveryAgentRow,
   DeliveryDashboardStats,
   DeliveryExpenseRow,
   DeliveryOrderRow,
-  DeliveryOrderStatus,
   DeliveryOrderViewModel,
   DeliveryPricePresetRow,
   DeliverySettingsRow,
 } from "@/types/delivery";
 
-export function formatMoney(amount: number | null): string | null {
-  if (amount === null || amount === undefined) return null;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
-}
-
-export function statusLabelFor(status: DeliveryOrderStatus): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "accepted":
-      return "Accepted";
-    case "picked_up":
-      return "Picked Up";
-    case "delivered":
-      return "Delivered";
-    case "cancelled":
-      return "Cancelled";
-  }
-}
-
-/** "#A1B2C3" from a uuid — same short-code convention as ONLib order numbers (lib/vendor.ts). */
-export function orderCodeFor(id: string): string {
-  return `#${id.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
-}
+// Re-exported so existing server-only importers (e.g.
+// lib/notifications/delivery-notifications.ts) don't need to change their
+// import path — this file is still the canonical place to import these from
+// on the server. Client Components must import from "@/lib/delivery-format"
+// directly instead (see that file's header comment for why).
+export { formatMoney, orderCodeFor, statusLabelFor };
 
 function toViewModel(row: DeliveryOrderRow): DeliveryOrderViewModel {
   return {

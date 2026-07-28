@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Trash2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { orderCodeFor, statusLabelFor } from "@/lib/delivery";
+import { orderCodeFor, statusLabelFor } from "@/lib/delivery-format";
 import { acceptDeliveryOrder, deleteDeliveryOrders, updateDeliveryOrder } from "@/lib/actions/delivery";
 import { StatusBadge } from "@/components/delivery/StatusBadge";
 import type { DeliveryAgentRow, DeliveryOrderRow, DeliveryOrderStatus, DeliveryOrderViewModel, DeliveryPricePresetRow } from "@/types/delivery";

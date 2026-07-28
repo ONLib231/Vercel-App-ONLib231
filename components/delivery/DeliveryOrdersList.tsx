@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { PackageSearch } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cancelDeliveryOrder } from "@/lib/actions/delivery";
-import { orderCodeFor, statusLabelFor } from "@/lib/delivery";
+import { orderCodeFor, statusLabelFor } from "@/lib/delivery-format";
 import { StatusBadge } from "@/components/delivery/StatusBadge";
 import type { DeliveryOrderRow, DeliveryOrderViewModel } from "@/types/delivery";
 
