@@ -1,65 +1,75 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import { getVendorApplications } from "@/lib/super-admin";
-import { VendorApplicationsManager } from "@/components/admin/VendorApplicationsManager";
-import type { VendorApplicationStatus } from "@/types/vendor";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { VendorApplicationRow } from "./VendorApplicationRow";
+import type { Tables } from "@/lib/supabase/database.types";
 
-export const metadata: Metadata = {
-  title: "Vendor Applications — Super Admin",
-};
+const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
-const VALID_STATUSES: VendorApplicationStatus[] = ["pending", "approved", "rejected"];
+export default async function VendorApplicationsPage() {
+  const supabase = createServiceRoleClient();
 
-const TABS: { label: string; value: VendorApplicationStatus | undefined }[] = [
-  { label: "Pending", value: "pending" },
-  { label: "Approved", value: "approved" },
-  { label: "Rejected", value: "rejected" },
-  { label: "All", value: undefined },
-];
+  const { data: applications }: { data: Tables<"vendor_applications">[] | null } = await supabase
+    .from("vendor_applications")
+    .select("*")
+    .order("status", { ascending: true }) // 'approved' < 'pending' < 'rejected' alphabetically; pending still surfaces near top visually via badge
+    .order("created_at", { ascending: false });
 
-function isValidStatus(value: string): value is VendorApplicationStatus {
-  return (VALID_STATUSES as string[]).includes(value);
-}
+  const rows = await Promise.all(
+    (applications ?? []).map(async (application) => {
+      const businessRegistrationUrl = application.business_registration_path
+        ? await signUrl(supabase, application.business_registration_path)
+        : null;
+      const idDocumentUrl = application.id_document_path ? await signUrl(supabase, application.id_document_path) : null;
+      return { application, businessRegistrationUrl, idDocumentUrl };
+    })
+  );
 
-export default async function VendorApplicationsPage({
-  searchParams,
-}: {
-  searchParams: { status?: string };
-}) {
-  // No query param -> default to the Pending tab (the actual review queue);
-  // "all" is the explicit escape hatch to see every application unfiltered.
-  // Anything else unrecognized (garbage/typo'd query string) also falls
-  // back to Pending rather than silently querying with an invalid status.
-  const rawStatus = searchParams.status;
-  const activeTab: VendorApplicationStatus | undefined =
-    rawStatus === "all" ? undefined : rawStatus && isValidStatus(rawStatus) ? rawStatus : "pending";
-  const applications = await getVendorApplications(activeTab);
+  const pending = rows.filter((r) => r.application.status === "pending");
+  const reviewed = rows.filter((r) => r.application.status !== "pending");
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-extrabold text-slate-900">Vendor Applications</h1>
-        <p className="text-sm text-slate-500">Approve or reject signups — approving auto-creates the vendor's store.</p>
+        <h1 className="mb-4 text-2xl font-bold text-slate-900">Pending Vendor Applications</h1>
+        {pending.length === 0 ? (
+          <p className="card p-8 text-center text-sm text-slate-400">Nothing waiting for review.</p>
+        ) : (
+          <div className="space-y-4">
+            {pending.map((row) => (
+              <VendorApplicationRow
+                key={row.application.id}
+                application={row.application}
+                businessRegistrationUrl={row.businessRegistrationUrl}
+                idDocumentUrl={row.idDocumentUrl}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="flex gap-2">
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.value;
-          return (
-            <Link
-              key={tab.label}
-              href={tab.value ? `/admin/vendor-applications?status=${tab.value}` : "/admin/vendor-applications?status=all"}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                isActive ? "bg-verta-600 text-white" : "border border-slate-200 text-slate-500 hover:bg-slate-50"
-              }`}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </div>
-
-      <VendorApplicationsManager applications={applications} />
+      {reviewed.length > 0 ? (
+        <div>
+          <h2 className="mb-4 text-lg font-bold text-slate-900">Previously Reviewed</h2>
+          <div className="space-y-4">
+            {reviewed.map((row) => (
+              <VendorApplicationRow
+                key={row.application.id}
+                application={row.application}
+                businessRegistrationUrl={row.businessRegistrationUrl}
+                idDocumentUrl={row.idDocumentUrl}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+async function signUrl(supabase: ReturnType<typeof createServiceRoleClient>, path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from("vendor-documents").createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+  if (error) {
+    console.error("Failed to sign vendor document URL:", error.message);
+    return null;
+  }
+  return data?.signedUrl ?? null;
 }

@@ -1,38 +1,21 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-  ],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Verta Delivery brand accent (indigo/navy)
-        verta: {
-          50: "#eef1fd",
-          100: "#dbe2fb",
-          400: "#5a6df0",
-          500: "#3d4fe0",
-          600: "#2f3fc7",
-          700: "#1e2a99",
-          900: "#0f1547",
+        // Brand palette derived from the ONLib / Verta reference marks:
+        // deep navy + red for ONLib, navy + sky blue for Verta.
+        brand: {
+          navy: "#0B1F4D",
+          blue: "#2952CC",
+          red: "#D6293E",
+          skyblue: "#3E6BE0",
         },
-        // ONLib Marketplace brand accent (red)
-        onlib: {
-          50: "#fdecec",
-          100: "#fad6d6",
-          400: "#f16060",
-          500: "#e63946",
-          600: "#c92a37",
-          700: "#a11f2b",
-        },
-      },
-      fontFamily: {
-        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       borderRadius: {
-        xl2: "1.25rem",
+        xl: "0.875rem",
       },
     },
   },

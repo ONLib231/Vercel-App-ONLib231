@@ -1,100 +1,55 @@
-import type { Metadata } from "next";
-import { getAllMarketplaceOrders } from "@/lib/super-admin";
-import { getAllDeliveryOrders } from "@/lib/delivery";
+import { createClient } from "@/lib/supabase/server";
+import { formatCents, formatDate } from "@/lib/utils";
+import type { Tables } from "@/lib/supabase/database.types";
 
-export const metadata: Metadata = {
-  title: "Orders Overview — Super Admin",
-};
+export default async function AdminOrdersPage() {
+  const supabase = await createClient();
 
-function formatCents(cents: number, currency: string): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
-}
+  const { data: orders }: { data: Tables<"orders">[] | null } = await supabase
+    .from("orders")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-export default async function OrdersOverviewPage() {
-  const [marketplaceOrders, deliveryOrders] = await Promise.all([getAllMarketplaceOrders(), getAllDeliveryOrders()]);
+  const storeIds = Array.from(new Set((orders ?? []).map((o) => o.store_id)));
+  const { data: stores }: { data: Tables<"stores">[] | null } = storeIds.length
+    ? await supabase.from("stores").select("*").in("id", storeIds)
+    : { data: [] };
+  const storeNameById = new Map((stores ?? []).map((s) => [s.id, s.name]));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div>
-        <h1 className="text-xl font-extrabold text-slate-900">Orders Overview</h1>
-        <p className="text-sm text-slate-500">Read-only, platform-wide. Most recent 200 Marketplace orders shown.</p>
+    <div>
+      <h1 className="mb-6 text-2xl font-bold text-slate-900">Marketplace Orders</h1>
+      <div className="card overflow-x-auto">
+        {(orders ?? []).length === 0 ? (
+          <p className="p-8 text-center text-sm text-slate-400">No orders yet.</p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-200 text-xs uppercase text-slate-400">
+              <tr>
+                <th className="px-3 py-2">Store</th>
+                <th className="px-3 py-2">Buyer</th>
+                <th className="px-3 py-2">Total</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(orders ?? []).map((order) => (
+                <tr key={order.id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-3 py-3 font-medium text-slate-800">{storeNameById.get(order.store_id) ?? "—"}</td>
+                  <td className="px-3 py-3 text-slate-600">{order.buyer_name}</td>
+                  <td className="px-3 py-3 text-slate-800">{formatCents(order.total_cents)}</td>
+                  <td className="px-3 py-3">
+                    <span className="badge bg-slate-100 text-slate-600 capitalize">{order.status}</span>
+                  </td>
+                  <td className="px-3 py-3 text-slate-500">{formatDate(order.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-bold text-slate-700">Marketplace ({marketplaceOrders.length})</h2>
-        <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-2.5">Order</th>
-                <th className="px-4 py-2.5">Store</th>
-                <th className="px-4 py-2.5">Buyer</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5">Total</th>
-                <th className="px-4 py-2.5">Placed</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {marketplaceOrders.map((order) => (
-                <tr key={order.id}>
-                  <td className="px-4 py-2.5 font-medium text-slate-700">#{order.id.replace(/-/g, "").slice(0, 6).toUpperCase()}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{order.storeName ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{order.buyer_name}</td>
-                  <td className="px-4 py-2.5 capitalize text-slate-600">{order.status}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{formatCents(order.total_cents, order.currency)}</td>
-                  <td className="px-4 py-2.5 text-slate-400">{new Date(order.created_at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-              {marketplaceOrders.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                    No Marketplace orders yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-bold text-slate-700">Delivery ({deliveryOrders.length})</h2>
-        <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-2.5">Order</th>
-                <th className="px-4 py-2.5">Sender</th>
-                <th className="px-4 py-2.5">Route</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5">Amount</th>
-                <th className="px-4 py-2.5">Placed</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {deliveryOrders.map((order) => (
-                <tr key={order.id}>
-                  <td className="px-4 py-2.5 font-medium text-slate-700">{order.orderCode}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{order.senderName}</td>
-                  <td className="px-4 py-2.5 max-w-xs truncate text-slate-600">
-                    {order.pickupAddress} → {order.dropoffAddress}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-600">{order.statusLabel}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{order.amountLabel ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-slate-400">{order.createdAtLabel}</td>
-                </tr>
-              ))}
-              {deliveryOrders.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                    No Delivery orders yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </div>
   );
 }

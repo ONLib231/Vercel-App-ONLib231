@@ -1,34 +1,42 @@
+// lib/supabase/server.ts
+// Supabase client for use in Server Components, Route Handlers, and Server
+// Actions. Reads/writes the auth cookie via next/headers. Respects RLS as
+// the currently signed-in user (anon key + user JWT from cookies) — this is
+// NOT the service-role client.
+import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "./database.types";
 
-/**
- * Server-side Supabase client for use inside Server Components, Route
- * Handlers, and Server Actions. Reads/writes auth cookies via Next's
- * `cookies()` API so Supabase Auth sessions stay in sync with the request.
- */
-export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+export async function createClient() {
+  const cookieStore = await cookies();
 
-  return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
-          } catch {
-            // Called from a Server Component with no response to write to —
-            // safe to ignore when middleware handles session refresh.
-          }
-        },
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Check your .env.local against .env.local.example."
+    );
+  }
+
+  return createServerClient<Database>(url, anonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
       },
-    }
-  );
+      setAll(cookiesToSet) {
+        try {
+          for (const { name, value, options } of cookiesToSet) {
+            cookieStore.set(name, value, options);
+          }
+        } catch {
+          // setAll was called from a Server Component render, where cookies
+          // can't be mutated. Safe to ignore: middleware.ts refreshes the
+          // session cookie on every request, so this only matters when a
+          // Server Component itself tries to refresh a near-expired token.
+        }
+      },
+    },
+  });
 }

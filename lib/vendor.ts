@@ -1,153 +1,94 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getCurrentAuthUser } from "@/lib/user";
-import type { OrderViewModel, VendorApplicationRow, VendorDashboardStats, VendorNavUser } from "@/types/vendor";
-import type { StoreRow } from "@/types/marketplace";
+// lib/vendor.ts
+// Shared vendor-application submission logic used by both the signup flow
+// (app/(auth)/actions.ts) and the standalone re-apply page
+// (app/vendor/apply/actions.ts), so document upload + upsert logic lives in
+// exactly one place.
+import "server-only";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import type { Enums } from "@/lib/supabase/database.types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/database.types";
 
-/**
- * Static fallback so the Vendor Dashboard renders correctly (matching the
- * mockup numbers) before real orders exist for a brand-new store, and
- * degrades gracefully rather than throwing if a query fails.
- */
-const FALLBACK_STATS: VendorDashboardStats = {
-  salesLast30Label: "$18,450.00",
-  salesChangePct: 12.6,
-  salesTrend: [42, 58, 50, 61, 55, 68, 60, 72, 66, 80, 74, 90],
-  totalOrders: 312,
-  newLeads: 45,
-  recentOrders: [
-    { id: "12304", orderNumber: "#12304", buyerName: "Sylvester Kane", status: "fulfilled", statusLabel: "Fulfilled", totalLabel: "$150.00" },
-    { id: "12303", orderNumber: "#12303", buyerName: "Adewale", status: "fulfilled", statusLabel: "Fulfilled", totalLabel: "$85.00" },
-    { id: "12302", orderNumber: "#12302", buyerName: "Anion", status: "processing", statusLabel: "Processing", totalLabel: "$210.00" },
-  ],
+export type SubmitVendorApplicationInput = {
+  userId: string;
+  businessName: string;
+  idDocumentType: Enums<"id_document_type">;
+  businessRegistrationFile: File | null;
+  idDocumentFile: File | null;
 };
 
-function formatMoney(cents: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
-}
-
-function statusLabelFor(status: OrderViewModel["status"]): string {
-  return status === "fulfilled" ? "Fulfilled" : status === "cancelled" ? "Cancelled" : "Processing";
-}
+export type SubmitVendorApplicationResult = { error: string | null };
 
 /**
- * The signed-in user's vendor application, if any. Drives the /vendor/*
- * gating in app/vendor/layout.tsx (pending vs approved vs no application).
+ * Uploads whichever documents were provided (private vendor-documents
+ * bucket, service-role write only — see supabase/migrations/0007_storage.sql)
+ * and upserts the vendor_applications row back to status='pending'. Used
+ * both at signup time and for later re-submission after a rejection.
  */
-export async function getVendorApplication(): Promise<VendorApplicationRow | null> {
+export async function submitVendorApplication(
+  input: SubmitVendorApplicationInput
+): Promise<SubmitVendorApplicationResult> {
+  const supabase = createServiceRoleClient();
+
+  let businessRegistrationPath: string | null = null;
+  let idDocumentPath: string | null = null;
+
   try {
-    const user = await getCurrentAuthUser();
-    if (!user) return null;
-
-    const supabase = createSupabaseServerClient();
-    const { data, error } = await supabase
-      .from("vendor_applications")
-      .select("*")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error("[getVendorApplication] Supabase query failed:", error.message);
-      return null;
+    if (input.businessRegistrationFile && input.businessRegistrationFile.size > 0) {
+      businessRegistrationPath = await uploadVendorDocument(
+        supabase,
+        input.userId,
+        "business-registration",
+        input.businessRegistrationFile
+      );
     }
-    return data;
-  } catch (err) {
-    console.error("[getVendorApplication] Unexpected failure:", err);
-    return null;
+
+    if (input.idDocumentFile && input.idDocumentFile.size > 0) {
+      idDocumentPath = await uploadVendorDocument(supabase, input.userId, "id-document", input.idDocumentFile);
+    }
+  } catch (uploadError) {
+    const message = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+    return { error: message };
   }
+
+  const { error } = await supabase.from("vendor_applications").upsert(
+    {
+      user_id: input.userId,
+      business_name: input.businessName,
+      id_document_type: input.idDocumentType,
+      status: "pending",
+      reviewed_by: null,
+      reviewed_at: null,
+      rejection_reason: null,
+      ...(businessRegistrationPath ? { business_registration_path: businessRegistrationPath } : {}),
+      ...(idDocumentPath ? { id_document_path: idDocumentPath } : {}),
+    },
+    { onConflict: "user_id" }
+  );
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { error: null };
 }
 
-/** The store owned by the signed-in vendor (created automatically when their application is approved). */
-export async function getMyStore(): Promise<StoreRow | null> {
-  try {
-    const user = await getCurrentAuthUser();
-    if (!user) return null;
+async function uploadVendorDocument(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  baseName: "business-registration" | "id-document",
+  file: File
+): Promise<string> {
+  const extension = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+  const path = `${userId}/${baseName}.${extension}`;
 
-    const supabase = createSupabaseServerClient();
-    const { data, error } = await supabase.from("stores").select("*").eq("owner_id", user.id).maybeSingle();
+  const { error } = await supabase.storage
+    .from("vendor-documents")
+    .upload(path, file, { upsert: true, contentType: file.type || undefined });
 
-    if (error) {
-      console.error("[getMyStore] Supabase query failed:", error.message);
-      return null;
-    }
-    return data;
-  } catch (err) {
-    console.error("[getMyStore] Unexpected failure:", err);
-    return null;
+  if (error) {
+    throw new Error(`Failed to upload ${baseName.replace("-", " ")}: ${error.message}`);
   }
-}
 
-/**
- * Display identity for the Vendor Dashboard header ("Girlee Fashion / Admin"
- * in the mockup) — every approved vendor is the "Admin" of their own store,
- * distinct from the platform-wide profiles.role enum.
- */
-export async function getVendorNavUser(): Promise<VendorNavUser> {
-  try {
-    const user = await getCurrentAuthUser();
-    if (!user) return { name: "Vendor", role: "Admin", avatarUrl: null };
-
-    const supabase = createSupabaseServerClient();
-    const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
-
-    return { name: profile?.full_name ?? user.email ?? "Vendor", role: "Admin", avatarUrl: null };
-  } catch (err) {
-    console.error("[getVendorNavUser] Unexpected failure:", err);
-    return { name: "Vendor", role: "Admin", avatarUrl: null };
-  }
-}
-
-/** Sales overview, order totals, and recent orders for a vendor's own store. */
-export async function getVendorDashboardStats(storeId: string): Promise<VendorDashboardStats> {
-  try {
-    const supabase = createSupabaseServerClient();
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
-
-    const { data, error } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("store_id", storeId)
-      .gte("created_at", since.toISOString())
-      .order("created_at", { ascending: false });
-
-    if (error || !data) {
-      if (error) console.error("[getVendorDashboardStats] Supabase query failed:", error.message);
-      return FALLBACK_STATS;
-    }
-
-    if (data.length === 0) {
-      // A brand-new store legitimately has zero orders — show real zeros
-      // rather than the fallback demo numbers.
-      return {
-        salesLast30Label: formatMoney(0),
-        salesChangePct: 0,
-        salesTrend: new Array(12).fill(0),
-        totalOrders: 0,
-        newLeads: 0,
-        recentOrders: [],
-      };
-    }
-
-    const totalCents = data.reduce((sum, row) => sum + row.total_cents, 0);
-    const recentOrders: OrderViewModel[] = data.slice(0, 5).map((row) => ({
-      id: row.id,
-      orderNumber: `#${row.id.replace(/-/g, "").slice(0, 5).toUpperCase()}`,
-      buyerName: row.buyer_name,
-      status: row.status,
-      statusLabel: statusLabelFor(row.status),
-      totalLabel: formatMoney(row.total_cents),
-    }));
-
-    return {
-      salesLast30Label: formatMoney(totalCents),
-      salesChangePct: 0, // needs a prior-30-day comparison query once there's real volume to compare against
-      salesTrend: FALLBACK_STATS.salesTrend,
-      totalOrders: data.length,
-      newLeads: 0,
-      recentOrders,
-    };
-  } catch (err) {
-    console.error("[getVendorDashboardStats] Unexpected failure:", err);
-    return FALLBACK_STATS;
-  }
+  return path;
 }

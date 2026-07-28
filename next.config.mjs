@@ -1,15 +1,33 @@
 /** @type {import('next').NextConfig} */
+const supabaseHost = (() => {
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!url) return undefined;
+    return new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+})();
+
 const nextConfig = {
+  reactStrictMode: true,
   images: {
-    // Allow dynamic vendor / delivery asset images served from Supabase Storage.
-    // Replace <your-project-ref> with the actual Supabase project ref once provisioned.
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "*.supabase.co",
-        pathname: "/storage/v1/object/public/**",
-      },
+      ...(supabaseHost
+        ? [
+            {
+              protocol: "https",
+              hostname: supabaseHost,
+              pathname: "/storage/v1/object/public/**",
+            },
+          ]
+        : []),
     ],
+  },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
   },
 };
 

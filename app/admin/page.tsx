@@ -1,64 +1,40 @@
-import type { Metadata } from "next";
 import Link from "next/link";
-import { ClipboardCheck, Package, ShoppingBag, Store, Truck, Users } from "lucide-react";
-import { getPlatformStats } from "@/lib/super-admin";
-import { StatCard } from "@/components/vendor/StatCard";
+import { createClient } from "@/lib/supabase/server";
 
-export const metadata: Metadata = {
-  title: "Super Admin — ONLib",
-};
+// Deliberately five separate, fully-typed count queries rather than one
+// generic helper parameterized over table name: a generic `.from(table)`
+// helper needs an unsafe cast against @supabase/postgrest-js's generics
+// (which is exactly the kind of "looks fine, breaks the real compiler"
+// pattern this codebase avoids — see the note atop database.types.ts).
+export default async function AdminOverviewPage() {
+  const supabase = await createClient();
 
-export default async function SuperAdminDashboardPage() {
-  const stats = await getPlatformStats();
+  const [pendingApplicationsResult, storesResult, marketplaceOrdersResult, deliveryOrdersResult, pendingDeliveriesResult] = await Promise.all([
+    supabase.from("vendor_applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("stores").select("*", { count: "exact", head: true }),
+    supabase.from("orders").select("*", { count: "exact", head: true }),
+    supabase.from("delivery_orders").select("*", { count: "exact", head: true }),
+    supabase.from("delivery_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
+  ]);
+
+  const cards: { label: string; value: number; href: string }[] = [
+    { label: "Pending vendor applications", value: pendingApplicationsResult.count ?? 0, href: "/admin/vendor-applications" },
+    { label: "Active stores", value: storesResult.count ?? 0, href: "/admin/vendor-applications" },
+    { label: "Marketplace orders", value: marketplaceOrdersResult.count ?? 0, href: "/admin/orders" },
+    { label: "Delivery orders", value: deliveryOrdersResult.count ?? 0, href: "/admin/delivery" },
+    { label: "Delivery orders awaiting pickup", value: pendingDeliveriesResult.count ?? 0, href: "/admin/delivery" },
+  ];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 px-4 py-6 sm:px-6 lg:px-8">
-      <div>
-        <h1 className="text-xl font-extrabold text-slate-900">Super Admin</h1>
-        <p className="text-sm text-slate-500">Platform-wide overview across Marketplace and Delivery.</p>
-      </div>
-
-      {stats.pendingVendorApplications > 0 && (
-        <Link
-          href="/admin/vendor-applications"
-          className="flex items-center justify-between rounded-2xl bg-gradient-to-br from-verta-900 to-verta-700 px-5 py-4 text-white shadow-sm"
-        >
-          <span className="flex items-center gap-3">
-            <ClipboardCheck className="h-5 w-5" aria-hidden />
-            <span className="text-sm font-semibold">
-              {stats.pendingVendorApplications} vendor application{stats.pendingVendorApplications === 1 ? "" : "s"} awaiting review
-            </span>
-          </span>
-          <span className="text-sm font-semibold">Review →</span>
-        </Link>
-      )}
-
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <StatCard icon={ClipboardCheck} label="Pending Vendor Apps" value={stats.pendingVendorApplications} />
-        <StatCard icon={Store} label="Approved Vendors" value={stats.approvedVendors} />
-        <StatCard icon={Users} label="Total Users" value={stats.totalUsers} />
-        <StatCard icon={Package} label="Total Stores" value={stats.totalStores} />
-        <StatCard icon={ShoppingBag} label="Marketplace Orders" value={stats.totalMarketplaceOrders} />
-        <StatCard icon={Truck} label="Delivery Orders" value={stats.totalDeliveryOrders} />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Link href="/admin/vendor-applications" className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-verta-400">
-          <p className="text-sm font-bold text-slate-900">Review vendor applications</p>
-          <p className="text-xs text-slate-500">Approve or reject pending signups.</p>
-        </Link>
-        <Link href="/admin/users" className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-verta-400">
-          <p className="text-sm font-bold text-slate-900">Manage users & roles</p>
-          <p className="text-xs text-slate-500">Promote or demote any account.</p>
-        </Link>
-        <Link href="/admin/categories" className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-verta-400">
-          <p className="text-sm font-bold text-slate-900">Edit categories</p>
-          <p className="text-xs text-slate-500">Update the Marketplace homepage quick-links.</p>
-        </Link>
-        <Link href="/admin/service-cards" className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-verta-400">
-          <p className="text-sm font-bold text-slate-900">Edit service cards</p>
-          <p className="text-xs text-slate-500">Update the Delivery/Marketplace landing cards.</p>
-        </Link>
+    <div>
+      <h1 className="mb-6 text-2xl font-bold text-slate-900">Overview</h1>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {cards.map((card) => (
+          <Link key={card.label} href={card.href} className="card p-5 transition hover:shadow-md">
+            <p className="text-sm text-slate-500">{card.label}</p>
+            <p className="mt-1 text-3xl font-bold text-slate-900">{card.value}</p>
+          </Link>
+        ))}
       </div>
     </div>
   );
