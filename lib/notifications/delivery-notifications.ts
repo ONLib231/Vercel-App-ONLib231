@@ -2,6 +2,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role";
 import { sendSms, sendWhatsApp, type SendResult } from "@/lib/notifications/twilio";
 import { sendEmail } from "@/lib/notifications/email";
 import { orderCodeFor } from "@/lib/delivery";
+import type { DeliverySettingsRow } from "@/types/delivery";
 
 export interface NewDeliveryOrderNotificationInput {
   orderId: string;
@@ -56,7 +57,11 @@ export async function notifyAdminNewOrder(input: NewDeliveryOrderNotificationInp
       console.error("[notifyAdminNewOrder] Failed to load admin profiles:", adminsResult.error.message);
     }
 
-    const settings = settingsResult.data;
+    // Cast explicitly — .maybeSingle() on a narrow (non-"*") select has been
+    // unreliable in this project's pinned @supabase/postgrest-js version,
+    // silently resolving to `never` instead of the selected columns' real
+    // type (same issue fixed in lib/vendor.ts's getMyStore()).
+    const settings = settingsResult.data as Pick<DeliverySettingsRow, "business_phone" | "business_email"> | null;
     const admins = adminsResult.data;
 
     const messageBody =

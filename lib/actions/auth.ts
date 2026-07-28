@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role";
 import { getSiteUrl } from "@/lib/site";
 import { submitVendorApplication } from "@/lib/actions/vendor";
-import type { IdDocumentType } from "@/types/vendor";
+import type { IdDocumentType, ProfileRow, VendorApplicationRow } from "@/types/vendor";
 
 export interface AuthActionResult {
   ok: boolean;
@@ -55,14 +55,21 @@ export async function signInWithPassword({ email, password, next }: SignInParams
 
     const userId = data.user?.id;
     if (userId) {
-      const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+      // Cast explicitly rather than relying on inference: .maybeSingle()'s
+      // result on a narrow (non-"*") select has been unreliable in this
+      // project's pinned @supabase/postgrest-js version, silently resolving
+      // to `never` instead of the selected columns' real type — see the
+      // getMyStore() fix in lib/vendor.ts for the same underlying issue.
+      const { data: profileData } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+      const profile = profileData as Pick<ProfileRow, "role"> | null;
 
       if (profile?.role === "vendor") {
-        const { data: application } = await supabase
+        const { data: applicationData } = await supabase
           .from("vendor_applications")
           .select("status")
           .eq("user_id", userId)
           .maybeSingle();
+        const application = applicationData as Pick<VendorApplicationRow, "status"> | null;
 
         redirectTarget = application?.status === "approved" ? "/vendor" : "/vendor/pending";
       }

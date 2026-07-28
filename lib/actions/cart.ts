@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { CartItemRow } from "@/types/marketplace";
 
 export interface AddToCartResult {
   ok: boolean;
@@ -24,7 +25,7 @@ export async function addToCart(productId: string): Promise<AddToCartResult> {
       return { ok: false, error: "sign_in_required" };
     }
 
-    const { data: existing, error: fetchError } = await supabase
+    const { data: existingData, error: fetchError } = await supabase
       .from("cart_items")
       .select("id, quantity")
       .eq("user_id", user.id)
@@ -35,6 +36,11 @@ export async function addToCart(productId: string): Promise<AddToCartResult> {
       console.error("[addToCart] Failed to look up existing cart item:", fetchError.message);
       return { ok: false, error: "unknown" };
     }
+    // Cast explicitly — .maybeSingle() on a narrow (non-"*") select has been
+    // unreliable in this project's pinned @supabase/postgrest-js version,
+    // silently resolving to `never` instead of the selected columns' real
+    // type (same issue fixed in lib/vendor.ts's getMyStore()).
+    const existing = existingData as Pick<CartItemRow, "id" | "quantity"> | null;
 
     const { error: upsertError } = await supabase.from("cart_items").upsert(
       {
