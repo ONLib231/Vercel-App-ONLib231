@@ -1,6 +1,7 @@
 "use server";
 
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role";
+import type { Database } from "@/lib/supabase/database.types";
 import type { IdDocumentType } from "@/types/vendor";
 
 const VENDOR_DOCUMENTS_BUCKET = "vendor-documents";
@@ -72,17 +73,23 @@ export async function submitVendorApplication(fields: VendorSignupFields): Promi
       return { ok: false, error: "Couldn't upload your identification document. Please try again." };
     }
 
-    const { error: insertError } = await supabase.from("vendor_applications").upsert(
-      {
-        user_id: fields.userId,
-        business_name: fields.businessName,
-        id_document_type: fields.idDocumentType,
-        business_registration_path: businessRegPath,
-        id_document_path: idDocPath,
-        status: "pending",
-      },
-      { onConflict: "user_id" }
-    );
+    // Cast explicitly — @supabase/postgrest-js's .upsert() generic resolution
+    // has been unreliable in this project's pinned version when combined
+    // with an `onConflict` option, silently resolving the values parameter
+    // to `never[]` instead of the table's real Insert type (same issue fixed
+    // in lib/actions/cart.ts's addToCart()).
+    const vendorApplicationPayload = {
+      user_id: fields.userId,
+      business_name: fields.businessName,
+      id_document_type: fields.idDocumentType,
+      business_registration_path: businessRegPath,
+      id_document_path: idDocPath,
+      status: "pending",
+    } as Database["public"]["Tables"]["vendor_applications"]["Insert"];
+
+    const { error: insertError } = await supabase
+      .from("vendor_applications")
+      .upsert(vendorApplicationPayload, { onConflict: "user_id" });
 
     if (insertError) {
       console.error("[submitVendorApplication] Failed to insert vendor_applications row:", insertError.message);

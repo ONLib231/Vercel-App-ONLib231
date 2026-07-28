@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Database } from "@/lib/supabase/database.types";
 import type { CartItemRow } from "@/types/marketplace";
 
 export interface AddToCartResult {
@@ -42,14 +43,21 @@ export async function addToCart(productId: string): Promise<AddToCartResult> {
     // type (same issue fixed in lib/vendor.ts's getMyStore()).
     const existing = existingData as Pick<CartItemRow, "id" | "quantity"> | null;
 
-    const { error: upsertError } = await supabase.from("cart_items").upsert(
-      {
-        user_id: user.id,
-        product_id: productId,
-        quantity: (existing?.quantity ?? 0) + 1,
-      },
-      { onConflict: "user_id,product_id" }
-    );
+    // Cast explicitly — @supabase/postgrest-js's .upsert() generic resolution
+    // has been unreliable in this project's pinned version when combined
+    // with an `onConflict` option, silently resolving the values parameter
+    // to `never[]` instead of the table's real Insert type. Asserting the
+    // payload's type directly (rather than relying on inference from an
+    // inline object literal) sidesteps that resolution failure.
+    const cartItemPayload = {
+      user_id: user.id,
+      product_id: productId,
+      quantity: (existing?.quantity ?? 0) + 1,
+    } as Database["public"]["Tables"]["cart_items"]["Insert"];
+
+    const { error: upsertError } = await supabase
+      .from("cart_items")
+      .upsert(cartItemPayload, { onConflict: "user_id,product_id" });
 
     if (upsertError) {
       console.error("[addToCart] Failed to upsert cart item:", upsertError.message);
