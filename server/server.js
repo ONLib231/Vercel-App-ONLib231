@@ -2067,6 +2067,35 @@ app.get('/api/super-admin/payouts/summary', requireAuth, requireSuperAdmin, asyn
   }
 });
 
+// A real, period-bound Commission Statement (invoice) for one
+// vendor/delivery company — see the long comment on
+// db.getCommissionStatement for how gross revenue, commission, and
+// the (cash/COD-only) service fee owed are computed. This just
+// returns the numbers; the PDF itself is generated client-side with
+// jsPDF, matching every other report in this app.
+app.get('/api/super-admin/commission-statement', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { recipientType, recipientId, periodStart, periodEnd } = req.query || {};
+  if (!['vendor', 'delivery_company'].includes(recipientType)) {
+    return res.status(400).json({ error: 'recipientType must be "vendor" or "delivery_company"' });
+  }
+  if (!recipientId || !periodStart || !periodEnd) {
+    return res.status(400).json({ error: 'recipientId, periodStart, and periodEnd are required' });
+  }
+  const startDate = new Date(periodStart);
+  const endDate = new Date(periodEnd);
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || endDate <= startDate) {
+    return res.status(400).json({ error: 'periodEnd must be a valid date after periodStart' });
+  }
+  try {
+    const statement = await db.getCommissionStatement({ recipientType, recipientId, periodStart: startDate.toISOString(), periodEnd: endDate.toISOString() });
+    if (!statement) return res.status(404).json({ error: 'Recipient not found' });
+    res.json({ statement });
+  } catch (err) {
+    console.error('GET /api/super-admin/commission-statement failed', err);
+    res.status(500).json({ error: 'Failed to generate commission statement' });
+  }
+});
+
 // Recording a real payout — a Super Admin marking that a specific
 // amount was actually paid out to a vendor/delivery company for a
 // given period. commission_amount/net_amount are computed and

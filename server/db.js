@@ -2669,6 +2669,142 @@ const db = {
     };
   },
 
+  // A real, period-bound Commission Statement (invoice) for one
+  // vendor/delivery company — unlike getPayoutSummary above (which is
+  // an all-time running standing), this scopes gross revenue,
+  // commission, and service fee to a specific [periodStart, periodEnd)
+  // window, the way an actual monthly invoice would. Every number here
+  // is computed fresh from purchases/orders/disputes/payouts, never
+  // stored — there's no separate "statements" table, so re-generating
+  // the same recipient+period always reflects the current data (e.g.
+  // if a dispute is resolved after the fact, later PDFs of that same
+  // period will pick that up; already-downloaded PDFs are a snapshot,
+  // same as any invoice).
+  //
+  // Service fee handling mirrors the reasoning worked out with the
+  // user: for a vendor (marketplace), MoMo purchases already sent
+  // their $0.10 straight into ONLib's own MoMo collection account at
+  // checkout (see momo.js / POST /api/marketplace/checkout/momo), so
+  // those are excluded from what's billed — only cash/COD purchases'
+  // service fees are owed back. For a delivery company, orders.
+  // payment_method is just text a delivery agent typed in when
+  // accepting the order (there is no real payment gateway for
+  // standalone delivery orders), so ONLib never actually receives any
+  // of that money directly — every delivered order's service fee is
+  // owed back, regardless of what payment_method says.
+  async getCommissionStatement({ recipientType, recipientId, periodStart, periodEnd }) {
+    if (!['vendor', 'delivery_company'].includes(recipientType)) return null;
+    const [recipientRes, platformSettings] = await Promise.all([
+      pool.query(
+        `SELECT id, business_name, email, commission_rate_override FROM users WHERE id = $1 AND role = $2`,
+        [recipientId, recipientType]
+      ),
+      this.getPlatformSettings(),
+    ]);
+    const recipient = recipientRes.rows[0];
+    if (!recipient) return null;
+
+    const override = recipient.commission_rate_override !== null && recipient.commission_rate_override !== undefined
+      ? Number(recipient.commission_rate_override) : null;
+
+    let grossRevenue, orderCount, serviceFeeOwed, serviceFeeExcludedCount, refunded, defaultRate, commissionEnabled;
+
+    if (recipientType === 'vendor') {
+      const [purchasesRes, refundRes] = await Promise.all([
+        pool.query(
+          `SELECT total_amount, service_fee, payment_method, payment_status
+           FROM purchases WHERE vendor_id = $1 AND created_at >= $2 AND created_at < $3`,
+          [recipientId, periodStart, periodEnd]
+        ),
+        pool.query(
+          `SELECT COALESCE(SUM(d.refund_amount), 0)::numeric AS refunded
+           FROM disputes d JOIN purchases pur ON pur.id = d.purchase_id
+           WHERE pur.vendor_id = $1 AND pur.created_at >= $2 AND pur.created_at < $3
+             AND d.status = 'resolved' AND d.refund_amount IS NOT NULL`,
+          [recipientId, periodStart, periodEnd]
+        ),
+      ]);
+      grossRevenue = purchasesRes.rows.reduce((sum, r) => sum + Number(r.total_amount), 0);
+      orderCount = purchasesRes.rows.length;
+      serviceFeeExcludedCount = 0;
+      serviceFeeOwed = purchasesRes.rows.reduce((sum, r) => {
+        const alreadyCollectedViaMomo = r.payment_method === 'momo' && r.payment_status === 'successful';
+        if (alreadyCollectedViaMomo) { serviceFeeExcludedCount += 1; return sum; }
+        return sum + Number(r.service_fee || 0);
+      }, 0);
+      refunded = Number(refundRes.rows[0].refunded);
+      defaultRate = platformSettings.marketplaceCommissionPercent;
+      commissionEnabled = platformSettings.marketplaceCommissionEnabled;
+    } else {
+      const [ordersRes, refundRes] = await Promise.all([
+        pool.query(
+          `SELECT amount, service_fee FROM orders
+           WHERE delivery_company_id = $1 AND status = 'delivered' AND delivered_at >= $2 AND delivered_at < $3`,
+          [recipientId, periodStart, periodEnd]
+        ),
+        pool.query(
+          `SELECT COALESCE(SUM(d.refund_amount), 0)::numeric AS refunded
+           FROM disputes d JOIN orders o ON o.id = d.order_id
+           WHERE o.delivery_company_id = $1 AND o.delivered_at >= $2 AND o.delivered_at < $3
+             AND d.status = 'resolved' AND d.refund_amount IS NOT NULL AND d.purchase_id IS NULL`,
+          [recipientId, periodStart, periodEnd]
+        ),
+      ]);
+      grossRevenue = ordersRes.rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+      orderCount = ordersRes.rows.length;
+      serviceFeeExcludedCount = 0;
+      serviceFeeOwed = ordersRes.rows.reduce((sum, r) => sum + Number(r.service_fee || 0), 0);
+      refunded = Number(refundRes.rows[0].refunded);
+      defaultRate = platformSettings.deliveryCommissionPercent;
+      commissionEnabled = platformSettings.deliveryCommissionEnabled;
+    }
+
+    const netGrossRevenue = Math.max(0, Math.round((grossRevenue - refunded) * 100) / 100);
+    const effectiveRate = commissionEnabled ? (override !== null ? override : defaultRate) : 0;
+    const commissionAmount = Math.round(netGrossRevenue * (effectiveRate / 100) * 100) / 100;
+    serviceFeeOwed = Math.round(serviceFeeOwed * 100) / 100;
+
+    // Payouts already recorded (via the existing Record Payout flow)
+    // whose own period overlaps this statement's period — netted
+    // against what's owed here, same "previously paid" idea as a real
+    // invoice. Payouts predate the service fee, so this only ever
+    // nets against commission, never against the service fee line.
+    const paidRes = await pool.query(
+      `SELECT COALESCE(SUM(net_amount), 0)::numeric AS paid FROM payouts
+       WHERE recipient_id = $1 AND period_start < $3 AND period_end > $2`,
+      [recipientId, periodStart, periodEnd]
+    );
+    const previouslyPaid = Number(paidRes.rows[0].paid);
+    const balanceDue = Math.max(0, Math.round((commissionAmount + serviceFeeOwed - previouslyPaid) * 100) / 100);
+
+    // Deterministic statement number — same recipient+period always
+    // produces the same number, without needing a persisted table.
+    const periodKey = String(periodStart).slice(0, 10).replace(/-/g, '');
+    const shortId = recipientId.replace(/-/g, '').slice(-6).toUpperCase();
+    const statementNumber = `CS-${periodKey}-${shortId}`;
+
+    return {
+      statementNumber,
+      recipientType,
+      recipientId: recipient.id,
+      businessName: recipient.business_name,
+      email: recipient.email,
+      periodStart,
+      periodEnd,
+      orderCount,
+      grossRevenue: Math.round(grossRevenue * 100) / 100,
+      refunded: Math.round(refunded * 100) / 100,
+      netGrossRevenue,
+      effectiveRate,
+      commissionEnabled,
+      commissionAmount,
+      serviceFeeOwed,
+      serviceFeeExcludedCount,
+      previouslyPaid: Math.round(previouslyPaid * 100) / 100,
+      balanceDue,
+    };
+  },
+
   async createPayout({ id, recipientType, recipientId, periodStart, periodEnd, grossAmount, commissionRate, notes, createdBy }) {
     const commissionAmount = Math.round(grossAmount * (commissionRate / 100) * 100) / 100;
     const netAmount = Math.round((grossAmount - commissionAmount) * 100) / 100;
