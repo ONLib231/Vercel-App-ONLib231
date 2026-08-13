@@ -96,7 +96,27 @@ function rowToProduct(r) {
     colors: r.colors || [],
     sizes: r.sizes || [],
     sizeChart: r.size_chart || null,
+    // Featured Placements — featuredUntil is this product's own paid
+    // placement (null/past = not featured). vendorFeaturedUntil only
+    // appears on rows from queries that joined it in (storefront/PDP
+    // listing queries below) — when present, a vendor-wide "featured
+    // store" purchase boosts/badges every one of their products too,
+    // since this app has no separate vendor-directory page for a
+    // whole-storefront feature to live on. isFeatured/isStoreFeatured
+    // are precomputed here (rather than left to the client) so every
+    // caller sees the same now()-based answer.
+    featuredUntil: r.featured_until || null,
+    isFeatured: isFuture(r.featured_until) || isFuture(r.vendor_featured_until),
+    isStoreFeatured: isFuture(r.vendor_featured_until),
   };
+}
+
+// Shared by rowToProduct/rowToUser's featured-placement fields — a
+// plain timestamp compare against now(), never a stored boolean/status
+// flag, since this app has no persistent background scheduler to flip
+// one when a slot expires (see the schema.sql comment on featured_until).
+function isFuture(ts) {
+  return !!ts && new Date(ts).getTime() > Date.now();
 }
 
 function rowToHomeBanner(r) {
@@ -180,6 +200,12 @@ function rowToPlatformSettings(r) {
     invoiceCommissionNote: r.invoice_commission_note || '',
     invoiceServiceFeeNote: r.invoice_service_fee_note || '',
     invoiceMomoNote: r.invoice_momo_note || '',
+    // Featured Placements — packages are [{id, label, days, price}];
+    // pg already parses JSONB into real arrays, no JSON.parse needed.
+    featuredProductPackages: r.featured_product_packages || [],
+    featuredVendorPackages: r.featured_vendor_packages || [],
+    featuredProductSlotCap: r.featured_product_slot_cap !== null && r.featured_product_slot_cap !== undefined ? Number(r.featured_product_slot_cap) : 10,
+    featuredVendorSlotCap: r.featured_vendor_slot_cap !== null && r.featured_vendor_slot_cap !== undefined ? Number(r.featured_vendor_slot_cap) : 5,
     updatedAt: r.updated_at,
   };
 }
@@ -198,6 +224,28 @@ function rowToPayout(r) {
     netAmount: Number(r.net_amount),
     notes: r.notes,
     createdBy: r.created_by,
+    createdAt: r.created_at,
+  };
+}
+
+function rowToFeaturedSlot(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    vendorId: r.vendor_id,
+    scope: r.scope,
+    productId: r.product_id,
+    packageLabel: r.package_label,
+    price: Number(r.price),
+    durationDays: r.duration_days,
+    paymentMethod: r.payment_method,
+    paymentStatus: r.payment_status,
+    momoReferenceId: r.momo_reference_id,
+    momoPhone: r.momo_phone,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    confirmedBy: r.confirmed_by,
+    confirmedAt: r.confirmed_at,
     createdAt: r.created_at,
   };
 }
@@ -287,6 +335,12 @@ function rowToUser(r) {
     isDisabled: r.is_disabled,
     disabledFeatures: r.disabled_features || [],
     commissionRateOverride: r.commission_rate_override !== null && r.commission_rate_override !== undefined ? Number(r.commission_rate_override) : null,
+    // Featured Placements — only meaningful for role = 'vendor', but
+    // harmless (always null) on every other role. See rowToProduct's
+    // comment on why every one of the vendor's products inherits this
+    // boost/badge instead of a separate vendor-directory page.
+    featuredUntil: r.featured_until || null,
+    isStoreFeatured: isFuture(r.featured_until),
   };
 }
 
@@ -1367,9 +1421,19 @@ const db = {
 
   // Storefront listing — every active product from every vendor, with
   // the vendor's business name attached so the storefront can show it.
+  // Featured Placements boost: a product with its own active featured_until,
+  // or belonging to a vendor with an active featured_until, sorts ahead
+  // of everything else — product-level boost first, then vendor-level,
+  // then the existing recency order. This is the server-side "relevance"
+  // order the client's default Newest sort now preserves instead of
+  // re-sorting purely by createdAt (see sortStorefrontProducts in
+  // index.html) — an explicit Price/Rating sort still overrides it, same
+  // as most marketplaces treat paid placement as a relevance-view thing
+  // rather than something that fights an explicit sort choice.
   async getActiveProductsForStorefront() {
     const { rows } = await pool.query(`
       SELECT p.*, u.business_name AS vendor_name, u.phone AS vendor_phone, u.store_address AS vendor_store_address,
+        u.featured_until AS vendor_featured_until,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         COALESCE(sold.units_sold, 0)::int AS units_sold,
@@ -1393,8 +1457,11 @@ const db = {
         ORDER BY product_id, ends_at ASC
       ) promo ON promo.product_id = p.id
       WHERE p.is_active = true AND p.stock_quantity > 0 AND u.vendor_type = 'store'
-      GROUP BY p.id, u.business_name, u.phone, u.store_address, sold.units_sold, promo.discount_percent, promo.ends_at
-      ORDER BY p.created_at DESC
+      GROUP BY p.id, u.business_name, u.phone, u.store_address, u.featured_until, sold.units_sold, promo.discount_percent, promo.ends_at
+      ORDER BY
+        (p.featured_until IS NOT NULL AND p.featured_until > now()) DESC,
+        (u.featured_until IS NOT NULL AND u.featured_until > now()) DESC,
+        p.created_at DESC
     `);
     return rows.map(r => {
       const originalPrice = Number(r.price);
@@ -2068,6 +2135,180 @@ const db = {
     }));
   },
 
+  // ============================================================
+  // Featured Placements — a vendor pays (Mobile Money or a manually-
+  // confirmed Direct request) to boost a product or their whole
+  // storefront's ranking for a Super-Admin-configured package length.
+  // See the long schema.sql comment above featured_slots for the full
+  // design reasoning (why featured_until is the source of truth, why
+  // capacity uses an advisory lock, why payment_status mirrors
+  // purchases.payment_status's pending/successful/failed vocabulary).
+  // ============================================================
+
+  async getFeaturedSlotById(id) {
+    const { rows } = await pool.query('SELECT * FROM featured_slots WHERE id = $1', [id]);
+    return rowToFeaturedSlot(rows[0]);
+  },
+
+  async getFeaturedSlotsForVendor(vendorId) {
+    const { rows } = await pool.query(
+      'SELECT * FROM featured_slots WHERE vendor_id = $1 ORDER BY created_at DESC', [vendorId]
+    );
+    return rows.map(rowToFeaturedSlot);
+  },
+
+  // Super Admin's queue of Direct-payment requests still waiting on a
+  // real-world payment to be confirmed — never includes 'momo' rows,
+  // those resolve themselves via polling/webhook.
+  async getPendingDirectFeaturedSlots() {
+    const { rows } = await pool.query(
+      `SELECT fs.*, u.business_name AS vendor_name, u.email AS vendor_email, p.name AS product_name
+       FROM featured_slots fs
+       JOIN users u ON u.id = fs.vendor_id
+       LEFT JOIN products p ON p.id = fs.product_id
+       WHERE fs.payment_method = 'direct' AND fs.payment_status = 'pending'
+       ORDER BY fs.created_at ASC`
+    );
+    return rows.map(r => ({ ...rowToFeaturedSlot(r), vendorName: r.vendor_name, vendorEmail: r.vendor_email, productName: r.product_name }));
+  },
+
+  // How many of each scope's slots are currently taken (active or
+  // still-pending-payment, since a pending row already reserves
+  // capacity — see the schema.sql comment on why) vs. the configured
+  // cap. Used both to block a purchase server-side and to show a
+  // vendor "6 of 10 slots available" before they even try.
+  async getFeaturedSlotAvailability() {
+    const [settings, counts] = await Promise.all([
+      this.getPlatformSettings(),
+      pool.query(
+        `SELECT scope, COUNT(*)::int AS taken FROM featured_slots
+         WHERE payment_status = 'pending' OR (payment_status = 'successful' AND ends_at > now())
+         GROUP BY scope`
+      ),
+    ]);
+    const takenMap = Object.fromEntries(counts.rows.map(r => [r.scope, r.taken]));
+    return {
+      product: { cap: settings.featuredProductSlotCap, taken: takenMap.product || 0, available: Math.max(0, settings.featuredProductSlotCap - (takenMap.product || 0)) },
+      vendor: { cap: settings.featuredVendorSlotCap, taken: takenMap.vendor || 0, available: Math.max(0, settings.featuredVendorSlotCap - (takenMap.vendor || 0)) },
+    };
+  },
+
+  // Reserves a slot and creates the purchase row in one transaction.
+  // pg_advisory_xact_lock serializes concurrent purchase attempts for
+  // the same scope so two vendors can't both squeeze into the last
+  // slot — it's released automatically at COMMIT/ROLLBACK, so a crash
+  // mid-transaction can never leave it held. Throws a plain Error with
+  // a user-facing message on capacity-full, which server.js surfaces
+  // as a 409.
+  async createFeaturedSlotPurchase({ id, vendorId, scope, productId, packageLabel, price, durationDays, paymentMethod, momoReferenceId, momoPhone }) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`featured_slot:${scope}`]);
+      const settings = await this.getPlatformSettings();
+      const cap = scope === 'product' ? settings.featuredProductSlotCap : settings.featuredVendorSlotCap;
+      const { rows: countRows } = await client.query(
+        `SELECT COUNT(*)::int AS taken FROM featured_slots
+         WHERE scope = $1 AND (payment_status = 'pending' OR (payment_status = 'successful' AND ends_at > now()))`,
+        [scope]
+      );
+      if (countRows[0].taken >= cap) {
+        await client.query('ROLLBACK');
+        throw new Error(`All ${scope === 'product' ? 'product' : 'store'} featured slots are taken right now — try again once one frees up.`);
+      }
+      const { rows } = await client.query(
+        `INSERT INTO featured_slots (id, vendor_id, scope, product_id, package_label, price, duration_days, payment_method, payment_status, momo_reference_id, momo_phone)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10) RETURNING *`,
+        [id, vendorId, scope, productId || null, packageLabel, price, durationDays, paymentMethod, momoReferenceId || null, momoPhone || null]
+      );
+      await client.query('COMMIT');
+      return rowToFeaturedSlot(rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  // Shared activation step — sets starts_at/ends_at from the snapshotted
+  // duration_days and writes featured_until onto the product or vendor,
+  // all inside the same transaction as flipping payment_status. Called
+  // by both the momo poll/webhook path and the admin Direct-confirm
+  // path, exactly like confirmMomoPaymentAndCreateOrder is shared logic
+  // for the marketplace checkout equivalent. Scoped to payment_status =
+  // 'pending' so a duplicate confirm (late webhook, double-click) is a
+  // safe no-op, not a double-extension of the featured window.
+  async _activateFeaturedSlotInTx(client, id) {
+    const { rows } = await client.query(
+      `UPDATE featured_slots SET payment_status = 'successful', starts_at = now(), ends_at = now() + (duration_days || ' days')::interval
+       WHERE id = $1 AND payment_status = 'pending' RETURNING *`,
+      [id]
+    );
+    const slot = rows[0];
+    if (!slot) return null;
+    if (slot.scope === 'product') {
+      await client.query('UPDATE products SET featured_until = $1 WHERE id = $2', [slot.ends_at, slot.product_id]);
+    } else {
+      await client.query('UPDATE users SET featured_until = $1 WHERE id = $2', [slot.ends_at, slot.vendor_id]);
+    }
+    return rowToFeaturedSlot(slot);
+  },
+
+  async confirmFeaturedSlotPayment(id) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const slot = await this._activateFeaturedSlotInTx(client, id);
+      await client.query('COMMIT');
+      return slot;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async voidFailedFeaturedSlotPayment(id) {
+    const { rows } = await pool.query(
+      `UPDATE featured_slots SET payment_status = 'failed' WHERE id = $1 AND payment_status = 'pending' RETURNING *`,
+      [id]
+    );
+    return rowToFeaturedSlot(rows[0]);
+  },
+
+  async adminConfirmDirectFeaturedSlot(id, adminId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: guardRows } = await client.query(
+        `SELECT id FROM featured_slots WHERE id = $1 AND payment_method = 'direct' AND payment_status = 'pending'`, [id]
+      );
+      if (!guardRows[0]) { await client.query('ROLLBACK'); return null; }
+      const slot = await this._activateFeaturedSlotInTx(client, id);
+      if (slot) {
+        await client.query('UPDATE featured_slots SET confirmed_by = $1, confirmed_at = now() WHERE id = $2', [adminId, id]);
+      }
+      await client.query('COMMIT');
+      return slot ? { ...slot, confirmedBy: adminId } : null;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminRejectDirectFeaturedSlot(id, adminId) {
+    const { rows } = await pool.query(
+      `UPDATE featured_slots SET payment_status = 'failed', confirmed_by = $1, confirmed_at = now()
+       WHERE id = $2 AND payment_method = 'direct' AND payment_status = 'pending' RETURNING *`,
+      [adminId, id]
+    );
+    return rowToFeaturedSlot(rows[0]);
+  },
+
   // ---- Wishlist ---------------------------------------------------------
 
   async addToWishlist(customerId, productId) {
@@ -2573,7 +2814,7 @@ const db = {
   // and the platform-wide settings (default delivery fee, service
   // area, maintenance mode) added later, so both panels can share one
   // upsert path instead of drifting into two near-duplicate ones.
-  async upsertPlatformSettings({ marketplaceCommissionPercent, deliveryCommissionPercent, marketplaceCommissionEnabled, deliveryCommissionEnabled, defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee, invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle, invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote }) {
+  async upsertPlatformSettings({ marketplaceCommissionPercent, deliveryCommissionPercent, marketplaceCommissionEnabled, deliveryCommissionEnabled, defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee, invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle, invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote, featuredProductPackages, featuredVendorPackages, featuredProductSlotCap, featuredVendorSlotCap }) {
     await this.getPlatformSettings(); // ensures the row exists
     const sets = [];
     const values = [];
@@ -2595,6 +2836,10 @@ const db = {
     if (invoiceCommissionNote !== undefined) { sets.push(`invoice_commission_note = $${i}`); values.push(invoiceCommissionNote); i += 1; }
     if (invoiceServiceFeeNote !== undefined) { sets.push(`invoice_service_fee_note = $${i}`); values.push(invoiceServiceFeeNote); i += 1; }
     if (invoiceMomoNote !== undefined) { sets.push(`invoice_momo_note = $${i}`); values.push(invoiceMomoNote); i += 1; }
+    if (featuredProductPackages !== undefined) { sets.push(`featured_product_packages = $${i}`); values.push(JSON.stringify(featuredProductPackages)); i += 1; }
+    if (featuredVendorPackages !== undefined) { sets.push(`featured_vendor_packages = $${i}`); values.push(JSON.stringify(featuredVendorPackages)); i += 1; }
+    if (featuredProductSlotCap !== undefined) { sets.push(`featured_product_slot_cap = $${i}`); values.push(featuredProductSlotCap); i += 1; }
+    if (featuredVendorSlotCap !== undefined) { sets.push(`featured_vendor_slot_cap = $${i}`); values.push(featuredVendorSlotCap); i += 1; }
     sets.push('updated_at = now()');
     if (sets.length > 1) {
       await pool.query(`UPDATE platform_settings SET ${sets.join(', ')} WHERE id = 'platform'`, values);

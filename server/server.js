@@ -1998,6 +1998,7 @@ app.put('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, as
     defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee,
     invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle,
     invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote,
+    featuredProductPackages, featuredVendorPackages, featuredProductSlotCap, featuredVendorSlotCap,
   } = req.body || {};
   const fields = {};
   if (defaultDeliveryFee !== undefined) {
@@ -2062,6 +2063,28 @@ app.put('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, as
       }
       fields[key] = value.trim();
     }
+  }
+  if (featuredProductPackages !== undefined) {
+    const err = validateFeaturedPackages(featuredProductPackages);
+    if (err) return res.status(400).json({ error: `featuredProductPackages ${err}` });
+    fields.featuredProductPackages = featuredProductPackages;
+  }
+  if (featuredVendorPackages !== undefined) {
+    const err = validateFeaturedPackages(featuredVendorPackages);
+    if (err) return res.status(400).json({ error: `featuredVendorPackages ${err}` });
+    fields.featuredVendorPackages = featuredVendorPackages;
+  }
+  if (featuredProductSlotCap !== undefined) {
+    if (typeof featuredProductSlotCap !== 'number' || !Number.isInteger(featuredProductSlotCap) || featuredProductSlotCap < 1 || featuredProductSlotCap > 1000) {
+      return res.status(400).json({ error: 'featuredProductSlotCap must be a whole number between 1 and 1000' });
+    }
+    fields.featuredProductSlotCap = featuredProductSlotCap;
+  }
+  if (featuredVendorSlotCap !== undefined) {
+    if (typeof featuredVendorSlotCap !== 'number' || !Number.isInteger(featuredVendorSlotCap) || featuredVendorSlotCap < 1 || featuredVendorSlotCap > 1000) {
+      return res.status(400).json({ error: 'featuredVendorSlotCap must be a whole number between 1 and 1000' });
+    }
+    fields.featuredVendorSlotCap = featuredVendorSlotCap;
   }
   try {
     const settings = await db.upsertPlatformSettings(fields);
@@ -3761,6 +3784,218 @@ app.post('/api/payments/momo/callback', async (req, res) => {
     console.error('[momo webhook] handling failed (polling will still resolve this)', err);
   }
   res.status(200).json({ ok: true });
+});
+
+// ============================================================
+// Featured Placements — a vendor pays to boost a product or their
+// whole storefront's ranking for a limited window. See the long
+// comment on featured_slots in schema.sql and on the db.js functions
+// below for the full design (capacity/advisory-lock reasoning, why
+// featured_until is always a plain timestamp compare, momo vs direct
+// payment). Vendor-facing routes first, then Super Admin config +
+// the Direct-payment confirmation queue.
+// ============================================================
+
+app.get('/api/vendor/featured/config', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const [settings, availability] = await Promise.all([
+      db.getPlatformSettings(),
+      db.getFeaturedSlotAvailability(),
+    ]);
+    res.json({
+      productPackages: settings.featuredProductPackages,
+      vendorPackages: settings.featuredVendorPackages,
+      availability,
+      momoAvailable: momo.isConfigured,
+    });
+  } catch (err) {
+    console.error('GET /api/vendor/featured/config failed', err);
+    res.status(500).json({ error: 'Failed to load Featured Placement options' });
+  }
+});
+
+app.get('/api/vendor/featured/history', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const slots = await db.getFeaturedSlotsForVendor(req.user.id);
+    res.json({ slots });
+  } catch (err) {
+    console.error('GET /api/vendor/featured/history failed', err);
+    res.status(500).json({ error: 'Failed to load your Featured Placement history' });
+  }
+});
+
+app.post('/api/vendor/featured/purchase', requireAuth, requireVendor, async (req, res) => {
+  const { scope, productId, packageId, paymentMethod, phone } = req.body || {};
+  if (!['product', 'vendor'].includes(scope)) {
+    return res.status(400).json({ error: 'scope must be "product" or "vendor"' });
+  }
+  if (!['momo', 'direct'].includes(paymentMethod)) {
+    return res.status(400).json({ error: 'paymentMethod must be "momo" or "direct"' });
+  }
+  if (scope === 'product' && !productId) {
+    return res.status(400).json({ error: 'productId is required when scope is "product"' });
+  }
+  if (paymentMethod === 'momo' && !momo.isConfigured) {
+    return res.status(503).json({ error: 'Mobile Money isn\'t available yet — please use the Direct payment option.' });
+  }
+  let cleanPhone = null;
+  if (paymentMethod === 'momo') {
+    cleanPhone = String(phone || '').replace(/[^\d]/g, '');
+    if (cleanPhone.length < 8 || cleanPhone.length > 15) {
+      return res.status(400).json({ error: 'Enter a valid Mobile Money phone number, digits only (with country code, e.g. 231XXXXXXXXX).' });
+    }
+  }
+  try {
+    if (scope === 'product') {
+      const product = await db.getProductById(productId);
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      if (product.vendorId !== req.user.id) return res.status(403).json({ error: 'Not your product' });
+    }
+    const settings = await db.getPlatformSettings();
+    const packages = scope === 'product' ? settings.featuredProductPackages : settings.featuredVendorPackages;
+    const pkg = (packages || []).find(p => p.id === packageId);
+    if (!pkg) return res.status(400).json({ error: 'That package is no longer available — reload the options and try again.' });
+
+    const momoReferenceId = paymentMethod === 'momo' ? crypto.randomUUID() : null;
+    let slot;
+    try {
+      slot = await db.createFeaturedSlotPurchase({
+        id: crypto.randomUUID(),
+        vendorId: req.user.id,
+        scope,
+        productId: scope === 'product' ? productId : null,
+        packageLabel: pkg.label,
+        price: Number(pkg.price),
+        durationDays: Number(pkg.days),
+        paymentMethod,
+        momoReferenceId,
+        momoPhone: cleanPhone,
+      });
+    } catch (capacityErr) {
+      return res.status(409).json({ error: capacityErr.message });
+    }
+
+    if (paymentMethod === 'momo') {
+      try {
+        await momo.requestToPay({
+          referenceId: momoReferenceId,
+          amount: slot.price,
+          externalId: slot.id,
+          payerMsisdn: cleanPhone,
+          payerMessage: `ONLib Featured Placement`,
+          payeeNote: `Featured slot ${slot.id}`,
+        });
+      } catch (momoErr) {
+        // The slot row was already created and is holding capacity —
+        // void it the same way a failed checkout momo request is voided,
+        // so it doesn't sit there occupying a slot nobody can ever pay.
+        await db.voidFailedFeaturedSlotPayment(slot.id);
+        console.error('POST /api/vendor/featured/purchase momo initiation failed', momoErr);
+        return res.status(400).json({ error: momoErr.message || 'Mobile Money request failed — please try again or use Direct payment.' });
+      }
+    }
+
+    res.json({ ok: true, slot });
+  } catch (err) {
+    console.error('POST /api/vendor/featured/purchase failed', err);
+    res.status(500).json({ error: 'Failed to start Featured Placement purchase' });
+  }
+});
+
+// Polling — same reasoning as GET /api/marketplace/purchases/:id/payment-status:
+// polling is the reliable mechanism, the webhook below is a best-effort bonus.
+app.get('/api/vendor/featured/:id/payment-status', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const slot = await db.getFeaturedSlotById(req.params.id);
+    if (!slot || slot.vendorId !== req.user.id) return res.status(404).json({ error: 'Featured Placement purchase not found' });
+    if (slot.paymentMethod !== 'momo' || slot.paymentStatus !== 'pending') {
+      return res.json({ paymentStatus: slot.paymentStatus, slot });
+    }
+    const live = await momo.getRequestToPayStatus(slot.momoReferenceId);
+    if (live.status === 'SUCCESSFUL') {
+      const confirmed = await db.confirmFeaturedSlotPayment(slot.id);
+      return res.json({ paymentStatus: 'successful', slot: confirmed });
+    }
+    if (live.status === 'FAILED') {
+      const voided = await db.voidFailedFeaturedSlotPayment(slot.id);
+      return res.json({ paymentStatus: 'failed', reason: live.reason, slot: voided });
+    }
+    res.json({ paymentStatus: 'pending', slot });
+  } catch (err) {
+    console.error('GET /api/vendor/featured/:id/payment-status failed', err);
+    res.status(500).json({ error: 'Failed to check payment status' });
+  }
+});
+
+app.post('/api/vendor/featured/:id/cancel-payment', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const slot = await db.getFeaturedSlotById(req.params.id);
+    if (!slot || slot.vendorId !== req.user.id) return res.status(404).json({ error: 'Featured Placement purchase not found' });
+    if (slot.paymentMethod !== 'momo' || slot.paymentStatus !== 'pending') {
+      return res.status(400).json({ error: 'This purchase is not a pending Mobile Money payment' });
+    }
+    const voided = await db.voidFailedFeaturedSlotPayment(slot.id);
+    res.json({ ok: true, slot: voided });
+  } catch (err) {
+    console.error('POST /api/vendor/featured/:id/cancel-payment failed', err);
+    res.status(500).json({ error: 'Failed to cancel payment' });
+  }
+});
+
+// ---- Super Admin: package/slot-cap settings + the Direct-payment queue ----
+
+const MAX_FEATURED_PACKAGES = 8;
+const MAX_FEATURED_LABEL_LENGTH = 60;
+
+// Shared shape-validation for both package lists — used from the
+// PUT /api/super-admin/settings/platform handler below, same endpoint
+// every other platform setting already goes through.
+function validateFeaturedPackages(packages) {
+  if (!Array.isArray(packages) || packages.length === 0 || packages.length > MAX_FEATURED_PACKAGES) {
+    return `must be an array of 1-${MAX_FEATURED_PACKAGES} packages`;
+  }
+  for (const p of packages) {
+    if (!p || typeof p !== 'object') return 'each package must be an object';
+    if (typeof p.id !== 'string' || !p.id.trim()) return 'each package needs a non-empty id';
+    if (typeof p.label !== 'string' || !p.label.trim() || p.label.length > MAX_FEATURED_LABEL_LENGTH) return `each package label must be a non-empty string under ${MAX_FEATURED_LABEL_LENGTH} characters`;
+    if (typeof p.days !== 'number' || !Number.isInteger(p.days) || p.days < 1 || p.days > 365) return 'each package days must be a whole number between 1 and 365';
+    if (typeof p.price !== 'number' || isNaN(p.price) || p.price < 0 || p.price > 100000) return 'each package price must be a non-negative number';
+  }
+  return null;
+}
+
+app.get('/api/super-admin/featured/pending', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const slots = await db.getPendingDirectFeaturedSlots();
+    res.json({ slots });
+  } catch (err) {
+    console.error('GET /api/super-admin/featured/pending failed', err);
+    res.status(500).json({ error: 'Failed to load pending Featured Placement requests' });
+  }
+});
+
+app.post('/api/super-admin/featured/:id/confirm', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const slot = await db.adminConfirmDirectFeaturedSlot(req.params.id, req.user.id);
+    if (!slot) return res.status(409).json({ error: 'This request was already resolved or is not a pending Direct payment' });
+    await logAudit(req, 'featured_slot.confirm', { targetType: 'featured_slot', targetId: slot.id, targetLabel: slot.packageLabel, details: { vendorId: slot.vendorId, scope: slot.scope, price: slot.price } });
+    res.json({ ok: true, slot });
+  } catch (err) {
+    console.error('POST /api/super-admin/featured/:id/confirm failed', err);
+    res.status(500).json({ error: 'Failed to confirm Featured Placement request' });
+  }
+});
+
+app.post('/api/super-admin/featured/:id/reject', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const slot = await db.adminRejectDirectFeaturedSlot(req.params.id, req.user.id);
+    if (!slot) return res.status(409).json({ error: 'This request was already resolved or is not a pending Direct payment' });
+    await logAudit(req, 'featured_slot.reject', { targetType: 'featured_slot', targetId: slot.id, targetLabel: slot.packageLabel, details: { vendorId: slot.vendorId, scope: slot.scope } });
+    res.json({ ok: true, slot });
+  } catch (err) {
+    console.error('POST /api/super-admin/featured/:id/reject failed', err);
+    res.status(500).json({ error: 'Failed to reject Featured Placement request' });
+  }
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));

@@ -746,3 +746,69 @@ CREATE TABLE IF NOT EXISTS product_questions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_product_questions_product_id ON product_questions (product_id, created_at DESC);
+
+-- ============================================================
+-- Featured Placements — a vendor pays to boost a specific product or
+-- their whole storefront's ranking in listings for a limited window.
+-- featured_until on products/users is the SOURCE OF TRUTH for "is this
+-- currently featured" everywhere it's ranked/rendered — always a plain
+-- timestamp compare against now(), deliberately not a background job
+-- flipping a status flag, since this app has no persistent scheduler
+-- (a Node-process timer would reset on every Railway restart/sleep).
+-- featured_slots is the purchase/audit trail behind that timestamp.
+-- ============================================================
+ALTER TABLE products ADD COLUMN IF NOT EXISTS featured_until TIMESTAMPTZ;
+-- Vendor-level "featured" — there's no customer-facing vendor
+-- directory in this app, so featuring a whole storefront works by
+-- boosting every one of that vendor's products in listings (with a
+-- distinct "Featured Store" badge), rather than a dedicated page.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS featured_until TIMESTAMPTZ;
+
+-- Super-Admin-configurable packages and slot caps, same single-row
+-- platform_settings pattern as commission rates / service fee above.
+-- Packages are JSONB arrays of {id, label, days, price} — separate
+-- lists for 'product' vs 'vendor' scope since they're different value
+-- propositions and likely priced differently. Slot caps are the hard
+-- concurrent-featured ceiling per scope (first-come-first-served —
+-- once full, purchasing is blocked until a slot frees up on expiry).
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS featured_product_packages JSONB NOT NULL DEFAULT '[{"id":"p7","label":"7 days","days":7,"price":5},{"id":"p30","label":"30 days","days":30,"price":15}]';
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS featured_vendor_packages JSONB NOT NULL DEFAULT '[{"id":"v7","label":"7 days","days":7,"price":20},{"id":"v30","label":"30 days","days":30,"price":60}]';
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS featured_product_slot_cap INTEGER NOT NULL DEFAULT 10;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS featured_vendor_slot_cap INTEGER NOT NULL DEFAULT 5;
+
+-- One row per purchase attempt. payment_status follows the exact same
+-- pending/successful/failed vocabulary as purchases.payment_status —
+-- for 'momo' it's flipped automatically by the poll/webhook path
+-- (mirroring the marketplace checkout momo flow exactly); for
+-- 'direct' it's flipped manually by a Super Admin confirming or
+-- rejecting a real-world payment (cash/bank transfer), the same
+-- "manual reconciliation" pattern this app already leans on for COD.
+-- A 'pending' row (of either payment method) counts against the
+-- scope's slot cap immediately, so two vendors can't both reserve the
+-- last slot before either payment resolves; see db.js's use of
+-- pg_advisory_xact_lock around every capacity check for the race-
+-- safety this relies on. package_label/price/duration_days are
+-- snapshotted at purchase time — a later change to the configured
+-- packages above never rewrites what an already-active slot cost or
+-- how long it runs.
+CREATE TABLE IF NOT EXISTS featured_slots (
+    id                TEXT PRIMARY KEY,
+    vendor_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope             TEXT NOT NULL CHECK (scope IN ('product', 'vendor')),
+    product_id        TEXT REFERENCES products(id) ON DELETE CASCADE,
+    package_label     TEXT NOT NULL,
+    price             NUMERIC(10, 2) NOT NULL,
+    duration_days     INTEGER NOT NULL,
+    payment_method    TEXT NOT NULL CHECK (payment_method IN ('momo', 'direct')),
+    payment_status    TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'successful', 'failed')),
+    momo_reference_id TEXT,
+    momo_phone        TEXT,
+    starts_at         TIMESTAMPTZ,
+    ends_at           TIMESTAMPTZ,
+    confirmed_by      TEXT REFERENCES users(id) ON DELETE SET NULL,
+    confirmed_at      TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (scope = 'vendor' OR product_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_featured_slots_vendor_id ON featured_slots (vendor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_featured_slots_scope_status ON featured_slots (scope, payment_status);

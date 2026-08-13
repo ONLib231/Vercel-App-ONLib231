@@ -2322,6 +2322,14 @@
             position: absolute; top: 0.5rem; left: 0.5rem; background: var(--golib-red); color: white;
             font-size: 0.6875rem; font-weight: 800; padding: 0.1875rem 0.5rem; border-radius: 9999px;
         }
+        /* Featured Placements badge — a vendor paid to boost this product
+           (or their whole store) in ranking. Sits bottom-left so it never
+           collides with the discount badge (top-left) or out-of-stock
+           badge (top-right). */
+        .product-card-featured-badge {
+            position: absolute; bottom: 0.5rem; left: 0.5rem; background: linear-gradient(135deg, #F59E0B, #D97706); color: white;
+            font-size: 0.6875rem; font-weight: 800; padding: 0.1875rem 0.5rem; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+        }
         .product-card-sold { display: inline; font-size: 0.75rem; color: var(--slate-light); }
         .product-card-stock { font-size: 0.75rem; color: var(--slate-light); }
         #home-screen .product-card-actions { display: none; }
@@ -5508,6 +5516,67 @@
                         </div>
                     </form>
                 </div>
+
+                <!-- Featured Placements — a vendor pays (Mobile Money or a manually-
+                     confirmed Direct request) to boost a product or their whole store's
+                     ranking on the storefront for a limited window. Packages, pricing
+                     and slot caps are all Super-Admin-controlled (Platform Settings). -->
+                <div class="mobile-section" id="vendor-featured-section">
+                    <div class="mobile-section-header">
+                        <div class="mobile-section-title">🌟 Featured Placements</div>
+                        <button type="button" class="mobile-view-all" id="add-featured-btn">+ Boost</button>
+                    </div>
+                    <p style="margin:0 0 0.75rem; color:var(--slate-light); font-size:0.8125rem;">Pay to boost a product — or your whole store — to the top of customer search results for a limited time.</p>
+                    <div id="vendor-featured-availability" style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.75rem;"></div>
+                    <div id="vendor-featured-list"></div>
+                </div>
+
+                <div class="mobile-section" id="featured-purchase-section" style="display:none;">
+                    <form id="featured-purchase-form" style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm);">
+                        <div class="form-group">
+                            <label class="form-label">What do you want to feature?</label>
+                            <select class="form-input" id="featured-form-scope">
+                                <option value="product">A specific product</option>
+                                <option value="vendor">My whole store</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="featured-form-product-group">
+                            <label class="form-label">Product</label>
+                            <select class="form-input" id="featured-form-product" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Package</label>
+                            <select class="form-input" id="featured-form-package" required></select>
+                        </div>
+                        <div id="featured-form-availability-note" style="font-size:0.8125rem; color:var(--slate-light); margin:-0.5rem 0 0.75rem;"></div>
+                        <div class="form-group">
+                            <label class="form-label">Payment Method</label>
+                            <select class="form-input" id="featured-form-payment">
+                                <option value="momo">Mobile Money</option>
+                                <option value="direct">Direct (manual — confirmed by ONLib once received)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="featured-form-momo-phone-group">
+                            <label class="form-label">Mobile Money Phone</label>
+                            <input type="tel" class="form-input" id="featured-form-momo-phone" placeholder="e.g. 231881234567">
+                        </div>
+                        <div class="auth-error" id="featured-form-error"></div>
+                        <div style="display:flex; gap:0.75rem;">
+                            <button type="button" class="btn-small btn-secondary" id="featured-form-cancel-btn" style="flex:1;">Cancel</button>
+                            <button type="submit" class="btn-primary" id="featured-form-save-btn" style="flex:1;">Purchase Placement</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="mobile-section" id="featured-momo-waiting-page" style="display:none; text-align:center; padding:1rem 0.5rem;">
+                    <div class="momo-waiting-spinner"></div>
+                    <h4 style="margin:1rem 0 0.5rem;" id="featured-momo-waiting-title">Check your phone</h4>
+                    <p style="color:var(--slate-light); margin-bottom:1.5rem;" id="featured-momo-waiting-text">
+                        We sent a payment request to your phone. Approve it there to activate your Featured Placement.
+                    </p>
+                    <div class="auth-error" id="featured-momo-waiting-error"></div>
+                    <button type="button" class="btn-small btn-secondary" id="featured-momo-cancel-wait-btn">Cancel</button>
+                </div>
             </div>
 
             <!-- Settings — real account info, read-only for now -->
@@ -7215,6 +7284,54 @@
                     <div class="auth-error" id="invoice-settings-error" style="display:none;"></div>
                     <button type="submit" class="btn-small btn-success" id="invoice-settings-save-btn">Save Statement Settings</button>
                 </form>
+            </details>
+
+            <!-- Featured Placements — vendors pay to boost a product or
+                 their whole store's ranking. Packages/pricing and per-scope
+                 slot caps are fully Super-Admin-controlled; the Direct
+                 (manual) payment queue below is where those requests get
+                 confirmed once payment is actually received, same spirit
+                 as recording a payout. -->
+            <details style="margin-bottom: 1.5rem; background: var(--bg-light); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+                <summary style="cursor:pointer; font-weight:700;">🌟 Featured Placements Settings</summary>
+                <p style="color: var(--slate-light); margin: 0.75rem 0; font-size: 0.8125rem;">
+                    Controls what vendors can buy to boost a product (or their whole store) to the top of customer
+                    search results: the fixed packages offered, and how many slots can be active/pending at once
+                    per scope. A later price/day change here never rewrites an already-purchased slot.
+                </p>
+                <form id="featured-settings-form">
+                    <div class="form-group">
+                        <label class="form-label">Per-Product Packages</label>
+                        <div id="featured-settings-product-packages"></div>
+                        <button type="button" class="btn-small btn-secondary" id="featured-settings-add-product-package-btn" style="margin-top:0.5rem;">+ Add Package</button>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Whole-Store Packages</label>
+                        <div id="featured-settings-vendor-packages"></div>
+                        <button type="button" class="btn-small btn-secondary" id="featured-settings-add-vendor-package-btn" style="margin-top:0.5rem;">+ Add Package</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Product Slot Cap</label>
+                            <input type="number" class="form-input" id="featured-settings-product-cap-input" min="1" max="1000" step="1" required>
+                            <p class="settings-hint">Max product placements active/pending at once, platform-wide.</p>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Store Slot Cap</label>
+                            <input type="number" class="form-input" id="featured-settings-vendor-cap-input" min="1" max="1000" step="1" required>
+                            <p class="settings-hint">Max whole-store placements active/pending at once, platform-wide.</p>
+                        </div>
+                    </div>
+                    <div class="auth-error" id="featured-settings-error" style="display:none;"></div>
+                    <button type="submit" class="btn-small btn-success" id="featured-settings-save-btn">Save Featured Placement Settings</button>
+                </form>
+
+                <h4 style="font-weight:700; margin:1.5rem 0 0.75rem;">Pending Direct Payment Requests</h4>
+                <p style="color: var(--slate-light); margin: 0 0 0.75rem; font-size: 0.8125rem;">
+                    Vendors who chose "Direct" payment for a Featured Placement — confirm once you've actually
+                    received their payment, or reject to release the slot back for other vendors.
+                </p>
+                <div id="featured-pending-queue"><p style="text-align:center; color:var(--slate-light); padding:1rem 0;">Loading…</p></div>
             </details>
 
             <section style="margin-bottom: 1.5rem;">
@@ -12665,6 +12782,21 @@
             });
             document.getElementById('commission-settings-form').addEventListener('submit', handleCommissionSettingsSubmit);
             document.getElementById('invoice-settings-form').addEventListener('submit', handleInvoiceSettingsSubmit);
+            document.getElementById('featured-settings-form').addEventListener('submit', handleFeaturedSettingsSubmit);
+            wireFeaturedPackageEditor('featured-settings-product-packages', () => featuredProductPackagesDraft, (d) => { featuredProductPackagesDraft = d; });
+            wireFeaturedPackageEditor('featured-settings-vendor-packages', () => featuredVendorPackagesDraft, (d) => { featuredVendorPackagesDraft = d; });
+            document.getElementById('featured-settings-add-product-package-btn').addEventListener('click', () => {
+                addFeaturedPackageRow('featured-settings-product-packages', () => featuredProductPackagesDraft, (d) => { featuredProductPackagesDraft = d; });
+            });
+            document.getElementById('featured-settings-add-vendor-package-btn').addEventListener('click', () => {
+                addFeaturedPackageRow('featured-settings-vendor-packages', () => featuredVendorPackagesDraft, (d) => { featuredVendorPackagesDraft = d; });
+            });
+            document.getElementById('featured-pending-queue').addEventListener('click', (e) => {
+                const confirmBtn = e.target.closest('.confirm-featured-request-btn');
+                if (confirmBtn) { confirmFeaturedRequest(confirmBtn.dataset.id); return; }
+                const rejectBtn = e.target.closest('.reject-featured-request-btn');
+                if (rejectBtn) rejectFeaturedRequest(rejectBtn.dataset.id);
+            });
             const payoutsRowClickHandler = (e) => {
                 const recordBtn = e.target.closest('.record-payout-btn');
                 if (recordBtn) {
@@ -13617,6 +13749,14 @@
                 document.getElementById('invoice-momo-note-input').value = summary.platformSettings.invoiceMomoNote || '';
                 document.getElementById('invoice-footer-note-input').value = summary.platformSettings.invoiceFooterNote || '';
 
+                featuredProductPackagesDraft = JSON.parse(JSON.stringify(summary.platformSettings.featuredProductPackages || []));
+                featuredVendorPackagesDraft = JSON.parse(JSON.stringify(summary.platformSettings.featuredVendorPackages || []));
+                renderFeaturedPackageRows('featured-settings-product-packages', featuredProductPackagesDraft);
+                renderFeaturedPackageRows('featured-settings-vendor-packages', featuredVendorPackagesDraft);
+                document.getElementById('featured-settings-product-cap-input').value = summary.platformSettings.featuredProductSlotCap;
+                document.getElementById('featured-settings-vendor-cap-input').value = summary.platformSettings.featuredVendorSlotCap;
+                loadFeaturedPendingQueue();
+
                 renderPayoutStandingTable('payouts-vendors-table', summary.vendors, 'vendor', summary.platformSettings.marketplaceCommissionEnabled !== false);
                 renderPayoutStandingTable('payouts-companies-table', summary.deliveryCompanies, 'delivery_company', summary.platformSettings.deliveryCommissionEnabled !== false);
                 renderPayoutHistoryTable(history.payouts || []);
@@ -13742,6 +13882,141 @@
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Save Statement Settings';
+            }
+        }
+
+        // ==== Featured Placements (Super Admin settings + Direct-payment queue) ====
+        // Draft copies of the two package lists, edited in place as the
+        // Super Admin adds/edits/removes rows, then serialized back to
+        // JSON on save — same "local draft, JSON.stringify at submit"
+        // shape as everywhere else JSONB settings are edited in this app.
+        let featuredProductPackagesDraft = [];
+        let featuredVendorPackagesDraft = [];
+
+        function renderFeaturedPackageRows(containerId, draftArray) {
+            const container = document.getElementById(containerId);
+            if (draftArray.length === 0) {
+                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.8125rem; margin:0.5rem 0;">No packages yet — add one below.</p>';
+                return;
+            }
+            container.innerHTML = draftArray.map((pkg, i) => `
+                <div class="featured-package-row" data-index="${i}" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+                    <input type="text" class="form-input featured-pkg-label-input" data-index="${i}" value="${(pkg.label || '').replace(/"/g, '&quot;')}" placeholder="Label, e.g. 7 days" style="flex:2;">
+                    <input type="number" class="form-input featured-pkg-days-input" data-index="${i}" value="${pkg.days}" min="1" max="365" step="1" placeholder="Days" style="flex:1;">
+                    <input type="number" class="form-input featured-pkg-price-input" data-index="${i}" value="${pkg.price}" min="0" step="0.01" placeholder="Price ($)" style="flex:1;">
+                    <button type="button" class="btn-small btn-danger featured-pkg-remove-btn" data-index="${i}" style="flex-shrink:0;">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function wireFeaturedPackageEditor(containerId, getDraft, setDraft) {
+            const container = document.getElementById(containerId);
+            container.addEventListener('input', (e) => {
+                const idx = Number(e.target.dataset.index);
+                if (isNaN(idx)) return;
+                const draft = getDraft();
+                if (!draft[idx]) return;
+                if (e.target.classList.contains('featured-pkg-label-input')) draft[idx].label = e.target.value;
+                if (e.target.classList.contains('featured-pkg-days-input')) draft[idx].days = Number(e.target.value);
+                if (e.target.classList.contains('featured-pkg-price-input')) draft[idx].price = Number(e.target.value);
+            });
+            container.addEventListener('click', (e) => {
+                const btn = e.target.closest('.featured-pkg-remove-btn');
+                if (!btn) return;
+                const idx = Number(btn.dataset.index);
+                const draft = getDraft();
+                draft.splice(idx, 1);
+                setDraft(draft);
+                renderFeaturedPackageRows(containerId, draft);
+            });
+        }
+
+        function addFeaturedPackageRow(containerId, getDraft, setDraft) {
+            const draft = getDraft();
+            if (draft.length >= 8) {
+                showToast('Maximum 8 packages per scope', 'error');
+                return;
+            }
+            draft.push({ id: `pkg_${Date.now()}_${draft.length}`, label: '', days: 7, price: 0 });
+            setDraft(draft);
+            renderFeaturedPackageRows(containerId, draft);
+        }
+
+        async function loadFeaturedPendingQueue() {
+            const container = document.getElementById('featured-pending-queue');
+            try {
+                const data = await apiFetch('/api/super-admin/featured/pending');
+                const slots = data.slots || [];
+                if (slots.length === 0) {
+                    renderEmptyState(container, 'No pending Direct payment requests.');
+                    return;
+                }
+                container.innerHTML = `<div style="overflow-x:auto;"><table class="settings-table"><thead><tr>
+                    <th>Vendor</th><th>What</th><th>Package</th><th>Price</th><th>Requested</th><th></th>
+                </tr></thead><tbody>${slots.map(s => `
+                    <tr>
+                        <td>${s.vendorName || s.vendorEmail}</td>
+                        <td>${s.scope === 'vendor' ? 'Whole Store' : (s.productName || 'Product')}</td>
+                        <td>${s.packageLabel}</td>
+                        <td>$${Number(s.price).toFixed(2)}</td>
+                        <td>${new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                        <td style="display:flex; gap:0.4rem; white-space:nowrap;">
+                            <button type="button" class="btn-small btn-success confirm-featured-request-btn" data-id="${s.id}">Confirm</button>
+                            <button type="button" class="btn-small btn-danger reject-featured-request-btn" data-id="${s.id}">Reject</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody></table></div>`;
+            } catch (err) {
+                container.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        async function confirmFeaturedRequest(id) {
+            try {
+                await apiFetch(`/api/super-admin/featured/${id}/confirm`, { method: 'POST' });
+                showToast('Featured Placement confirmed and activated', 'success');
+                await loadFeaturedPendingQueue();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function rejectFeaturedRequest(id) {
+            if (!confirm('Reject this Featured Placement request? The slot is released back for other vendors.')) return;
+            try {
+                await apiFetch(`/api/super-admin/featured/${id}/reject`, { method: 'POST' });
+                showToast('Request rejected', 'success');
+                await loadFeaturedPendingQueue();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function handleFeaturedSettingsSubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('featured-settings-error');
+            const saveBtn = document.getElementById('featured-settings-save-btn');
+            errorEl.style.display = 'none';
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving…';
+            try {
+                await apiFetch('/api/super-admin/settings/platform', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        featuredProductPackages: featuredProductPackagesDraft,
+                        featuredVendorPackages: featuredVendorPackagesDraft,
+                        featuredProductSlotCap: Number(document.getElementById('featured-settings-product-cap-input').value),
+                        featuredVendorSlotCap: Number(document.getElementById('featured-settings-vendor-cap-input').value),
+                    }),
+                });
+                showToast('Featured Placement settings updated', 'success');
+                await loadPayoutsPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Featured Placement Settings';
             }
         }
 
@@ -17109,6 +17384,173 @@
             }
         }
 
+        // ==== Featured Placements (vendor side) ====
+        // A vendor pays (Mobile Money or a manually-confirmed Direct
+        // request) to boost a product or their whole store's ranking on
+        // the customer storefront for a Super-Admin-configured package
+        // length. Mirrors the marketplace checkout momo pending→poll→
+        // confirm/void pattern, just against /api/vendor/featured/* and
+        // its own poll timer/vars so it never collides with a customer
+        // checkout that happens to be in progress at the same time.
+        let vendorFeaturedConfig = null; // { productPackages, vendorPackages, availability, momoAvailable }
+        let vendorFeaturedHistory = [];
+        let featuredMomoPollTimer = null;
+        let featuredMomoPollAttempts = 0;
+        let currentFeaturedMomoSlotId = null;
+        const FEATURED_MOMO_POLL_INTERVAL_MS = 3000;
+        const FEATURED_MOMO_POLL_MAX_ATTEMPTS = 60; // 60 * 3s = 3 minutes
+
+        async function loadVendorFeaturedPanel() {
+            const listEl = document.getElementById('vendor-featured-list');
+            const availEl = document.getElementById('vendor-featured-availability');
+            try {
+                const [configData, historyData] = await Promise.all([
+                    apiFetch('/api/vendor/featured/config'),
+                    apiFetch('/api/vendor/featured/history'),
+                ]);
+                vendorFeaturedConfig = configData;
+                vendorFeaturedHistory = historyData.slots || [];
+                const a = vendorFeaturedConfig.availability;
+                availEl.textContent = `Product slots: ${a.product.available}/${a.product.cap} available · Store slots: ${a.vendor.available}/${a.vendor.cap} available`;
+                renderVendorFeaturedList();
+            } catch (err) {
+                availEl.textContent = '';
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function featuredSlotStatusPill(slot) {
+            const now = Date.now();
+            if (slot.paymentStatus === 'failed') return '<span class="address-card-default-pill" style="background:#fee2e2; color:#991b1b;">Failed / Cancelled</span>';
+            if (slot.paymentStatus === 'pending') {
+                return slot.paymentMethod === 'momo'
+                    ? '<span class="address-card-default-pill" style="background:#fef3c7; color:#92400e;">Awaiting Mobile Money</span>'
+                    : '<span class="address-card-default-pill" style="background:#fef3c7; color:#92400e;">Awaiting Confirmation</span>';
+            }
+            // successful
+            if (slot.endsAt && new Date(slot.endsAt).getTime() > now) {
+                return `<span class="address-card-default-pill">Active until ${new Date(slot.endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
+            }
+            return '<span class="address-card-default-pill" style="background:#f1f5f9; color:var(--slate-light);">Expired</span>';
+        }
+
+        function renderVendorFeaturedList() {
+            const container = document.getElementById('vendor-featured-list');
+            if (vendorFeaturedHistory.length === 0) {
+                renderEmptyState(container, 'No Featured Placements yet — boost a product or your store to appear first in customer search results.');
+                return;
+            }
+            container.innerHTML = vendorFeaturedHistory.map(slot => `
+                <div class="address-card">
+                    <div class="address-card-body">
+                        <div class="address-card-label-row">
+                            <span class="address-card-label">${slot.scope === 'vendor' ? 'My Whole Store' : (vendorProducts.find(p => p.id === slot.productId)?.name || 'Product')}</span>
+                            ${featuredSlotStatusPill(slot)}
+                        </div>
+                        <div class="address-card-text">
+                            ${slot.packageLabel} · $${slot.price.toFixed(2)} · ${slot.paymentMethod === 'momo' ? 'Mobile Money' : 'Direct'}
+                        </div>
+                    </div>
+                    ${slot.paymentStatus === 'pending' && slot.paymentMethod === 'momo' ? `<div class="address-card-actions"><button type="button" class="delete-promotion-btn resume-featured-momo-btn" data-id="${slot.id}">Resume</button></div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function updateFeaturedPackageOptions() {
+            if (!vendorFeaturedConfig) return;
+            const scope = document.getElementById('featured-form-scope').value;
+            const packages = scope === 'product' ? vendorFeaturedConfig.productPackages : vendorFeaturedConfig.vendorPackages;
+            const packageSelect = document.getElementById('featured-form-package');
+            packageSelect.innerHTML = (packages || []).map(pkg => `<option value="${pkg.id}">${pkg.label} — $${Number(pkg.price).toFixed(2)}</option>`).join('');
+            document.getElementById('featured-form-product-group').style.display = scope === 'product' ? 'block' : 'none';
+            const a = vendorFeaturedConfig.availability[scope];
+            const noteEl = document.getElementById('featured-form-availability-note');
+            noteEl.textContent = `${a.available} of ${a.cap} ${scope === 'product' ? 'product' : 'store'} slots currently available.`;
+            noteEl.style.color = a.available > 0 ? 'var(--slate-light)' : '#dc2626';
+        }
+
+        function openFeaturedPurchaseForm() {
+            if (!vendorFeaturedConfig) {
+                showToast('Still loading Featured Placement options — try again in a moment.', 'error');
+                return;
+            }
+            const productSelect = document.getElementById('featured-form-product');
+            productSelect.innerHTML = vendorProducts.map(p => `<option value="${p.id}">${p.name} ($${p.price.toFixed(2)})</option>`).join('');
+            document.getElementById('featured-form-scope').value = 'product';
+            const paymentSelect = document.getElementById('featured-form-payment');
+            paymentSelect.innerHTML = vendorFeaturedConfig.momoAvailable
+                ? '<option value="momo">Mobile Money</option><option value="direct">Direct (manual — confirmed by ONLib once received)</option>'
+                : '<option value="direct">Direct (manual — confirmed by ONLib once received)</option>';
+            document.getElementById('featured-form-momo-phone-group').style.display = paymentSelect.value === 'momo' ? 'block' : 'none';
+            document.getElementById('featured-form-momo-phone').value = '';
+            document.getElementById('featured-form-error').style.display = 'none';
+            updateFeaturedPackageOptions();
+            document.getElementById('featured-purchase-section').style.display = 'block';
+            document.getElementById('featured-purchase-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function closeFeaturedPurchaseForm() {
+            document.getElementById('featured-purchase-section').style.display = 'none';
+        }
+
+        function stopFeaturedMomoPolling() {
+            if (featuredMomoPollTimer) clearInterval(featuredMomoPollTimer);
+            featuredMomoPollTimer = null;
+            featuredMomoPollAttempts = 0;
+        }
+
+        function showFeaturedMomoWaitingPage(slotId) {
+            document.getElementById('featured-purchase-section').style.display = 'none';
+            document.getElementById('featured-momo-waiting-page').style.display = 'block';
+            document.getElementById('featured-momo-waiting-title').textContent = 'Check your phone';
+            document.getElementById('featured-momo-waiting-text').textContent = 'We sent a payment request to your phone. Approve it there to activate your Featured Placement.';
+            document.getElementById('featured-momo-waiting-error').style.display = 'none';
+            document.getElementById('featured-momo-cancel-wait-btn').style.display = 'inline-flex';
+            document.getElementById('featured-momo-cancel-wait-btn').textContent = 'Cancel';
+            currentFeaturedMomoSlotId = slotId;
+            featuredMomoPollAttempts = 0;
+            stopFeaturedMomoPolling();
+            featuredMomoPollTimer = setInterval(() => checkFeaturedMomoPaymentOnce(slotId), FEATURED_MOMO_POLL_INTERVAL_MS);
+        }
+
+        async function checkFeaturedMomoPaymentOnce(slotId) {
+            featuredMomoPollAttempts += 1;
+            try {
+                const data = await apiFetch(`/api/vendor/featured/${slotId}/payment-status`);
+                if (data.paymentStatus === 'successful') {
+                    stopFeaturedMomoPolling();
+                    document.getElementById('featured-momo-waiting-page').style.display = 'none';
+                    showToast('Payment received — your Featured Placement is live!', 'success');
+                    await loadVendorFeaturedPanel();
+                    return;
+                }
+                if (data.paymentStatus === 'failed') {
+                    stopFeaturedMomoPolling();
+                    document.getElementById('featured-momo-waiting-title').textContent = 'Payment failed';
+                    document.getElementById('featured-momo-waiting-text').textContent = 'The Mobile Money payment wasn\'t completed — nothing was charged. You can try again or use Direct payment instead.';
+                    document.getElementById('featured-momo-cancel-wait-btn').textContent = 'Back';
+                    return;
+                }
+                if (featuredMomoPollAttempts >= FEATURED_MOMO_POLL_MAX_ATTEMPTS) {
+                    stopFeaturedMomoPolling();
+                    document.getElementById('featured-momo-waiting-title').textContent = 'Still waiting';
+                    document.getElementById('featured-momo-waiting-text').textContent = 'This is taking longer than expected. You can keep waiting a bit and check back later, or cancel and try Direct payment instead.';
+                    document.getElementById('featured-momo-cancel-wait-btn').textContent = 'Cancel Payment';
+                }
+            } catch (err) {
+                console.error('Featured Placement Mobile Money status check failed', err);
+            }
+        }
+
+        async function cancelFeaturedMomoWait(slotId) {
+            stopFeaturedMomoPolling();
+            if (slotId) {
+                try { await apiFetch(`/api/vendor/featured/${slotId}/cancel-payment`, { method: 'POST' }); } catch (err) { /* best-effort */ }
+            }
+            document.getElementById('featured-momo-waiting-page').style.display = 'none';
+            await loadVendorFeaturedPanel();
+        }
+
         // Real vendor Leads — cached so filtering doesn't need a re-fetch.
         let vendorLeadsCache = [];
         let vendorLeadsFilter = '';
@@ -17498,7 +17940,10 @@
                 loadConversations('vendor');
             } else if (tab === 'promotions') {
                 closePromotionForm();
+                closeFeaturedPurchaseForm();
+                document.getElementById('featured-momo-waiting-page').style.display = 'none';
                 loadVendorPromotions();
+                loadVendorFeaturedPanel();
             } else if (tab === 'leads') {
                 loadVendorLeads();
             } else if (tab === 'settings' && currentUser) {
@@ -17549,6 +17994,52 @@
             document.getElementById('vendor-promotions-list').addEventListener('click', (e) => {
                 const btn = e.target.closest('.delete-promotion-btn');
                 if (btn) cancelPromotion(btn.dataset.id);
+            });
+
+            // ---- Featured Placements ----
+            document.getElementById('add-featured-btn').addEventListener('click', openFeaturedPurchaseForm);
+            document.getElementById('featured-form-cancel-btn').addEventListener('click', closeFeaturedPurchaseForm);
+            document.getElementById('featured-form-scope').addEventListener('change', updateFeaturedPackageOptions);
+            document.getElementById('featured-form-payment').addEventListener('change', (e) => {
+                document.getElementById('featured-form-momo-phone-group').style.display = e.target.value === 'momo' ? 'block' : 'none';
+            });
+            document.getElementById('vendor-featured-list').addEventListener('click', (e) => {
+                const btn = e.target.closest('.resume-featured-momo-btn');
+                if (btn) showFeaturedMomoWaitingPage(btn.dataset.id);
+            });
+            document.getElementById('featured-momo-cancel-wait-btn').addEventListener('click', () => cancelFeaturedMomoWait(currentFeaturedMomoSlotId));
+            document.getElementById('featured-purchase-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const errorEl = document.getElementById('featured-form-error');
+                const btn = document.getElementById('featured-form-save-btn');
+                errorEl.style.display = 'none';
+                const scope = document.getElementById('featured-form-scope').value;
+                const paymentMethod = document.getElementById('featured-form-payment').value;
+                const payload = {
+                    scope,
+                    packageId: document.getElementById('featured-form-package').value,
+                    paymentMethod,
+                };
+                if (scope === 'product') payload.productId = document.getElementById('featured-form-product').value;
+                if (paymentMethod === 'momo') payload.phone = document.getElementById('featured-form-momo-phone').value.trim();
+                btn.disabled = true;
+                btn.textContent = 'Processing…';
+                try {
+                    const data = await apiFetch('/api/vendor/featured/purchase', { method: 'POST', body: JSON.stringify(payload) });
+                    if (paymentMethod === 'momo') {
+                        showFeaturedMomoWaitingPage(data.slot.id);
+                    } else {
+                        closeFeaturedPurchaseForm();
+                        showToast('Request submitted — ONLib will confirm once payment is received.', 'success');
+                        await loadVendorFeaturedPanel();
+                    }
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Purchase Placement';
+                }
             });
 
             // ---- Leads ----
@@ -18600,6 +19091,7 @@
                 <div class="product-card open-product-detail-btn${outOfStock ? ' out-of-stock' : ''}" data-id="${p.id}" role="button" tabindex="0">
                     <div class="product-card-image-wrap">
                         <img class="product-card-image" src="${p.imageDataUrl || 'assets/logo.png'}" alt="${p.name}">
+                        ${p.isFeatured ? `<span class="product-card-featured-badge">⭐ ${p.isStoreFeatured && !p.featuredUntil ? 'Featured Store' : 'Featured'}</span>` : ''}
                         ${p.discountPercent ? `<span class="product-card-discount-badge">-${Math.round(p.discountPercent)}%</span>` : ''}
                         ${outOfStock ? `<span class="product-card-outofstock-badge">Out of Stock</span>` : ''}
                     </div>
@@ -18622,8 +19114,16 @@
 
         // Sorts a copy of the given products by the chosen criterion —
         // never mutates the array passed in (storefrontProducts itself
-        // stays in its original, server-given created_at DESC order, so
-        // switching back to "Newest" doesn't need a re-fetch).
+        // stays in its original, server-given order, so switching back
+        // to "Newest" doesn't need a re-fetch).
+        //
+        // "Newest" (the default) is intentionally NOT re-sorted by
+        // createdAt here — the backend (getActiveProductsForStorefront)
+        // already orders by (product featured desc, vendor-store featured
+        // desc, created_at desc), so Featured Placements show first. Re-
+        // sorting purely by createdAt would silently undo that paid boost.
+        // Explicit Price/Rating/Bestselling sorts are a deliberate customer
+        // choice, so those stay pure — featured status doesn't override them.
         function sortStorefrontProducts(products, sortValue) {
             const arr = [...products];
             switch (sortValue) {
@@ -18632,7 +19132,7 @@
                 case 'rating': return arr.sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0) || (b.reviewCount || 0) - (a.reviewCount || 0));
                 case 'bestselling': return arr.sort((a, b) => (b.unitsSold || 0) - (a.unitsSold || 0));
                 case 'newest':
-                default: return arr.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                default: return arr;
             }
         }
 
