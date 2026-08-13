@@ -624,6 +624,40 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS service_fee NUMERIC(6, 2);
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS service_fee NUMERIC(6, 2) NOT NULL DEFAULT 0;
 
 -- ============================================================
+-- Commission Statement (invoice) presentation settings — Super Admin
+-- editable, purely cosmetic: these two switches control whether a
+-- line renders on the generated statement (and, since a hidden line
+-- can't reconcile against a printed total, whether its dollar amount
+-- is folded into that statement's own Balance Due). They do NOT touch
+-- what's actually charged at checkout or the real standing numbers
+-- getPayoutSummary already shows elsewhere — same "invoice display
+-- only" distinction as the marketplace/delivery commission on/off
+-- switches above are NOT: those really do zero out the charge.
+-- invoice_show_momo_line only ever matters for vendor statements —
+-- delivery companies never have a Mobile Money-collected line since
+-- there's no real payment gateway for standalone delivery orders.
+-- ============================================================
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_show_service_fee_line BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_show_momo_line BOOLEAN NOT NULL DEFAULT true;
+
+-- Editable statement text. The three *_note columns are lightweight
+-- templates — {token} placeholders (documented in the Payouts &
+-- Commission panel next to each field) are substituted with the real
+-- computed numbers at PDF-generation time, so Super Admin can reword
+-- the explanation without losing the actual figures. Defaults match
+-- the wording this feature originally shipped with, so nothing looks
+-- different for anyone who hasn't touched these. The footer's
+-- commission-disabled disclosure is always appended by the app after
+-- whatever custom footer text is configured here — not overridable —
+-- so that factual disclosure can never be accidentally edited away.
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_header_title TEXT NOT NULL DEFAULT 'Commission Statement';
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_header_subtitle TEXT;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_footer_note TEXT NOT NULL DEFAULT 'Generated from real purchase/order data for the period above. Gross revenue, commission, and service fee are computed fresh each time this is generated -- if a dispute affecting this period is resolved later, regenerating this statement will reflect it.';
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_commission_note TEXT NOT NULL DEFAULT '{rate}% of net gross revenue for the period above{refundClause}';
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_service_fee_note TEXT NOT NULL DEFAULT '$0.10 x {feeOwedOrders} {feeType} order(s) this period';
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS invoice_momo_note TEXT NOT NULL DEFAULT '$0.10 x {momoCount} Mobile Money order(s) this period -- already collected by ONLib directly at checkout';
+
+-- ============================================================
 -- Disputes — the last of the original Super Admin gaps: a real,
 -- structured way for a customer to report a problem with an order and
 -- for a Super Admin to resolve it, optionally with a refund.

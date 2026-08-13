@@ -172,6 +172,14 @@ function rowToPlatformSettings(r) {
     maintenanceMode: !!r.maintenance_mode,
     maintenanceMessage: r.maintenance_message || null,
     serviceFee: Number(r.service_fee),
+    invoiceShowServiceFeeLine: r.invoice_show_service_fee_line !== false,
+    invoiceShowMomoLine: r.invoice_show_momo_line !== false,
+    invoiceHeaderTitle: r.invoice_header_title || 'Commission Statement',
+    invoiceHeaderSubtitle: r.invoice_header_subtitle || null,
+    invoiceFooterNote: r.invoice_footer_note || '',
+    invoiceCommissionNote: r.invoice_commission_note || '',
+    invoiceServiceFeeNote: r.invoice_service_fee_note || '',
+    invoiceMomoNote: r.invoice_momo_note || '',
     updatedAt: r.updated_at,
   };
 }
@@ -2565,7 +2573,7 @@ const db = {
   // and the platform-wide settings (default delivery fee, service
   // area, maintenance mode) added later, so both panels can share one
   // upsert path instead of drifting into two near-duplicate ones.
-  async upsertPlatformSettings({ marketplaceCommissionPercent, deliveryCommissionPercent, marketplaceCommissionEnabled, deliveryCommissionEnabled, defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee }) {
+  async upsertPlatformSettings({ marketplaceCommissionPercent, deliveryCommissionPercent, marketplaceCommissionEnabled, deliveryCommissionEnabled, defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee, invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle, invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote }) {
     await this.getPlatformSettings(); // ensures the row exists
     const sets = [];
     const values = [];
@@ -2579,6 +2587,14 @@ const db = {
     if (serviceArea !== undefined) { sets.push(`service_area = $${i}`); values.push(serviceArea); i += 1; }
     if (maintenanceMode !== undefined) { sets.push(`maintenance_mode = $${i}`); values.push(maintenanceMode); i += 1; }
     if (maintenanceMessage !== undefined) { sets.push(`maintenance_message = $${i}`); values.push(maintenanceMessage); i += 1; }
+    if (invoiceShowServiceFeeLine !== undefined) { sets.push(`invoice_show_service_fee_line = $${i}`); values.push(invoiceShowServiceFeeLine); i += 1; }
+    if (invoiceShowMomoLine !== undefined) { sets.push(`invoice_show_momo_line = $${i}`); values.push(invoiceShowMomoLine); i += 1; }
+    if (invoiceHeaderTitle !== undefined) { sets.push(`invoice_header_title = $${i}`); values.push(invoiceHeaderTitle); i += 1; }
+    if (invoiceHeaderSubtitle !== undefined) { sets.push(`invoice_header_subtitle = $${i}`); values.push(invoiceHeaderSubtitle); i += 1; }
+    if (invoiceFooterNote !== undefined) { sets.push(`invoice_footer_note = $${i}`); values.push(invoiceFooterNote); i += 1; }
+    if (invoiceCommissionNote !== undefined) { sets.push(`invoice_commission_note = $${i}`); values.push(invoiceCommissionNote); i += 1; }
+    if (invoiceServiceFeeNote !== undefined) { sets.push(`invoice_service_fee_note = $${i}`); values.push(invoiceServiceFeeNote); i += 1; }
+    if (invoiceMomoNote !== undefined) { sets.push(`invoice_momo_note = $${i}`); values.push(invoiceMomoNote); i += 1; }
     sets.push('updated_at = now()');
     if (sets.length > 1) {
       await pool.query(`UPDATE platform_settings SET ${sets.join(', ')} WHERE id = 'platform'`, values);

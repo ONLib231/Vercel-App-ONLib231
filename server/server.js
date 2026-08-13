@@ -1985,8 +1985,20 @@ app.get('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, as
   }
 });
 
+// Max lengths for the free-text Commission Statement fields below —
+// generous enough for real sentences, but bounded so a Super Admin
+// can't accidentally (or maliciously, since this is still a
+// server-trust-nothing app) balloon the platform_settings row or the
+// generated PDF with runaway text.
+const MAX_INVOICE_TITLE_LENGTH = 120;
+const MAX_INVOICE_NOTE_LENGTH = 500;
+
 app.put('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, async (req, res) => {
-  const { defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee } = req.body || {};
+  const {
+    defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee,
+    invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle,
+    invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote,
+  } = req.body || {};
   const fields = {};
   if (defaultDeliveryFee !== undefined) {
     if (defaultDeliveryFee !== null && (typeof defaultDeliveryFee !== 'number' || isNaN(defaultDeliveryFee) || defaultDeliveryFee < 0)) {
@@ -2017,6 +2029,39 @@ app.put('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, as
       return res.status(400).json({ error: 'maintenanceMessage must be a string, or null to clear it' });
     }
     fields.maintenanceMessage = maintenanceMessage;
+  }
+  if (invoiceShowServiceFeeLine !== undefined) {
+    if (typeof invoiceShowServiceFeeLine !== 'boolean') {
+      return res.status(400).json({ error: 'invoiceShowServiceFeeLine must be true or false' });
+    }
+    fields.invoiceShowServiceFeeLine = invoiceShowServiceFeeLine;
+  }
+  if (invoiceShowMomoLine !== undefined) {
+    if (typeof invoiceShowMomoLine !== 'boolean') {
+      return res.status(400).json({ error: 'invoiceShowMomoLine must be true or false' });
+    }
+    fields.invoiceShowMomoLine = invoiceShowMomoLine;
+  }
+  if (invoiceHeaderTitle !== undefined) {
+    if (typeof invoiceHeaderTitle !== 'string' || !invoiceHeaderTitle.trim() || invoiceHeaderTitle.length > MAX_INVOICE_TITLE_LENGTH) {
+      return res.status(400).json({ error: `invoiceHeaderTitle must be a non-empty string under ${MAX_INVOICE_TITLE_LENGTH} characters` });
+    }
+    fields.invoiceHeaderTitle = invoiceHeaderTitle.trim();
+  }
+  if (invoiceHeaderSubtitle !== undefined) {
+    if (invoiceHeaderSubtitle !== null && (typeof invoiceHeaderSubtitle !== 'string' || invoiceHeaderSubtitle.length > MAX_INVOICE_TITLE_LENGTH)) {
+      return res.status(400).json({ error: `invoiceHeaderSubtitle must be a string under ${MAX_INVOICE_TITLE_LENGTH} characters, or null to clear it` });
+    }
+    fields.invoiceHeaderSubtitle = invoiceHeaderSubtitle === null ? null : invoiceHeaderSubtitle.trim();
+  }
+  const noteFields = { invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote };
+  for (const [key, value] of Object.entries(noteFields)) {
+    if (value !== undefined) {
+      if (typeof value !== 'string' || !value.trim() || value.length > MAX_INVOICE_NOTE_LENGTH) {
+        return res.status(400).json({ error: `${key} must be a non-empty string under ${MAX_INVOICE_NOTE_LENGTH} characters` });
+      }
+      fields[key] = value.trim();
+    }
   }
   try {
     const settings = await db.upsertPlatformSettings(fields);

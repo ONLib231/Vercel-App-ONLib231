@@ -7156,6 +7156,67 @@
                 </form>
             </section>
 
+            <!-- Commission Statement (invoice) presentation settings —
+                 purely cosmetic: what shows on the generated PDF, not
+                 what's actually charged at checkout (that's the
+                 Platform Commission Rates / Service Fee amount above
+                 and in Platform Settings). Collapsed by default since
+                 most Super Admins won't touch this every time. -->
+            <details style="margin-bottom: 1.5rem; background: var(--bg-light); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+                <summary style="cursor:pointer; font-weight:700;">🧾 Commission Statement Settings</summary>
+                <p style="color: var(--slate-light); margin: 0.75rem 0; font-size: 0.8125rem;">
+                    Controls how the generated Commission Statement PDF looks — which lines appear and the wording
+                    used. This never changes what's actually charged at checkout or a vendor/delivery company's
+                    real standing shown above; it only affects what prints on the statement itself. Hiding the
+                    Service Fee Owed line also excludes it from that statement's own Balance Due, so the printed
+                    total always matches its visible line items.
+                </p>
+                <form id="invoice-settings-form">
+                    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+                        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.875rem; font-weight:600; cursor:pointer;">
+                            <input type="checkbox" id="invoice-show-service-fee-line-input" checked>
+                            Show "Service Fee Owed" line
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.875rem; font-weight:600; cursor:pointer;">
+                            <input type="checkbox" id="invoice-show-momo-line-input" checked>
+                            Show "Service Fees Paid via Mobile Money" line (vendor statements only)
+                        </label>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Statement Title</label>
+                            <input type="text" class="form-input" id="invoice-header-title-input" maxlength="120" required>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Statement Subtitle <span style="font-weight:400; color:var(--slate-light);">(optional)</span></label>
+                            <input type="text" class="form-input" id="invoice-header-subtitle-input" maxlength="120" placeholder="e.g. business address or contact info">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Commission line note</label>
+                        <input type="text" class="form-input" id="invoice-commission-note-input" maxlength="500" required>
+                        <p class="settings-hint">Tokens: <code>{rate}</code>, <code>{refundClause}</code> (auto-fills with the refund explanation only when a refund applies, otherwise blank).</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Service Fee Owed line note</label>
+                        <input type="text" class="form-input" id="invoice-service-fee-note-input" maxlength="500" required>
+                        <p class="settings-hint">Tokens: <code>{feeOwedOrders}</code>, <code>{feeType}</code> ("cash / Pay-on-Delivery" for vendors, "delivered" for delivery companies).</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Mobile Money line note</label>
+                        <input type="text" class="form-input" id="invoice-momo-note-input" maxlength="500" required>
+                        <p class="settings-hint">Tokens: <code>{momoCount}</code> (number of Mobile Money orders excluded from what's billed).</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Footer note</label>
+                        <textarea class="form-input" id="invoice-footer-note-input" rows="3" maxlength="500" required></textarea>
+                        <p class="settings-hint">Shown at the bottom of every statement. If commission is currently switched off for that side of the platform, a fixed disclosure sentence is always appended after this text — it can't be edited away.</p>
+                    </div>
+                    <div class="auth-error" id="invoice-settings-error" style="display:none;"></div>
+                    <button type="submit" class="btn-small btn-success" id="invoice-settings-save-btn">Save Statement Settings</button>
+                </form>
+            </details>
+
             <section style="margin-bottom: 1.5rem;">
                 <h4 style="font-weight:700; margin-bottom:0.75rem;">Vendors — Standing</h4>
                 <div id="payouts-vendors-table" style="overflow-x:auto;"><p style="text-align: center; color: var(--slate-light); padding: 1rem 0;">Loading…</p></div>
@@ -12603,6 +12664,7 @@
                 document.getElementById('payouts-modal').classList.remove('active');
             });
             document.getElementById('commission-settings-form').addEventListener('submit', handleCommissionSettingsSubmit);
+            document.getElementById('invoice-settings-form').addEventListener('submit', handleInvoiceSettingsSubmit);
             const payoutsRowClickHandler = (e) => {
                 const recordBtn = e.target.closest('.record-payout-btn');
                 if (recordBtn) {
@@ -13546,6 +13608,15 @@
                 document.getElementById('commission-marketplace-enabled-input').checked = summary.platformSettings.marketplaceCommissionEnabled !== false;
                 document.getElementById('commission-delivery-enabled-input').checked = summary.platformSettings.deliveryCommissionEnabled !== false;
 
+                document.getElementById('invoice-show-service-fee-line-input').checked = summary.platformSettings.invoiceShowServiceFeeLine !== false;
+                document.getElementById('invoice-show-momo-line-input').checked = summary.platformSettings.invoiceShowMomoLine !== false;
+                document.getElementById('invoice-header-title-input').value = summary.platformSettings.invoiceHeaderTitle || 'Commission Statement';
+                document.getElementById('invoice-header-subtitle-input').value = summary.platformSettings.invoiceHeaderSubtitle || '';
+                document.getElementById('invoice-commission-note-input').value = summary.platformSettings.invoiceCommissionNote || '';
+                document.getElementById('invoice-service-fee-note-input').value = summary.platformSettings.invoiceServiceFeeNote || '';
+                document.getElementById('invoice-momo-note-input').value = summary.platformSettings.invoiceMomoNote || '';
+                document.getElementById('invoice-footer-note-input').value = summary.platformSettings.invoiceFooterNote || '';
+
                 renderPayoutStandingTable('payouts-vendors-table', summary.vendors, 'vendor', summary.platformSettings.marketplaceCommissionEnabled !== false);
                 renderPayoutStandingTable('payouts-companies-table', summary.deliveryCompanies, 'delivery_company', summary.platformSettings.deliveryCommissionEnabled !== false);
                 renderPayoutHistoryTable(history.payouts || []);
@@ -13638,6 +13709,39 @@
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Save Rates';
+            }
+        }
+
+        async function handleInvoiceSettingsSubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('invoice-settings-error');
+            const saveBtn = document.getElementById('invoice-settings-save-btn');
+            errorEl.style.display = 'none';
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving…';
+            try {
+                const subtitle = document.getElementById('invoice-header-subtitle-input').value.trim();
+                await apiFetch('/api/super-admin/settings/platform', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        invoiceShowServiceFeeLine: document.getElementById('invoice-show-service-fee-line-input').checked,
+                        invoiceShowMomoLine: document.getElementById('invoice-show-momo-line-input').checked,
+                        invoiceHeaderTitle: document.getElementById('invoice-header-title-input').value.trim(),
+                        invoiceHeaderSubtitle: subtitle || null,
+                        invoiceCommissionNote: document.getElementById('invoice-commission-note-input').value.trim(),
+                        invoiceServiceFeeNote: document.getElementById('invoice-service-fee-note-input').value.trim(),
+                        invoiceMomoNote: document.getElementById('invoice-momo-note-input').value.trim(),
+                        invoiceFooterNote: document.getElementById('invoice-footer-note-input').value.trim(),
+                    }),
+                });
+                showToast('Commission Statement settings updated', 'success');
+                await loadPayoutsPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Statement Settings';
             }
         }
 
@@ -13780,14 +13884,48 @@
         // already sees. Follows the same jsPDF pattern as every other
         // report in this app (see generateDailyReportPDF above), plus
         // the ONLib logo in the header.
+        // Simple {token} substitution for the Super-Admin-editable line
+        // notes/footer below — lets an edited template still show the
+        // real computed numbers instead of losing them to freeform text.
+        // Unknown tokens are left as-is rather than silently dropped, so
+        // a typo in a custom template is visible instead of vanishing.
+        function fillInvoiceTemplate(template, tokens) {
+            return String(template || '').replace(/\{(\w+)\}/g, (m, key) => (key in tokens ? String(tokens[key]) : m));
+        }
+
         function generateCommissionStatementPDF(s) {
+            // Presentation settings — Super Admin editable (Payouts &
+            // Commission > Commission Statement Settings). Falls back to
+            // this feature's original defaults if settings haven't
+            // loaded for some reason, so a missing cache never breaks
+            // PDF generation.
+            const ps = (payoutSummaryCache && payoutSummaryCache.platformSettings) || {};
+            const showServiceFeeLine = ps.invoiceShowServiceFeeLine !== false;
+            const showMomoLine = ps.invoiceShowMomoLine !== false;
+            const headerTitle = ps.invoiceHeaderTitle || 'Commission Statement';
+            const headerSubtitle = ps.invoiceHeaderSubtitle || '';
+            const footerTemplate = ps.invoiceFooterNote || 'Generated from real purchase/order data for the period above. Gross revenue, commission, and service fee are computed fresh each time this is generated — if a dispute affecting this period is resolved later, regenerating this statement will reflect it.';
+            const commissionNoteTemplate = ps.invoiceCommissionNote || '{rate}% of net gross revenue for the period above{refundClause}';
+            const serviceFeeNoteTemplate = ps.invoiceServiceFeeNote || '$0.10 x {feeOwedOrders} {feeType} order(s) this period';
+            const momoNoteTemplate = ps.invoiceMomoNote || '$0.10 x {momoCount} Mobile Money order(s) this period — already collected by ONLib directly at checkout';
+
+            // A hidden line can't reconcile against a printed total, so
+            // hiding the Service Fee Owed line also drops its amount
+            // from THIS statement's own Balance Due — the real standing
+            // numbers elsewhere in the app (Payouts & Commission
+            // standing table) are untouched by this display setting.
+            const momoCount = Math.max(0, s.serviceFeeExcludedCount || 0);
+            const feeOwedOrders = Math.max(0, s.orderCount - momoCount);
+            const displayedServiceFeeOwed = showServiceFeeLine ? s.serviceFeeOwed : 0;
+            const displayedBalanceDue = Math.max(0, Math.round((s.commissionAmount + displayedServiceFeeOwed - s.previouslyPaid) * 100) / 100);
+
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageMargin = 14;
             let y = 18;
 
-            // ---- Header: logo left, "Commission Statement" title right ----
+            // ---- Header: logo left, title (+ optional subtitle) right ----
             const logoWidth = 46;
             const logoHeight = Math.round(logoWidth * ONLIB_LOGO_ASPECT * 10) / 10;
             try {
@@ -13797,11 +13935,16 @@
                 console.error('Failed to embed ONLib logo in PDF', err);
             }
             doc.setFontSize(18); doc.setFont('helvetica', 'bold'); doc.setTextColor(18, 39, 64);
-            doc.text('Commission Statement', pageWidth - pageMargin, y + 8, { align: 'right' });
+            doc.text(cleanText(headerTitle), pageWidth - pageMargin, y + 8, { align: 'right' });
             doc.setFontSize(10); doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 90, 90);
-            doc.text(`Statement No. ${cleanText(s.statementNumber)}`, pageWidth - pageMargin, y + 15, { align: 'right' });
+            let headerLineY = y + 15;
+            if (headerSubtitle) {
+                doc.text(cleanText(headerSubtitle), pageWidth - pageMargin, headerLineY, { align: 'right' });
+                headerLineY += 6;
+            }
+            doc.text(`Statement No. ${cleanText(s.statementNumber)}`, pageWidth - pageMargin, headerLineY, { align: 'right' });
             doc.setTextColor(0, 0, 0);
-            y += Math.max(logoHeight, 20) + 10;
+            y = Math.max(y + logoHeight, headerLineY) + 10;
 
             doc.setDrawColor(217, 220, 225);
             doc.line(pageMargin, y, pageWidth - pageMargin, y);
@@ -13858,25 +14001,40 @@
             };
 
             const commissionLabel = s.recipientType === 'vendor' ? 'Marketplace Commission' : 'Delivery Commission';
+            const refundClause = s.refunded > 0 ? ` (after $${s.refunded.toFixed(2)} in resolved-dispute refunds)` : '';
             lineRow(
                 commissionLabel,
-                `${s.effectiveRate}% of net gross revenue for the period above${s.refunded > 0 ? ` (after $${s.refunded.toFixed(2)} in resolved-dispute refunds)` : ''}`,
+                fillInvoiceTemplate(commissionNoteTemplate, { rate: s.effectiveRate, refundClause }),
                 `${s.effectiveRate}%`,
                 `$${s.netGrossRevenue.toFixed(2)}`,
                 `$${s.commissionAmount.toFixed(2)}`
             );
 
-            const feeOwedOrders = Math.max(0, s.orderCount - s.serviceFeeExcludedCount);
-            const feeNote = s.recipientType === 'vendor'
-                ? `$0.10 x ${feeOwedOrders} cash / Pay-on-Delivery order(s) this period`
-                : `$0.10 x ${feeOwedOrders} delivered order(s) this period`;
-            lineRow(
-                'Service Fee Owed',
-                feeNote,
-                '$0.10',
-                `${feeOwedOrders} order(s)`,
-                `$${s.serviceFeeOwed.toFixed(2)}`
-            );
+            if (showServiceFeeLine) {
+                const feeType = s.recipientType === 'vendor' ? 'cash / Pay-on-Delivery' : 'delivered';
+                lineRow(
+                    'Service Fee Owed',
+                    fillInvoiceTemplate(serviceFeeNoteTemplate, { feeOwedOrders, feeType }),
+                    '$0.10',
+                    `${feeOwedOrders} order(s)`,
+                    `$${s.serviceFeeOwed.toFixed(2)}`
+                );
+            }
+
+            // Informational only — Mobile Money purchases already sent
+            // their $0.10 straight to ONLib's own MoMo account at
+            // checkout, so this line always shows $0.00 owed. Vendor
+            // statements only: delivery orders have no MoMo path.
+            if (showMomoLine && s.recipientType === 'vendor') {
+                lineRow(
+                    'Service Fees Paid via Mobile Money',
+                    fillInvoiceTemplate(momoNoteTemplate, { momoCount }),
+                    '$0.10',
+                    `${momoCount} order(s)`,
+                    '$0.00 owed',
+                    { color: [21, 128, 61] }
+                );
+            }
 
             y += 4;
 
@@ -13893,13 +14051,13 @@
             totalRow('Gross Revenue', `$${s.grossRevenue.toFixed(2)}`);
             if (s.refunded > 0) totalRow('Less Refunds', `-$${s.refunded.toFixed(2)}`);
             totalRow(`Commission Owed (${s.effectiveRate}%)`, `$${s.commissionAmount.toFixed(2)}`);
-            totalRow('Service Fee Owed', `$${s.serviceFeeOwed.toFixed(2)}`);
+            if (showServiceFeeLine) totalRow('Service Fee Owed', `$${s.serviceFeeOwed.toFixed(2)}`);
             if (s.previouslyPaid > 0) totalRow('Previously Paid This Period', `-$${s.previouslyPaid.toFixed(2)}`, { color: [21, 128, 61] });
             doc.setDrawColor(18, 39, 64); doc.setLineWidth(0.6);
             doc.line(pageWidth - pageMargin - 65, y, pageWidth - pageMargin, y);
             doc.setLineWidth(0.2);
             y += 6;
-            totalRow('Balance Due', `$${s.balanceDue.toFixed(2)}`, { bold: true, color: [30, 142, 90] });
+            totalRow('Balance Due', `$${displayedBalanceDue.toFixed(2)}`, { bold: true, color: [30, 142, 90] });
 
             y += 10;
             if (y > 240) { doc.addPage(); y = 20; }
@@ -13908,14 +14066,18 @@
             doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(90, 90, 90);
             doc.text('Amount Due', pageMargin + 5, y + 10);
             doc.setFontSize(14); doc.setTextColor(30, 142, 90);
-            doc.text(`$${s.balanceDue.toFixed(2)}`, pageWidth - pageMargin - 5, y + 10.5, { align: 'right' });
+            doc.text(`$${displayedBalanceDue.toFixed(2)}`, pageWidth - pageMargin - 5, y + 10.5, { align: 'right' });
             doc.setTextColor(0, 0, 0);
             y += 24;
 
             doc.setFontSize(7.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(120, 120, 120);
-            const footerNote = s.commissionEnabled === false
-                ? 'Commission is currently switched off platform-wide for this side of the business, so the commission line above is $0.00 regardless of the configured rate.'
-                : 'Generated from real purchase/order data for the period above. Gross revenue, commission, and service fee are computed fresh each time this is generated — if a dispute affecting this period is resolved later, regenerating this statement will reflect it.';
+            // The commission-disabled disclosure is always appended when
+            // applicable, regardless of what the custom footer text
+            // says — a factual disclosure that shouldn't be editable away.
+            let footerNote = footerTemplate;
+            if (s.commissionEnabled === false) {
+                footerNote += ' Commission is currently switched off platform-wide for this side of the business, so the commission line above is $0.00 regardless of the configured rate.';
+            }
             const footerLines = doc.splitTextToSize(footerNote, pageWidth - pageMargin * 2);
             footerLines.forEach(line => { doc.text(line, pageMargin, y); y += 3.8; });
 
