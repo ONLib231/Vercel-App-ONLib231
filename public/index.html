@@ -2208,6 +2208,21 @@
         #delivery-app .sa-lob-marketplace .sa-lob-dot { background: var(--secondary); }
         #delivery-app .sa-lob-restaurant .sa-lob-dot { background: var(--accent); }
         #delivery-app .sa-lob-delivery .sa-lob-dot { background: var(--primary); }
+
+        /* Manage Agent / Super Admin "Today's Snapshot" + "Delivery Status"
+           bands and the "Live Operations" spotlight in between them — reuse
+           the same .sa-band and .sa-premium-spotlight machinery as the
+           Super Admin Overview, just with an operations-colored accent
+           instead of the Premium purple, so the two spotlights read as
+           related but distinct at a glance. */
+        #delivery-app .sa-band-snapshot::before { background: var(--primary); }
+        #delivery-app .sa-band-snapshot .sa-band-icon { background: #eef2ff; color: var(--primary); }
+        #delivery-app .sa-band-fleet::before { background: var(--secondary); }
+        #delivery-app .sa-band-fleet .sa-band-icon { background: #ecfdf5; color: var(--secondary); }
+        #delivery-app .sa-premium-spotlight.sa-spotlight-ops { background: linear-gradient(135deg, #0f766e, #0e7490 55%, #0ea5e9); }
+        /* Ops spotlight has 3 metrics (Orders/Delivered/On Duty), not 4 —
+           equal thirds instead of the Premium panel's 2x2. */
+        #delivery-app .sa-spotlight-ops .sa-premium-spotlight-metrics { grid-template-columns: repeat(3, 1fr); }
         #delivery-app .sa-lob-row {
             display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0;
             font-size: 0.875rem; color: var(--admin-text-secondary); border-top: 1px solid var(--admin-border);
@@ -5036,9 +5051,25 @@
                 </header>
 
                 <div id="admin-operational-view">
-                <div class="admin-section-label">TODAY'S SNAPSHOT</div>
-                <section class="stats-section" style="margin-bottom: 1.5rem;">
-                    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
+                <!-- Today's Snapshot and Delivery Status render as "band"
+                     cards (same pattern as the Super Admin Overview's Lines
+                     of Business), and a "Live Operations" spotlight sits
+                     between them mirroring the same real, already-computed
+                     numbers (today's revenue/orders/delivered/on-duty) —
+                     see the end of calculateAndRenderStats() for the mirror
+                     assignments. Every trend pill below (▲/▼ vs yesterday)
+                     was already real before this redesign — formatTrend()
+                     compares actual today-vs-yesterday order data, nothing
+                     here is invented. -->
+                <section class="sa-band sa-band-snapshot">
+                    <div class="sa-band-header">
+                        <div class="sa-band-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9m9 5h-9m9 5h-9M4 7h1m-1 5h1m-1 5h1"></path><rect x="3" y="4" width="4" height="16" rx="1"></rect></svg></div>
+                        <div>
+                            <div class="sa-band-title">Today's Snapshot</div>
+                            <div class="sa-band-subtitle">Orders, earnings, and revenue trend</div>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
                         <div class="stat-card">
                             <div class="stat-card-top"><h4>Total Orders</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9m9 5h-9m9 5h-9M4 7h1m-1 5h1m-1 5h1"></path><rect x="3" y="4" width="4" height="16" rx="1"></rect></svg></div></div>
                             <p id="total-orders-delivery">0</p>
@@ -5065,8 +5096,42 @@
                     </div>
                 </section>
 
-                <section class="stats-section" style="margin-bottom: 2.5rem;">
-                    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+                <!-- Live Operations spotlight — every number here is a mirror
+                     of a value already computed in calculateAndRenderStats()
+                     (today's revenue/orders/delivered/on-duty), not a new
+                     calculation or an invented trend. -->
+                <section class="sa-premium-spotlight sa-spotlight-ops" id="admin-today-spotlight">
+                    <div class="sa-premium-spotlight-main">
+                        <div class="sa-premium-spotlight-badge">📊 LIVE OPERATIONS</div>
+                        <div class="sa-premium-spotlight-headline"><span id="admin-today-spotlight-amount">$0.00</span> revenue booked today</div>
+                        <p class="sa-premium-spotlight-desc">A live read on today's delivery operations — orders moving, agents on duty, and how revenue is trending against yesterday.</p>
+                        <button type="button" class="sa-premium-spotlight-cta" id="admin-today-spotlight-cta">View Available Orders →</button>
+                    </div>
+                    <div class="sa-premium-spotlight-metrics">
+                        <div class="sa-premium-metric">
+                            <div class="sa-premium-metric-value" id="admin-today-spotlight-orders">0</div>
+                            <div class="sa-premium-metric-label">Orders Today</div>
+                        </div>
+                        <div class="sa-premium-metric">
+                            <div class="sa-premium-metric-value" id="admin-today-spotlight-delivered">0</div>
+                            <div class="sa-premium-metric-label">Delivered</div>
+                        </div>
+                        <div class="sa-premium-metric">
+                            <div class="sa-premium-metric-value" id="admin-today-spotlight-onduty">0</div>
+                            <div class="sa-premium-metric-label">On Duty</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="sa-band sa-band-fleet" style="margin-bottom: 2.5rem;">
+                    <div class="sa-band-header">
+                        <div class="sa-band-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
+                        <div>
+                            <div class="sa-band-title">Delivery Status</div>
+                            <div class="sa-band-subtitle">Where every order stands right now</div>
+                        </div>
+                    </div>
+                    <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem;">
                         <div class="stat-card success">
                             <div class="stat-card-top"><h4>Delivered Orders</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div></div>
                             <p id="delivered-orders-delivery">0</p>
@@ -5097,7 +5162,7 @@
 
                 <div class="admin-two-col">
                     <div class="admin-two-col-main">
-                        <section class="orders-section">
+                        <section class="orders-section" id="available-orders-section">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
                                 <h2 class="section-title" style="margin: 0;">Available Orders</h2>
                                 <div style="display: flex; gap: 1rem; align-items: center;">
@@ -12309,6 +12374,14 @@
             });
             document.getElementById('restore-cancel-btn').addEventListener('click', resetRestoreFlow);
 
+            // ---- Live Operations spotlight CTA (Overview) ----
+            const todaySpotlightCtaBtn = document.getElementById('admin-today-spotlight-cta');
+            if (todaySpotlightCtaBtn) {
+                todaySpotlightCtaBtn.addEventListener('click', () => {
+                    document.getElementById('available-orders-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            }
+
             // ---- Weekly Revenue card (Overview) ----
             document.getElementById('weekly-revenue-card').addEventListener('click', openWeeklyRevenueModal);
             document.getElementById('weekly-revenue-card').addEventListener('keydown', (e) => {
@@ -17489,6 +17562,19 @@
                 onDutyFractionEl.textContent = agentRecords.length > 0 ? `${onDutyCount} of ${agentRecords.length} agents` : 'No agents yet';
                 onDutyFractionEl.className = 'stat-trend flat';
             }
+
+            // Mirror the same real numbers into the "Live Operations"
+            // spotlight — no new computation, just duplicating values
+            // already derived above (todayRevenueAll, todayAllOrders,
+            // todayDelivered, onDutyCount).
+            const spotlightAmountEl = document.getElementById('admin-today-spotlight-amount');
+            if (spotlightAmountEl) spotlightAmountEl.textContent = `$${todayRevenueAll.toFixed(2)}`;
+            const spotlightOrdersEl = document.getElementById('admin-today-spotlight-orders');
+            if (spotlightOrdersEl) spotlightOrdersEl.textContent = todayAllOrders.length;
+            const spotlightDeliveredEl = document.getElementById('admin-today-spotlight-delivered');
+            if (spotlightDeliveredEl) spotlightDeliveredEl.textContent = todayDelivered;
+            const spotlightOnDutyEl = document.getElementById('admin-today-spotlight-onduty');
+            if (spotlightOnDutyEl) spotlightOnDutyEl.textContent = onDutyCount;
         }
 
         function setTrendEl(id, trend) {
