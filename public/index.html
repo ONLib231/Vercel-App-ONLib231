@@ -1498,8 +1498,8 @@
 
         /* ---- Sidebar ---- */
         #delivery-app .admin-sidebar {
-            background: #ffffff;
-            border-right: 1px solid #e2e8f0;
+            background: linear-gradient(180deg, var(--admin-sidebar-from), var(--admin-sidebar-to));
+            border-right: 1px solid rgba(255,255,255,0.06);
             /* height (not min-height, unlike the other two app roots below)
                — the grouped nav can now be taller than the viewport, and
                #delivery-app .admin-nav below needs a hard-capped parent to
@@ -1569,8 +1569,8 @@
             padding-right: 0.25rem; margin-right: -0.25rem;
         }
         #delivery-app .admin-nav::-webkit-scrollbar { width: 6px; }
-        #delivery-app .admin-nav::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 9999px; }
-        #delivery-app .admin-nav::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        #delivery-app .admin-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 9999px; }
+        #delivery-app .admin-nav::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
         #delivery-app .admin-nav::-webkit-scrollbar-track { background: transparent; }
         #delivery-customer-app .admin-nav { display: flex; flex-direction: column; gap: 0.25rem; }
         #delivery-company-app .admin-nav { display: flex; flex-direction: column; gap: 0.25rem; }
@@ -1591,9 +1591,9 @@
             width: 100%; background: none; border: none; cursor: pointer;
             padding: 0.5rem 0.875rem;
             font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-            color: #94a3b8; transition: color 0.15s ease; border-radius: var(--admin-radius-sm);
+            color: var(--admin-sidebar-text); opacity: 0.7; transition: color 0.15s ease, opacity 0.15s ease; border-radius: var(--admin-radius-sm);
         }
-        #delivery-app .admin-nav-group-header:hover { color: #475569; }
+        #delivery-app .admin-nav-group-header:hover { color: var(--admin-sidebar-text-hover); opacity: 1; }
         #delivery-app .admin-nav-group-header:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
         #delivery-app .admin-nav-group-chevron { width: 14px; height: 14px; flex-shrink: 0; transition: transform 0.2s ease; }
         #delivery-app .admin-nav-group.collapsed .admin-nav-group-chevron { transform: rotate(-90deg); }
@@ -1609,7 +1609,7 @@
             display: flex; align-items: center; gap: 0.75rem;
             min-height: 44px;
             padding: 0.625rem 0.875rem; border-radius: var(--admin-radius-sm);
-            color: #475569; font-weight: 600; font-size: 0.875rem;
+            color: var(--admin-sidebar-text); font-weight: 600; font-size: 0.875rem;
             background: transparent; border: none; cursor: pointer; text-align: left;
             transition: background 0.15s ease, color 0.15s ease; width: 100%;
         }
@@ -1629,12 +1629,12 @@
             background: transparent; border: none; cursor: pointer; text-align: left;
             transition: background 0.15s ease, color 0.15s ease; width: 100%;
         }
-        #delivery-app .admin-nav-item:hover { background: #f1f5f9; color: #1e293b; }
+        #delivery-app .admin-nav-item:hover { background: rgba(255,255,255,0.08); color: var(--admin-sidebar-text-hover); }
         #delivery-customer-app .admin-nav-item:hover { background: #f1f5f9; color: #1e293b; }
         #delivery-company-app .admin-nav-item:hover { background: #f1f5f9; color: #1e293b; }
         #delivery-app .admin-nav-item:focus-visible {
             outline: 2px solid var(--primary); outline-offset: 2px;
-            background: #f1f5f9; color: #1e293b;
+            background: rgba(255,255,255,0.08); color: var(--admin-sidebar-text-hover);
         }
         #delivery-customer-app .admin-nav-item:focus-visible {
             outline: 2px solid var(--primary); outline-offset: 2px;
@@ -1752,13 +1752,13 @@
             display: flex; align-items: center; justify-content: center;
             font-weight: 700; font-size: 0.9375rem; border: none; flex-shrink: 0;
         }
-        #delivery-app .admin-profile-label { color: #1e293b; font-weight: 600; font-size: 0.875rem; }
+        #delivery-app .admin-profile-label { color: var(--admin-sidebar-text-hover); font-weight: 600; font-size: 0.875rem; }
         #delivery-customer-app .admin-profile-label { color: #1e293b; font-weight: 600; font-size: 0.875rem; }
         #delivery-company-app .admin-profile-label { color: #1e293b; font-weight: 600; font-size: 0.875rem; }
-        #delivery-app .admin-logout { color: #dc2626; }
+        #delivery-app .admin-logout { color: #f87171; }
         #delivery-customer-app .admin-logout { color: #dc2626; }
         #delivery-company-app .admin-logout { color: #dc2626; }
-        #delivery-app .admin-logout:hover { background: #fef2f2; color: #b91c1c; }
+        #delivery-app .admin-logout:hover { background: rgba(248,113,113,0.14); color: #fca5a5; }
         #delivery-customer-app .admin-logout:hover { background: #fef2f2; color: #b91c1c; }
         #delivery-company-app .admin-logout:hover { background: #fef2f2; color: #b91c1c; }
 
@@ -1772,9 +1772,9 @@
             height: 2.75rem;
             border-radius: var(--admin-radius-sm);
             display: flex; align-items: center; justify-content: center;
-            background: var(--admin-surface-alt);
-            border: 1px solid var(--admin-border);
-            color: var(--admin-text-secondary);
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.14);
+            color: white;
             cursor: pointer;
             transition: left 0.3s ease-in-out, background 0.15s, color 0.15s, border-color 0.15s;
         }
@@ -1809,7 +1809,7 @@
             cursor: pointer;
             transition: left 0.3s ease-in-out, background 0.15s, color 0.15s, border-color 0.15s;
         }
-        #delivery-app .sidebar-toggle-btn:hover { background: var(--admin-border); color: var(--admin-text); }
+        #delivery-app .sidebar-toggle-btn:hover { background: rgba(255,255,255,0.16); color: white; }
         #delivery-customer-app .sidebar-toggle-btn:hover { background: rgba(255,255,255,0.16); }
         #delivery-company-app .sidebar-toggle-btn:hover { background: rgba(255,255,255,0.16); }
         #delivery-app .sidebar-toggle-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
@@ -2099,6 +2099,98 @@
             color: var(--admin-text-secondary); text-transform: uppercase; letter-spacing: 0.05em;
             margin: 2rem 0 1rem;
         }
+
+        /* ---- Super Admin Overview redesign: line-of-business band cards,
+           the Premium subscription spotlight panel, and the Quick Actions
+           grid. Scoped to #delivery-app only (Super Admin lives in the
+           same shell as Manage Agent). Every id referenced by existing JS
+           (loadSuperAdminOverview, the sa-quick-* click handlers) is
+           unchanged — this only adds new wrapper markup/classes around it. ---- */
+        #delivery-app .sa-band {
+            background: var(--admin-surface);
+            border: 1px solid var(--admin-border);
+            border-radius: var(--admin-radius-lg);
+            padding: 1.5rem 1.5rem 1.75rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        #delivery-app .sa-band::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+        }
+        #delivery-app .sa-band-marketplace::before { background: var(--primary); }
+        #delivery-app .sa-band-restaurant::before { background: var(--accent); }
+        #delivery-app .sa-band-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+        #delivery-app .sa-band-icon {
+            width: 2.25rem; height: 2.25rem; border-radius: 0.625rem; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #delivery-app .sa-band-icon svg { width: 18px; height: 18px; }
+        #delivery-app .sa-band-marketplace .sa-band-icon { background: #eef2ff; color: var(--primary); }
+        #delivery-app .sa-band-restaurant .sa-band-icon { background: #fffbeb; color: var(--accent); }
+        #delivery-app .sa-band-title { font-size: 1rem; font-weight: 700; color: var(--admin-text); }
+        #delivery-app .sa-band-subtitle { font-size: 0.8125rem; color: var(--admin-text-secondary); margin-top: 0.125rem; }
+        #delivery-app .sa-band .stat-card { background: var(--admin-surface-alt); box-shadow: none; }
+        #delivery-app .sa-band .stat-card:hover { transform: none; box-shadow: none; border-color: var(--admin-border-strong); }
+
+        #delivery-app .sa-premium-spotlight {
+            display: grid; grid-template-columns: 1.3fr 1fr; gap: 2rem;
+            background: linear-gradient(135deg, #4338ca, #6366f1 55%, #8b5cf6);
+            border-radius: var(--admin-radius-lg); padding: 2rem 2.25rem;
+            color: white; margin-bottom: 1.5rem; position: relative; overflow: hidden;
+        }
+        #delivery-app .sa-premium-spotlight::after {
+            content: ''; position: absolute; top: -40%; right: -8%; width: 320px; height: 320px;
+            background: radial-gradient(circle, rgba(255,255,255,0.16), transparent 70%);
+            pointer-events: none;
+        }
+        #delivery-app .sa-premium-spotlight-main { position: relative; }
+        #delivery-app .sa-premium-spotlight-badge {
+            display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.6875rem; font-weight: 700;
+            letter-spacing: 0.06em; background: rgba(255,255,255,0.16); padding: 0.3rem 0.75rem;
+            border-radius: 9999px; margin-bottom: 1rem;
+        }
+        #delivery-app .sa-premium-spotlight-figure { font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+        #delivery-app .sa-premium-spotlight-label { font-size: 0.875rem; color: rgba(255,255,255,0.82); margin-top: 0.375rem; font-weight: 600; }
+        #delivery-app .sa-premium-spotlight-desc { font-size: 0.875rem; color: rgba(255,255,255,0.88); margin: 1rem 0 1.25rem; max-width: 48ch; line-height: 1.5; }
+        #delivery-app .sa-premium-spotlight-cta {
+            background: white; color: var(--primary-dark); border: none; border-radius: var(--admin-radius-sm);
+            padding: 0.75rem 1.25rem; font-weight: 700; font-size: 0.875rem; cursor: pointer;
+        }
+        #delivery-app .sa-premium-spotlight-cta:hover { background: #f1f5f9; }
+        #delivery-app .sa-premium-spotlight-metrics {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; align-content: center; position: relative;
+        }
+        #delivery-app .sa-premium-metric {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18);
+            border-radius: var(--admin-radius-md); padding: 1rem 0.75rem; text-align: center;
+        }
+        #delivery-app .sa-premium-metric-value { font-size: 1.5rem; font-weight: 800; }
+        #delivery-app .sa-premium-metric-label { font-size: 0.75rem; color: rgba(255,255,255,0.78); margin-top: 0.25rem; font-weight: 600; }
+        @media (max-width: 760px) {
+            #delivery-app .sa-premium-spotlight { grid-template-columns: 1fr; }
+        }
+
+        #delivery-app .sa-quick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        #delivery-app .sa-quick-action {
+            display: flex; align-items: center; gap: 0.875rem;
+            padding: 1rem 1.125rem; border-radius: var(--admin-radius-md);
+            background: var(--admin-surface); border: 1px solid var(--admin-border);
+            box-shadow: var(--admin-shadow-xs); cursor: pointer; text-align: left;
+            font-family: inherit; font-weight: 600; font-size: 0.875rem; color: var(--admin-text);
+            transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+        }
+        #delivery-app .sa-quick-action:hover { box-shadow: var(--admin-shadow-md); transform: translateY(-2px); border-color: var(--admin-border-strong); }
+        #delivery-app .sa-quick-action-icon {
+            width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; background: var(--admin-surface-alt);
+            display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;
+        }
+        #delivery-app .sa-quick-action-highlight {
+            background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(99,102,241,0.02));
+            border-color: rgba(99,102,241,0.35);
+        }
+        #delivery-app .sa-quick-action-highlight .sa-quick-action-icon { background: var(--primary); }
+
         /* Global versions of the filter bar (used by both the admin
            Available Orders filter and the sender-side Marketplace
            storefront) — the #delivery-app-scoped rules above still win
@@ -5078,16 +5170,58 @@
                         </div>
                     </section>
 
+                    <!-- Premium subscription spotlight — real numbers only
+                         (subscriber count, paid/comp split, share of all
+                         vendors), all derived client-side from the same
+                         vendors[] array loadSuperAdminOverview() already
+                         fetches, so no extra API call. CTA reuses the exact
+                         same openPremiumSubscriptionSettings() handler as
+                         the sa-premium-card stat tile and the Quick Actions
+                         button above/below. -->
+                    <section class="sa-premium-spotlight" id="sa-premium-spotlight">
+                        <div class="sa-premium-spotlight-main">
+                            <div class="sa-premium-spotlight-badge">⭐ PREMIUM SUBSCRIPTION</div>
+                            <div class="sa-premium-spotlight-figure" id="sa-premium-spotlight-count">0</div>
+                            <div class="sa-premium-spotlight-label">vendors on Premium right now</div>
+                            <p class="sa-premium-spotlight-desc">Premium unlocks PDF reports, a featuring perk, a lower commission rate, and priority support — on top of every vendor's free base tier. You decide what's free and what's paid.</p>
+                            <button type="button" class="sa-premium-spotlight-cta" id="sa-premium-spotlight-cta">Manage Premium Settings →</button>
+                        </div>
+                        <div class="sa-premium-spotlight-metrics">
+                            <div class="sa-premium-metric">
+                                <div class="sa-premium-metric-value" id="sa-premium-paid-count">0</div>
+                                <div class="sa-premium-metric-label">Paying</div>
+                            </div>
+                            <div class="sa-premium-metric">
+                                <div class="sa-premium-metric-value" id="sa-premium-comp-count">0</div>
+                                <div class="sa-premium-metric-label">Comped by you</div>
+                            </div>
+                            <div class="sa-premium-metric">
+                                <div class="sa-premium-metric-value" id="sa-premium-share-pct">0%</div>
+                                <div class="sa-premium-metric-label">Of all vendors</div>
+                            </div>
+                        </div>
+                    </section>
+
                     <!-- Marketplace (stores) and Restaurants are now two
                          clearly separate sections — both are "vendor
                          purchases" under the hood, but they're two
                          distinct lines of business to read on a
                          dashboard, split via vendor_type at the query
                          level (see db.getBusinessOverviewStats), not
-                         just relabeled here. -->
-                    <div class="admin-section-label">MARKETPLACE</div>
-                    <section class="stats-section" style="margin-bottom: 1.5rem;">
-                        <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
+                         just relabeled here. Each renders as a "band card"
+                         (bordered container + colored top accent + icon
+                         header) instead of a bare section label, so the
+                         two lines of business are visually distinct at a
+                         glance. All stat ids are unchanged from before. -->
+                    <section class="sa-band sa-band-marketplace">
+                        <div class="sa-band-header">
+                            <div class="sa-band-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div>
+                            <div>
+                                <div class="sa-band-title">Marketplace</div>
+                                <div class="sa-band-subtitle">Store vendors, orders, and revenue</div>
+                            </div>
+                        </div>
+                        <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
                             <div class="stat-card success">
                                 <div class="stat-card-top"><h4>Store Vendors</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div></div>
                                 <p id="ov-marketplace-vendors">0</p>
@@ -5103,9 +5237,15 @@
                         </div>
                     </section>
 
-                    <div class="admin-section-label">RESTAURANTS</div>
-                    <section class="stats-section" style="margin-bottom: 1.5rem;">
-                        <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
+                    <section class="sa-band sa-band-restaurant">
+                        <div class="sa-band-header">
+                            <div class="sa-band-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div>
+                            <div>
+                                <div class="sa-band-title">Restaurants</div>
+                                <div class="sa-band-subtitle">Restaurant vendors, orders, and revenue</div>
+                            </div>
+                        </div>
+                        <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
                             <div class="stat-card warning">
                                 <div class="stat-card-top"><h4>Restaurant Vendors</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div></div>
                                 <p id="ov-restaurant-vendors">0</p>
@@ -5145,13 +5285,31 @@
 
                     <section class="orders-section">
                         <h2 class="section-title">Quick Actions</h2>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
-                            <button type="button" class="btn-small btn-secondary" id="sa-quick-vendors-btn" style="padding:1rem; text-align:left;">🏬 Manage Vendors</button>
-                            <button type="button" class="btn-small btn-secondary" id="sa-quick-customers-btn" style="padding:1rem; text-align:left;">👥 View Customers</button>
-                            <button type="button" class="btn-small btn-secondary" id="sa-quick-delivery-ops-btn" style="padding:1rem; text-align:left;">🚚 Delivery Operations</button>
-                            <button type="button" class="btn-small btn-secondary" id="sa-quick-products-btn" style="padding:1rem; text-align:left;">🛒 Marketplace Products</button>
-                            <button type="button" class="btn-small btn-secondary" id="sa-quick-banners-btn" style="padding:1rem; text-align:left;">🖼️ Home Banners</button>
-                            <button type="button" class="btn-small btn-secondary" id="sa-quick-premium-btn" style="padding:1rem; text-align:left;">⭐ Premium Subscriptions</button>
+                        <div class="sa-quick-grid">
+                            <button type="button" class="sa-quick-action" id="sa-quick-vendors-btn">
+                                <span class="sa-quick-action-icon">🏬</span>
+                                <span class="sa-quick-action-label">Manage Vendors</span>
+                            </button>
+                            <button type="button" class="sa-quick-action" id="sa-quick-customers-btn">
+                                <span class="sa-quick-action-icon">👥</span>
+                                <span class="sa-quick-action-label">View Customers</span>
+                            </button>
+                            <button type="button" class="sa-quick-action" id="sa-quick-delivery-ops-btn">
+                                <span class="sa-quick-action-icon">🚚</span>
+                                <span class="sa-quick-action-label">Delivery Operations</span>
+                            </button>
+                            <button type="button" class="sa-quick-action" id="sa-quick-products-btn">
+                                <span class="sa-quick-action-icon">🛒</span>
+                                <span class="sa-quick-action-label">Marketplace Products</span>
+                            </button>
+                            <button type="button" class="sa-quick-action" id="sa-quick-banners-btn">
+                                <span class="sa-quick-action-icon">🖼️</span>
+                                <span class="sa-quick-action-label">Home Banners</span>
+                            </button>
+                            <button type="button" class="sa-quick-action sa-quick-action-highlight" id="sa-quick-premium-btn">
+                                <span class="sa-quick-action-icon">⭐</span>
+                                <span class="sa-quick-action-label">Premium Subscriptions</span>
+                            </button>
                         </div>
                     </section>
                 </div>
@@ -12316,7 +12474,15 @@
                 // isPremium comes straight off GET /api/super-admin/vendors
                 // (see db.getVendors' left-join onto vendor_subscriptions) —
                 // no separate call needed just for this count.
-                document.getElementById('sa-premium-subscribers').textContent = vendors.filter(v => v.isPremium).length;
+                const premiumVendors = vendors.filter(v => v.isPremium);
+                document.getElementById('sa-premium-subscribers').textContent = premiumVendors.length;
+                // Premium spotlight panel — same premiumVendors array, just
+                // split by premiumSource ('paid' vs 'admin_comp') and turned
+                // into a share of all vendors. No extra API call.
+                document.getElementById('sa-premium-spotlight-count').textContent = premiumVendors.length;
+                document.getElementById('sa-premium-paid-count').textContent = premiumVendors.filter(v => v.premiumSource === 'paid').length;
+                document.getElementById('sa-premium-comp-count').textContent = premiumVendors.filter(v => v.premiumSource === 'admin_comp').length;
+                document.getElementById('sa-premium-share-pct').textContent = vendors.length ? `${Math.round((premiumVendors.length / vendors.length) * 100)}%` : '0%';
 
                 const pending = vendors.filter(v => v.approvalStatus === 'pending');
                 const listEl = document.getElementById('sa-pending-applications-list');
@@ -12692,6 +12858,7 @@
             });
             document.getElementById('sa-premium-card').addEventListener('click', openPremiumSubscriptionSettings);
             document.getElementById('sa-quick-premium-btn').addEventListener('click', openPremiumSubscriptionSettings);
+            document.getElementById('sa-premium-spotlight-cta').addEventListener('click', openPremiumSubscriptionSettings);
             document.getElementById('sa-view-all-vendors-link').addEventListener('click', () => {
                 document.getElementById('vendors-modal').classList.add('active');
                 loadVendors();
