@@ -2152,6 +2152,7 @@
         }
         #delivery-app .sa-premium-spotlight-figure { font-size: 3rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
         #delivery-app .sa-premium-spotlight-label { font-size: 0.875rem; color: rgba(255,255,255,0.82); margin-top: 0.375rem; font-weight: 600; }
+        #delivery-app .sa-premium-spotlight-headline { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.3; margin-top: 0.5rem; }
         #delivery-app .sa-premium-spotlight-desc { font-size: 0.875rem; color: rgba(255,255,255,0.88); margin: 1rem 0 1.25rem; max-width: 48ch; line-height: 1.5; }
         #delivery-app .sa-premium-spotlight-cta {
             background: white; color: var(--primary-dark); border: none; border-radius: var(--admin-radius-sm);
@@ -2159,7 +2160,7 @@
         }
         #delivery-app .sa-premium-spotlight-cta:hover { background: #f1f5f9; }
         #delivery-app .sa-premium-spotlight-metrics {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; align-content: center; position: relative;
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; align-content: center; position: relative;
         }
         #delivery-app .sa-premium-metric {
             background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18);
@@ -2190,6 +2191,34 @@
             border-color: rgba(99,102,241,0.35);
         }
         #delivery-app .sa-quick-action-highlight .sa-quick-action-icon { background: var(--primary); }
+
+        /* ---- Super Admin Overview: page heading, Lines of Business compact
+           cards, and the pending-applications count badge. ---- */
+        #delivery-app .sa-page-heading { margin-bottom: 1.5rem; }
+        #delivery-app .sa-page-title { font-size: 1.5rem; font-weight: 800; color: var(--admin-text); letter-spacing: -0.02em; margin: 0; }
+        #delivery-app .sa-page-subtitle { font-size: 0.9375rem; color: var(--admin-text-secondary); margin: 0.25rem 0 0; }
+
+        #delivery-app .sa-lob-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
+        #delivery-app .sa-lob-card {
+            background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: var(--admin-radius-lg);
+            padding: 1.25rem 1.375rem; box-shadow: var(--admin-shadow-xs);
+        }
+        #delivery-app .sa-lob-header { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.9375rem; color: var(--admin-text); margin-bottom: 1rem; }
+        #delivery-app .sa-lob-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex-shrink: 0; }
+        #delivery-app .sa-lob-marketplace .sa-lob-dot { background: var(--secondary); }
+        #delivery-app .sa-lob-restaurant .sa-lob-dot { background: var(--accent); }
+        #delivery-app .sa-lob-delivery .sa-lob-dot { background: var(--primary); }
+        #delivery-app .sa-lob-row {
+            display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0;
+            font-size: 0.875rem; color: var(--admin-text-secondary); border-top: 1px solid var(--admin-border);
+        }
+        #delivery-app .sa-lob-row:first-of-type { border-top: none; padding-top: 0; }
+        #delivery-app .sa-lob-row strong { color: var(--admin-text); font-weight: 700; font-size: 0.9375rem; }
+
+        #delivery-app .sa-pending-badge {
+            display: inline-flex; align-items: center; font-size: 0.75rem; font-weight: 700;
+            background: #fef3c7; color: #92400e; padding: 0.25rem 0.625rem; border-radius: 9999px;
+        }
 
         /* Global versions of the filter bar (used by both the admin
            Available Orders filter and the sender-side Marketplace
@@ -5144,7 +5173,20 @@
                      Manage Agent (who never sees this at all); toggled via
                      the sidebar for Super Admin, who lands here by default. -->
                 <div id="super-admin-overview-view" style="display:none;">
-                    <div class="admin-section-label">PLATFORM OVERVIEW</div>
+                    <!-- Page heading lives here (inside the Super Admin-only
+                         view) rather than repurposing the shared topbar
+                         greeting (#user-name) — that element is also the
+                         live target of Settings > "Save Name", so hijacking
+                         it for a static "Platform Overview" title would get
+                         silently overwritten the next time an admin saves
+                         their display name. This is a separate, additive
+                         element instead. -->
+                    <div class="sa-page-heading">
+                        <h1 class="sa-page-title">Platform Overview</h1>
+                        <p class="sa-page-subtitle" id="sa-page-subtitle">Everything at a glance</p>
+                    </div>
+
+                    <div class="admin-section-label">PLATFORM</div>
                     <section class="stats-section" style="margin-bottom: 1.5rem;">
                         <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
                             <div class="stat-card">
@@ -5154,6 +5196,7 @@
                             <div class="stat-card" id="sa-pending-card" style="cursor:pointer;" title="Jump to pending applications">
                                 <div class="stat-card-top"><h4>Pending Applications</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div></div>
                                 <p id="sa-pending-count">0</p>
+                                <div class="stat-trend flat">Needs review</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-card-top"><h4>Total Customers</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6M23 11h-6"></path></svg></div></div>
@@ -5170,99 +5213,78 @@
                         </div>
                     </section>
 
-                    <!-- Premium subscription spotlight — real numbers only
-                         (subscriber count, paid/comp split, share of all
-                         vendors), all derived client-side from the same
-                         vendors[] array loadSuperAdminOverview() already
-                         fetches, so no extra API call. CTA reuses the exact
-                         same openPremiumSubscriptionSettings() handler as
-                         the sa-premium-card stat tile and the Quick Actions
-                         button above/below. -->
+                    <!-- Lines of business — compact, scannable cards (colored
+                         dot + 3 real metric rows each) instead of the old
+                         full-size stat-card bands. Marketplace/Restaurant
+                         numbers are unchanged real ids; Delivery's three
+                         numbers are new real fields added to
+                         GET /api/super-admin/overview's `delivery` object
+                         (todayOrders/companyCount/staffCount) — see db.js
+                         getDeliveryCompanies/getStaffAccounts and the
+                         today-orders filter in server.js. -->
+                    <div class="admin-section-label">LINES OF BUSINESS</div>
+                    <div class="sa-lob-grid">
+                        <div class="sa-lob-card sa-lob-marketplace">
+                            <div class="sa-lob-header"><span class="sa-lob-dot"></span> Marketplace</div>
+                            <div class="sa-lob-row"><span>Store vendors</span><strong id="ov-marketplace-vendors">0</strong></div>
+                            <div class="sa-lob-row"><span>Orders</span><strong id="ov-marketplace-orders">0</strong></div>
+                            <div class="sa-lob-row"><span>Revenue</span><strong id="ov-marketplace-revenue">$0.00</strong></div>
+                        </div>
+                        <div class="sa-lob-card sa-lob-restaurant">
+                            <div class="sa-lob-header"><span class="sa-lob-dot"></span> Restaurants</div>
+                            <div class="sa-lob-row"><span>Restaurant vendors</span><strong id="ov-restaurant-vendors">0</strong></div>
+                            <div class="sa-lob-row"><span>Orders</span><strong id="ov-restaurant-orders">0</strong></div>
+                            <div class="sa-lob-row"><span>Revenue</span><strong id="ov-restaurant-revenue">$0.00</strong></div>
+                        </div>
+                        <div class="sa-lob-card sa-lob-delivery">
+                            <div class="sa-lob-header"><span class="sa-lob-dot"></span> Delivery</div>
+                            <div class="sa-lob-row"><span>Delivery companies</span><strong id="ov-delivery-companies">0</strong></div>
+                            <div class="sa-lob-row"><span>Orders today</span><strong id="ov-delivery-today-orders">0</strong></div>
+                            <div class="sa-lob-row"><span>Staff accounts</span><strong id="ov-delivery-staff">0</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Premium subscription spotlight — every figure here is
+                         real: subscriber count and admin-comp count come
+                         from the vendors[] array already fetched; est.
+                         monthly value, pending Direct count, and the
+                         commission rate come from the new `premium` object
+                         on GET /api/super-admin/overview (db.js:
+                         getActivePremiumMonthlyValue, getPendingDirect-
+                         SubscriptionCharges, getPlatformSettings). The
+                         description sentence is built from the platform's
+                         actual active featuring perk and a real reminder
+                         count backed by premium_reminder_log (see
+                         db.logPremiumReminderSent, called from
+                         runPremiumReminderScan in server.js) — nothing here
+                         is an invented trend. -->
+                    <div class="admin-section-label">PREMIUM SUBSCRIPTION</div>
                     <section class="sa-premium-spotlight" id="sa-premium-spotlight">
                         <div class="sa-premium-spotlight-main">
-                            <div class="sa-premium-spotlight-badge">⭐ PREMIUM SUBSCRIPTION</div>
-                            <div class="sa-premium-spotlight-figure" id="sa-premium-spotlight-count">0</div>
-                            <div class="sa-premium-spotlight-label">vendors on Premium right now</div>
-                            <p class="sa-premium-spotlight-desc">Premium unlocks PDF reports, a featuring perk, a lower commission rate, and priority support — on top of every vendor's free base tier. You decide what's free and what's paid.</p>
+                            <div class="sa-premium-spotlight-badge">⭐ PREMIUM TIER</div>
+                            <div class="sa-premium-spotlight-headline"><span id="sa-premium-spotlight-count">0</span> vendors are on Premium right now</div>
+                            <p class="sa-premium-spotlight-desc" id="sa-premium-spotlight-desc">Loading…</p>
                             <button type="button" class="sa-premium-spotlight-cta" id="sa-premium-spotlight-cta">Manage Premium Settings →</button>
                         </div>
                         <div class="sa-premium-spotlight-metrics">
                             <div class="sa-premium-metric">
-                                <div class="sa-premium-metric-value" id="sa-premium-paid-count">0</div>
-                                <div class="sa-premium-metric-label">Paying</div>
+                                <div class="sa-premium-metric-value" id="sa-premium-monthly-value">$0</div>
+                                <div class="sa-premium-metric-label">Est. Monthly Value</div>
+                            </div>
+                            <div class="sa-premium-metric">
+                                <div class="sa-premium-metric-value" id="sa-premium-pending-direct">0</div>
+                                <div class="sa-premium-metric-label">Pending Direct</div>
                             </div>
                             <div class="sa-premium-metric">
                                 <div class="sa-premium-metric-value" id="sa-premium-comp-count">0</div>
-                                <div class="sa-premium-metric-label">Comped by you</div>
+                                <div class="sa-premium-metric-label">Admin Comps Active</div>
                             </div>
                             <div class="sa-premium-metric">
-                                <div class="sa-premium-metric-value" id="sa-premium-share-pct">0%</div>
-                                <div class="sa-premium-metric-label">Of all vendors</div>
+                                <div class="sa-premium-metric-value" id="sa-premium-commission-rate">0%</div>
+                                <div class="sa-premium-metric-label">Premium Commission Rate</div>
                             </div>
                         </div>
                     </section>
-
-                    <!-- Marketplace (stores) and Restaurants are now two
-                         clearly separate sections — both are "vendor
-                         purchases" under the hood, but they're two
-                         distinct lines of business to read on a
-                         dashboard, split via vendor_type at the query
-                         level (see db.getBusinessOverviewStats), not
-                         just relabeled here. Each renders as a "band card"
-                         (bordered container + colored top accent + icon
-                         header) instead of a bare section label, so the
-                         two lines of business are visually distinct at a
-                         glance. All stat ids are unchanged from before. -->
-                    <section class="sa-band sa-band-marketplace">
-                        <div class="sa-band-header">
-                            <div class="sa-band-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div>
-                            <div>
-                                <div class="sa-band-title">Marketplace</div>
-                                <div class="sa-band-subtitle">Store vendors, orders, and revenue</div>
-                            </div>
-                        </div>
-                        <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
-                            <div class="stat-card success">
-                                <div class="stat-card-top"><h4>Store Vendors</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div></div>
-                                <p id="ov-marketplace-vendors">0</p>
-                            </div>
-                            <div class="stat-card success">
-                                <div class="stat-card-top"><h4>Marketplace Orders</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div></div>
-                                <p id="ov-marketplace-orders">0</p>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-card-top"><h4>Marketplace Revenue</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div></div>
-                                <p id="ov-marketplace-revenue">$0.00</p>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="sa-band sa-band-restaurant">
-                        <div class="sa-band-header">
-                            <div class="sa-band-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div>
-                            <div>
-                                <div class="sa-band-title">Restaurants</div>
-                                <div class="sa-band-subtitle">Restaurant vendors, orders, and revenue</div>
-                            </div>
-                        </div>
-                        <div class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem;">
-                            <div class="stat-card warning">
-                                <div class="stat-card-top"><h4>Restaurant Vendors</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div></div>
-                                <p id="ov-restaurant-vendors">0</p>
-                            </div>
-                            <div class="stat-card warning">
-                                <div class="stat-card-top"><h4>Restaurant Orders</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div></div>
-                                <p id="ov-restaurant-orders">0</p>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-card-top"><h4>Restaurant Revenue</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div></div>
-                                <p id="ov-restaurant-revenue">$0.00</p>
-                            </div>
-                        </div>
-                    </section>
-
-                    <div class="admin-section-label">DELIVERY</div>
-                    <p style="color:var(--slate-light); font-size:0.875rem; margin:-0.75rem 0 1.25rem;">See "Today's Snapshot" below for today's delivery numbers in detail.</p>
 
                     <section class="orders-section" style="margin-bottom: 1.5rem;">
                         <h2 class="section-title">Staff Accounts</h2>
@@ -5276,9 +5298,10 @@
                     </section>
 
                     <section class="orders-section" id="sa-pending-section">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 0.75rem; flex-wrap: wrap;">
                             <h2 class="section-title" style="margin:0;">Vendor Applications Needing Review</h2>
-                            <a class="admin-view-all-link" id="sa-view-all-vendors-link">View All Vendors →</a>
+                            <span class="sa-pending-badge" id="sa-pending-badge">0 pending</span>
+                            <a class="admin-view-all-link" id="sa-view-all-vendors-link" style="margin-left:auto;">View All Vendors →</a>
                         </div>
                         <div id="sa-pending-applications-list"></div>
                     </section>
@@ -12461,6 +12484,12 @@
                 vendorsCache = vendors;
                 const biz = businessData || { marketplace: { totalOrders: 0, totalRevenue: 0, vendorCount: 0 }, restaurants: { totalOrders: 0, totalRevenue: 0, vendorCount: 0 }, pendingVendorApplications: 0 };
 
+                const subtitleEl = document.getElementById('sa-page-subtitle');
+                if (subtitleEl) {
+                    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                    subtitleEl.textContent = `${today} · Everything at a glance`;
+                }
+
                 document.getElementById('sa-total-vendors').textContent = vendors.length;
                 document.getElementById('sa-pending-count').textContent = biz.pendingVendorApplications;
                 document.getElementById('ov-marketplace-vendors').textContent = biz.marketplace.vendorCount;
@@ -12471,20 +12500,47 @@
                 document.getElementById('ov-restaurant-revenue').textContent = `$${biz.restaurants.totalRevenue.toFixed(2)}`;
                 document.getElementById('sa-total-customers').textContent = overviewData.totalCustomers;
                 document.getElementById('sa-new-customers-7d').textContent = overviewData.newCustomersLast7Days;
+                // New real fields on GET /api/super-admin/overview's `delivery`
+                // object (see server.js) — company/staff counts and today's
+                // order count, no fabricated numbers.
+                const deliveryStats = overviewData.delivery || {};
+                document.getElementById('ov-delivery-companies').textContent = deliveryStats.companyCount ?? 0;
+                document.getElementById('ov-delivery-today-orders').textContent = deliveryStats.todayOrders ?? 0;
+                document.getElementById('ov-delivery-staff').textContent = deliveryStats.staffCount ?? 0;
                 // isPremium comes straight off GET /api/super-admin/vendors
                 // (see db.getVendors' left-join onto vendor_subscriptions) —
                 // no separate call needed just for this count.
                 const premiumVendors = vendors.filter(v => v.isPremium);
                 document.getElementById('sa-premium-subscribers').textContent = premiumVendors.length;
-                // Premium spotlight panel — same premiumVendors array, just
-                // split by premiumSource ('paid' vs 'admin_comp') and turned
-                // into a share of all vendors. No extra API call.
+                // Premium spotlight panel — subscriber/admin-comp counts come
+                // from the same premiumVendors array; est. monthly value,
+                // pending Direct count, commission rate, and the active
+                // featuring perk come from the new `premium` object on
+                // GET /api/super-admin/overview (real backend aggregates —
+                // see db.getActivePremiumMonthlyValue / getPendingDirect-
+                // SubscriptionCharges / getPlatformSettings). Nothing here is
+                // an invented period-over-period trend.
+                const premium = overviewData.premium || {};
                 document.getElementById('sa-premium-spotlight-count').textContent = premiumVendors.length;
-                document.getElementById('sa-premium-paid-count').textContent = premiumVendors.filter(v => v.premiumSource === 'paid').length;
                 document.getElementById('sa-premium-comp-count').textContent = premiumVendors.filter(v => v.premiumSource === 'admin_comp').length;
-                document.getElementById('sa-premium-share-pct').textContent = vendors.length ? `${Math.round((premiumVendors.length / vendors.length) * 100)}%` : '0%';
+                document.getElementById('sa-premium-monthly-value').textContent = `$${Number(premium.estMonthlyValue || 0).toFixed(2)}`;
+                document.getElementById('sa-premium-pending-direct').textContent = premium.pendingDirectCount ?? 0;
+                document.getElementById('sa-premium-commission-rate').textContent = `${premium.commissionPercent ?? 0}%`;
+                const perkText = premium.featuringPerk === 'discount'
+                    ? `a ${premium.featuringDiscountPercent}% discount on every Featured Placement purchase`
+                    : 'a free Featured Placement boost each billing period';
+                const remindersCount = premium.remindersSentLast7Days || 0;
+                const remindersText = remindersCount === 1 ? '1 renewal reminder was sent' : `${remindersCount} renewal reminders were sent`;
+                const pendingDirectCount = premium.pendingDirectCount || 0;
+                const pendingDirectText = pendingDirectCount === 1 ? '1 Direct payment is waiting on confirmation' : `${pendingDirectCount} Direct payments are waiting on confirmation`;
+                const descEl = document.getElementById('sa-premium-spotlight-desc');
+                if (descEl) {
+                    descEl.textContent = `${perkText.charAt(0).toUpperCase()}${perkText.slice(1)} is the active Featured Placement perk. ${remindersText} this week, and ${pendingDirectText}.`;
+                }
 
                 const pending = vendors.filter(v => v.approvalStatus === 'pending');
+                const pendingBadgeEl = document.getElementById('sa-pending-badge');
+                if (pendingBadgeEl) pendingBadgeEl.textContent = `${pending.length} pending`;
                 const listEl = document.getElementById('sa-pending-applications-list');
                 if (pending.length === 0) {
                     renderEmptyState(listEl, 'No vendor applications waiting on a decision right now.');

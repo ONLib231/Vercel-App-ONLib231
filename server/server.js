@@ -1410,17 +1410,25 @@ app.put('/api/super-admin/customers/:id/password', requireAuth, requireSuperAdmi
 // ============================================================
 app.get('/api/super-admin/overview', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
-    const [vendors, marketplaceStats, customers, deliveryOrders] = await Promise.all([
+    const [vendors, marketplaceStats, customers, deliveryOrders, platformSettings, premiumEstMonthlyValue, premiumRemindersSentLast7Days, pendingDirectCharges, deliveryCompanies, staffAccounts] = await Promise.all([
       db.getVendors(),
       db.getMarketplacePlatformStats(),
       db.getCustomers(),
       db.getAllOrders(),
+      db.getPlatformSettings(),
+      db.getActivePremiumMonthlyValue(),
+      db.countPremiumRemindersSince(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+      db.getPendingDirectSubscriptionCharges(),
+      db.getDeliveryCompanies(),
+      db.getStaffAccounts(),
     ]);
     const deliveryRevenue = deliveryOrders
       .filter(o => o.status === 'delivered')
       .reduce((sum, o) => sum + (o.amount || 0), 0);
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const newCustomersLast7Days = customers.filter(c => new Date(c.createdAt) >= sevenDaysAgo).length;
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const todayOrders = deliveryOrders.filter(o => new Date(o.createdAt) >= startOfToday).length;
     res.json({
       vendorCounts: {
         total: vendors.length,
@@ -1434,6 +1442,21 @@ app.get('/api/super-admin/overview', requireAuth, requireSuperAdmin, async (req,
       delivery: {
         totalOrders: deliveryOrders.length,
         totalRevenue: deliveryRevenue,
+        todayOrders,
+        companyCount: deliveryCompanies.length,
+        staffCount: staffAccounts.length,
+      },
+      // Real, current-state Premium figures for the Overview's spotlight
+      // panel — no invented trends. premiumEstMonthlyValue and the pending
+      // Direct queue are live aggregates; premiumRemindersSentLast7Days is
+      // backed by premium_reminder_log (see db.logPremiumReminderSent).
+      premium: {
+        estMonthlyValue: premiumEstMonthlyValue,
+        remindersSentLast7Days: premiumRemindersSentLast7Days,
+        pendingDirectCount: pendingDirectCharges.length,
+        commissionPercent: platformSettings.premiumCommissionPercent,
+        featuringPerk: platformSettings.premiumFeaturingPerk,
+        featuringDiscountPercent: platformSettings.premiumFeaturingDiscountPercent,
       },
     });
   } catch (err) {
@@ -4532,6 +4555,7 @@ async function runPremiumReminderScan() {
         continue; // don't mark as sent if it never actually went out
       }
       await db.markSubscriptionReminderSent(sub.id);
+      await db.logPremiumReminderSent(sub.vendorId, sub.id);
     }
     if (due.length) console.log(`[premium-reminder] Sent ${due.length} renewal reminder(s)`);
   } catch (err) {

@@ -904,6 +904,19 @@ CREATE INDEX IF NOT EXISTS idx_subscription_charges_subscription_id ON subscript
 CREATE INDEX IF NOT EXISTS idx_subscription_charges_status ON subscription_charges (payment_method, payment_status);
 CREATE INDEX IF NOT EXISTS idx_vendor_subscriptions_vendor_id ON vendor_subscriptions (vendor_id, created_at DESC);
 
+-- One row per renewal reminder actually sent (see runPremiumReminderScan in
+-- server.js) — exists purely so the Super Admin Overview can show a real
+-- "reminders sent this week" count instead of an invented one. subscription_id
+-- is nullable (ON DELETE SET NULL) so the count survives a subscription later
+-- being deleted; sent_at is what the "this week" window filters on.
+CREATE TABLE IF NOT EXISTS premium_reminder_log (
+    id              TEXT PRIMARY KEY,
+    vendor_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    subscription_id TEXT REFERENCES vendor_subscriptions(id) ON DELETE SET NULL,
+    sent_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_premium_reminder_log_sent_at ON premium_reminder_log (sent_at DESC);
+
 -- Platform-wide Premium configuration, same single-row platform_settings
 -- pattern as commission rates and the Featured Placement packages above.
 -- premium_featuring_perk picks which of the two Featured Placement

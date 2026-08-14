@@ -2760,6 +2760,38 @@ const db = {
     await pool.query('UPDATE vendor_subscriptions SET reminder_sent_at = now() WHERE id = $1', [id]);
   },
 
+  // Records every renewal reminder actually sent (see runPremiumReminderScan
+  // in server.js) so the Super Admin Overview can show a real "reminders
+  // sent this week" count instead of an invented one.
+  async logPremiumReminderSent(vendorId, subscriptionId) {
+    await pool.query(
+      `INSERT INTO premium_reminder_log (id, vendor_id, subscription_id) VALUES ($1, $2, $3)`,
+      [crypto.randomUUID(), vendorId, subscriptionId]
+    );
+  },
+
+  async countPremiumRemindersSince(sinceDate) {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM premium_reminder_log WHERE sent_at >= $1`,
+      [sinceDate]
+    );
+    return rows[0].count;
+  },
+
+  // Sum of active PAID Premium subscriptions' plan price, normalized to a
+  // monthly figure (an annual plan's cycle_days makes it price/12) — a
+  // real, current snapshot, not a projection or trend.
+  async getActivePremiumMonthlyValue() {
+    const { rows } = await pool.query(
+      `SELECT sp.price, sp.cycle_days
+       FROM vendor_subscriptions vs
+       JOIN subscription_plans sp ON sp.id = vs.plan_id
+       WHERE vs.status = 'active' AND vs.source = 'paid'
+         AND vs.current_period_end IS NOT NULL AND vs.current_period_end > now()`
+    );
+    return rows.reduce((sum, r) => sum + (Number(r.price) * (30 / Number(r.cycle_days))), 0);
+  },
+
   // ---- Wishlist ---------------------------------------------------------
 
   async addToWishlist(customerId, productId) {
