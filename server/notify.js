@@ -204,4 +204,32 @@ async function notifyNewVendorApplication(businessName, email, applicationType =
   await sendEmail(NOTIFY_EMAIL_TO, subject, text);
 }
 
-module.exports = { notifyNewOrder, sendMessage, isConfigured, sendEmail, notifyNewVendorApplication, isEmailConfigured };
+// Premium subscription renewal reminder — sent to the vendor directly
+// (not the fixed business-owner NOTIFY_TO_NUMBER/NOTIFY_EMAIL_TO used
+// elsewhere in this file), via whichever of email/SMS is configured.
+// Called from the hourly reminder scan in server.js
+// (db.getSubscriptionsNeedingReminder) — see that function's comment
+// for why this only ever fires once per billing period. Best-effort on
+// both channels: a vendor with only an email or only a phone on file
+// still gets reminded on whichever one they have.
+async function notifySubscriptionRenewalDue(vendor, subscription) {
+  const renewalDate = subscription.currentPeriodEnd
+    ? new Date(subscription.currentPeriodEnd).toDateString()
+    : 'soon';
+  const planLabel = subscription.planLabel || 'Premium';
+  const subject = `Your ONLib ${planLabel} subscription renews ${renewalDate}`;
+  const body =
+    `Hi ${vendor.businessName || ''},\n\n` +
+    `Your ONLib ${planLabel} Premium subscription is set to expire on ${renewalDate}. ` +
+    `Renew before then to keep your Premium perks (PDF reports, a lower commission rate, ` +
+    `your Featured Placement benefit, and priority support) without interruption.\n\n` +
+    `You can renew any time from your Premium panel in the ONLib vendor dashboard.`;
+
+  const results = await Promise.all([
+    vendor.email ? sendEmail(vendor.email, subject, body) : Promise.resolve(false),
+    vendor.phone ? sendMessage(vendor.phone, body) : Promise.resolve(false),
+  ]);
+  return results.some(Boolean);
+}
+
+module.exports = { notifyNewOrder, sendMessage, isConfigured, sendEmail, notifyNewVendorApplication, isEmailConfigured, notifySubscriptionRenewalDue };

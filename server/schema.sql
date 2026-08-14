@@ -812,3 +812,111 @@ CREATE TABLE IF NOT EXISTS featured_slots (
 );
 CREATE INDEX IF NOT EXISTS idx_featured_slots_vendor_id ON featured_slots (vendor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_featured_slots_scope_status ON featured_slots (scope, payment_status);
+
+-- ============================================================
+-- Premium subscription tier — an account-wide, recurring upgrade for
+-- vendors (Free is the implicit default: no row in vendor_subscriptions,
+-- or a lapsed/canceled one). Deliberately separate from featured_slots
+-- above: Featured Placement stays open to every vendor as a pay-per-
+-- boost purchase; Premium just makes that cheaper/free as one of
+-- several perks (see platform_settings.premium_featuring_perk below),
+-- alongside PDF report access, a lower commission rate, and a
+-- "priority support" badge. Premium never sets featured_until directly
+-- — it only affects what a featured_slots purchase costs.
+--
+-- Same "no persistent scheduler" constraint as Featured Placements
+-- (Railway can restart/sleep the single Node process), and the same
+-- lack of a stored-credential charge in the MoMo integration (every
+-- charge needs a fresh phone approval — see server/momo.js). So there
+-- is no silent auto-renewal: current_period_end is the live source of
+-- truth for "is this vendor Premium right now" (now() < current_period
+-- _end), and a best-effort hourly reminder (see the server-side
+-- scheduler in server.js) nudges the vendor to renew before it lapses.
+-- A NULL current_period_end is reserved for a Super-Admin-granted free
+-- comp (source = 'admin_comp') — indefinite, no billing cycle, active
+-- until an admin explicitly revokes it (sets status = 'canceled').
+-- ============================================================
+
+-- Super-Admin-configured Premium tiers. Deliberately a real table (not
+-- a JSONB array on platform_settings like the Featured Placement
+-- packages) because a live vendor_subscriptions row references a
+-- plan_id — editing a plan's price later must never rewrite what an
+-- already-subscribed vendor agreed to pay.
+CREATE TABLE IF NOT EXISTS subscription_plans (
+    id         TEXT PRIMARY KEY,
+    label      TEXT NOT NULL,
+    cycle_days INTEGER NOT NULL CHECK (cycle_days > 0),
+    price      NUMERIC(10, 2) NOT NULL,
+    is_active  BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per vendor (at most one ACTIVE row at a time, enforced by
+-- the partial unique index below). plan_id is NULL for an admin comp
+-- (there's no plan being paid for). featured_boost_credits_remaining
+-- is the "free credit" perk's balance for the current billing period
+-- (see premium_featuring_perk) — reset to 1 on every subscribe/renew,
+-- regardless of whether the platform is currently using the credit or
+-- discount perk mode, so switching modes never has to reconcile a
+-- stale balance. reminder_sent_at tracks the last time a renewal
+-- reminder went out; comparing it against current_period_start (not
+-- just "was it ever sent") is what lets the reminder re-fire once per
+-- billing period without a separate scheduled-job table.
+CREATE TABLE IF NOT EXISTS vendor_subscriptions (
+    id                             TEXT PRIMARY KEY,
+    vendor_id                      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plan_id                        TEXT REFERENCES subscription_plans(id) ON DELETE SET NULL,
+    status                         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'canceled')),
+    source                         TEXT NOT NULL CHECK (source IN ('paid', 'admin_comp')),
+    current_period_start           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    current_period_end             TIMESTAMPTZ,
+    featured_boost_credits_remaining INTEGER NOT NULL DEFAULT 0,
+    reminder_sent_at               TIMESTAMPTZ,
+    granted_by                     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (source = 'paid' OR current_period_end IS NULL),
+    CHECK (source = 'admin_comp' OR plan_id IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_subscriptions_one_active_per_vendor
+    ON vendor_subscriptions (vendor_id) WHERE status = 'active';
+
+-- Payment audit trail per subscribe/renew attempt, same pending/
+-- successful/failed vocabulary and momo/direct split as featured_slots
+-- (and purchases.payment_status before that) — the one payment-status
+-- state machine this whole app uses everywhere real money changes
+-- hands. price is snapshotted at charge time for the same reason
+-- featured_slots.price is: a later plan price edit never rewrites
+-- history.
+CREATE TABLE IF NOT EXISTS subscription_charges (
+    id                TEXT PRIMARY KEY,
+    subscription_id   TEXT NOT NULL REFERENCES vendor_subscriptions(id) ON DELETE CASCADE,
+    price             NUMERIC(10, 2) NOT NULL,
+    payment_method    TEXT NOT NULL CHECK (payment_method IN ('momo', 'direct')),
+    payment_status    TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'successful', 'failed')),
+    momo_reference_id TEXT,
+    momo_phone        TEXT,
+    confirmed_by      TEXT REFERENCES users(id) ON DELETE SET NULL,
+    confirmed_at      TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_subscription_charges_subscription_id ON subscription_charges (subscription_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_subscription_charges_status ON subscription_charges (payment_method, payment_status);
+CREATE INDEX IF NOT EXISTS idx_vendor_subscriptions_vendor_id ON vendor_subscriptions (vendor_id, created_at DESC);
+
+-- Platform-wide Premium configuration, same single-row platform_settings
+-- pattern as commission rates and the Featured Placement packages above.
+-- premium_featuring_perk picks which of the two Featured Placement
+-- perks (discussed with the Super Admin) is currently live — only one
+-- is active at a time, switchable without losing the other's config:
+--   'credit'   — each billing period includes 1 free boost (redeemed
+--                via the existing featured/purchase flow at price 0).
+--   'discount' — every featured_slots purchase is discounted by
+--                premium_featuring_discount_percent while Premium is
+--                active, no redemption step, unlimited uses.
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS premium_commission_percent NUMERIC(5,2) NOT NULL DEFAULT 5;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS premium_reminder_lead_days INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS premium_featuring_perk TEXT NOT NULL DEFAULT 'credit'
+    CHECK (premium_featuring_perk IN ('credit', 'discount'));
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS premium_featuring_discount_percent NUMERIC(5,2) NOT NULL DEFAULT 20
+    CHECK (premium_featuring_discount_percent >= 0 AND premium_featuring_discount_percent <= 100);

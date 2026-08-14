@@ -5071,6 +5071,10 @@
                                 <div class="stat-card-top"><h4>New Customers (7 Days)</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg></div></div>
                                 <p id="sa-new-customers-7d">0</p>
                             </div>
+                            <div class="stat-card" id="sa-premium-card" style="cursor:pointer;" title="Jump to Premium Subscription settings">
+                                <div class="stat-card-top"><h4>Premium Subscribers</h4><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15 8.5 22 9.5 17 14.5 18.5 21.5 12 18 5.5 21.5 7 14.5 2 9.5 9 8.5 12 2"></polygon></svg></div></div>
+                                <p id="sa-premium-subscribers">0</p>
+                            </div>
                         </div>
                     </section>
 
@@ -5147,6 +5151,7 @@
                             <button type="button" class="btn-small btn-secondary" id="sa-quick-delivery-ops-btn" style="padding:1rem; text-align:left;">🚚 Delivery Operations</button>
                             <button type="button" class="btn-small btn-secondary" id="sa-quick-products-btn" style="padding:1rem; text-align:left;">🛒 Marketplace Products</button>
                             <button type="button" class="btn-small btn-secondary" id="sa-quick-banners-btn" style="padding:1rem; text-align:left;">🖼️ Home Banners</button>
+                            <button type="button" class="btn-small btn-secondary" id="sa-quick-premium-btn" style="padding:1rem; text-align:left;">⭐ Premium Subscriptions</button>
                         </div>
                     </section>
                 </div>
@@ -5549,7 +5554,14 @@
                             <select class="form-input" id="featured-form-package" required></select>
                         </div>
                         <div id="featured-form-availability-note" style="font-size:0.8125rem; color:var(--slate-light); margin:-0.5rem 0 0.75rem;"></div>
-                        <div class="form-group">
+                        <div id="featured-form-premium-note" style="font-size:0.8125rem; margin:-0.5rem 0 0.75rem;"></div>
+                        <div class="form-group" id="featured-form-credit-group" style="display:none;">
+                            <label style="display:flex; align-items:center; gap:0.5rem; font-weight:600; font-size:0.875rem;">
+                                <input type="checkbox" id="featured-form-use-credit-checkbox">
+                                Use my free Premium boost for this (no charge)
+                            </label>
+                        </div>
+                        <div class="form-group" id="featured-form-payment-group">
                             <label class="form-label">Payment Method</label>
                             <select class="form-input" id="featured-form-payment">
                                 <option value="momo">Mobile Money</option>
@@ -5576,6 +5588,54 @@
                     </p>
                     <div class="auth-error" id="featured-momo-waiting-error"></div>
                     <button type="button" class="btn-small btn-secondary" id="featured-momo-cancel-wait-btn">Cancel</button>
+                </div>
+
+                <!-- Premium subscription — account-wide upgrade (PDF reports,
+                     Featured Placement perk, a lower commission rate, priority
+                     support). Renewal is never silent: MoMo has no stored-
+                     credential recurring charge, so the vendor always approves
+                     one charge per billing period, prompted by "renews in Xd"/
+                     the reminder email or SMS the server sends automatically. -->
+                <div class="mobile-section" id="vendor-premium-section">
+                    <div class="mobile-section-header">
+                        <div class="mobile-section-title">⭐ Premium</div>
+                    </div>
+                    <div id="vendor-premium-status"></div>
+                </div>
+
+                <div class="mobile-section" id="premium-purchase-section" style="display:none;">
+                    <form id="premium-purchase-form" style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm);">
+                        <div class="form-group">
+                            <label class="form-label">Plan</label>
+                            <select class="form-input" id="premium-form-plan" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Payment Method</label>
+                            <select class="form-input" id="premium-form-payment">
+                                <option value="momo">Mobile Money</option>
+                                <option value="direct">Direct (manual — confirmed by ONLib once received)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="premium-form-momo-phone-group">
+                            <label class="form-label">Mobile Money Phone</label>
+                            <input type="tel" class="form-input" id="premium-form-momo-phone" placeholder="e.g. 231881234567">
+                        </div>
+                        <div class="auth-error" id="premium-form-error"></div>
+                        <div style="display:flex; gap:0.75rem;">
+                            <button type="button" class="btn-small btn-secondary" id="premium-form-cancel-btn" style="flex:1;">Cancel</button>
+                            <button type="submit" class="btn-primary" id="premium-form-save-btn" style="flex:1;">Subscribe</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="mobile-section" id="premium-momo-waiting-page" style="display:none; text-align:center; padding:1rem 0.5rem;">
+                    <div class="momo-waiting-spinner"></div>
+                    <h4 style="margin:1rem 0 0.5rem;" id="premium-momo-waiting-title">Check your phone</h4>
+                    <p style="color:var(--slate-light); margin-bottom:1.5rem;" id="premium-momo-waiting-text">
+                        We sent a payment request to your phone. Approve it there to activate Premium.
+                    </p>
+                    <div class="auth-error" id="premium-momo-waiting-error"></div>
+                    <button type="button" class="btn-small btn-secondary" id="premium-momo-cancel-wait-btn">Cancel</button>
                 </div>
             </div>
 
@@ -7332,6 +7392,58 @@
                     received their payment, or reject to release the slot back for other vendors.
                 </p>
                 <div id="featured-pending-queue"><p style="text-align:center; color:var(--slate-light); padding:1rem 0;">Loading…</p></div>
+            </details>
+
+            <!-- Premium subscription tier — account-wide vendor upgrade
+                 (PDF reports, Featured Placement perk, lower commission,
+                 priority support). Renewal is a reminder + one-tap re-
+                 charge, never silent (see server.js's reminder scheduler
+                 comment) — MoMo has no stored-credential recurring charge. -->
+            <details id="premium-settings-details" style="margin-bottom: 1.5rem; background: var(--bg-light); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+                <summary style="cursor:pointer; font-weight:700;">⭐ Premium Subscription Settings</summary>
+                <p style="color: var(--slate-light); margin: 0.75rem 0; font-size: 0.8125rem;">
+                    Plans vendors can subscribe to. Editing a plan's price never rewrites what an already-subscribed
+                    vendor agreed to pay — only new subscribes/renewals see the new price.
+                </p>
+                <div class="form-group">
+                    <label class="form-label">Plans</label>
+                    <div id="subscription-plans-list"></div>
+                    <button type="button" class="btn-small btn-secondary" id="add-subscription-plan-btn" style="margin-top:0.5rem;">+ Add Plan</button>
+                </div>
+
+                <form id="premium-perk-settings-form" style="margin-top:1.25rem;">
+                    <div class="form-group">
+                        <label class="form-label">Featured Placement Perk</label>
+                        <select class="form-input" id="premium-perk-mode-input">
+                            <option value="credit">Free boost credit — one included boost per billing period</option>
+                            <option value="discount">Standing discount — a % off every boost, unlimited uses</option>
+                        </select>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Discount % (when discount mode is on)</label>
+                            <input type="number" class="form-input" id="premium-discount-percent-input" min="0" max="100" step="1" required>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="form-label">Premium Commission Rate (%)</label>
+                            <input type="number" class="form-input" id="premium-commission-percent-input" min="0" max="100" step="0.1" required>
+                            <p class="settings-hint">Replaces the plain marketplace rate for a Premium vendor — a per-vendor custom rate override still wins over this.</p>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Renewal Reminder — days before expiry</label>
+                        <input type="number" class="form-input" id="premium-reminder-days-input" min="1" max="30" step="1" required style="max-width:160px;">
+                    </div>
+                    <div class="auth-error" id="premium-perk-settings-error" style="display:none;"></div>
+                    <button type="submit" class="btn-small btn-success" id="premium-perk-settings-save-btn">Save Premium Settings</button>
+                </form>
+
+                <h4 style="font-weight:700; margin:1.5rem 0 0.75rem;">Pending Direct Payment Requests</h4>
+                <p style="color: var(--slate-light); margin: 0 0 0.75rem; font-size: 0.8125rem;">
+                    Vendors who chose "Direct" payment for a Premium subscribe/renewal — confirm once you've
+                    actually received their payment.
+                </p>
+                <div id="subscription-pending-queue"><p style="text-align:center; color:var(--slate-light); padding:1rem 0;">Loading…</p></div>
             </details>
 
             <section style="margin-bottom: 1.5rem;">
@@ -12201,6 +12313,10 @@
                 document.getElementById('ov-restaurant-revenue').textContent = `$${biz.restaurants.totalRevenue.toFixed(2)}`;
                 document.getElementById('sa-total-customers').textContent = overviewData.totalCustomers;
                 document.getElementById('sa-new-customers-7d').textContent = overviewData.newCustomersLast7Days;
+                // isPremium comes straight off GET /api/super-admin/vendors
+                // (see db.getVendors' left-join onto vendor_subscriptions) —
+                // no separate call needed just for this count.
+                document.getElementById('sa-premium-subscribers').textContent = vendors.filter(v => v.isPremium).length;
 
                 const pending = vendors.filter(v => v.approvalStatus === 'pending');
                 const listEl = document.getElementById('sa-pending-applications-list');
@@ -12574,6 +12690,8 @@
             document.getElementById('sa-pending-card').addEventListener('click', () => {
                 document.getElementById('sa-pending-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
+            document.getElementById('sa-premium-card').addEventListener('click', openPremiumSubscriptionSettings);
+            document.getElementById('sa-quick-premium-btn').addEventListener('click', openPremiumSubscriptionSettings);
             document.getElementById('sa-view-all-vendors-link').addEventListener('click', () => {
                 document.getElementById('vendors-modal').classList.add('active');
                 loadVendors();
@@ -12811,10 +12929,29 @@
                 const statementBtn = e.target.closest('.commission-statement-btn');
                 if (statementBtn) {
                     openCommissionStatementModal(statementBtn.dataset.id, statementBtn.dataset.type, statementBtn.dataset.name);
+                    return;
                 }
+                const grantBtn = e.target.closest('.grant-premium-comp-btn');
+                if (grantBtn) { grantPremiumComp(grantBtn.dataset.id); return; }
+                const revokeBtn = e.target.closest('.revoke-premium-comp-btn');
+                if (revokeBtn) revokePremiumComp(revokeBtn.dataset.id);
             };
             document.getElementById('payouts-vendors-table').addEventListener('click', payoutsRowClickHandler);
             document.getElementById('payouts-companies-table').addEventListener('click', payoutsRowClickHandler);
+
+            // ---- Premium Subscription (Super Admin) ----
+            document.getElementById('add-subscription-plan-btn').addEventListener('click', addSubscriptionPlanRow);
+            document.getElementById('subscription-plans-list').addEventListener('click', (e) => {
+                const btn = e.target.closest('.sub-plan-save-btn');
+                if (btn) saveSubscriptionPlanRow(Number(btn.dataset.index), btn);
+            });
+            document.getElementById('premium-perk-settings-form').addEventListener('submit', handlePremiumPerkSettingsSubmit);
+            document.getElementById('subscription-pending-queue').addEventListener('click', (e) => {
+                const confirmBtn = e.target.closest('.confirm-subscription-request-btn');
+                if (confirmBtn) { confirmSubscriptionRequest(confirmBtn.dataset.id); return; }
+                const rejectBtn = e.target.closest('.reject-subscription-request-btn');
+                if (rejectBtn) rejectSubscriptionRequest(rejectBtn.dataset.id);
+            });
             document.getElementById('close-record-payout-modal').addEventListener('click', () => {
                 document.getElementById('record-payout-modal').classList.remove('active');
             });
@@ -13727,6 +13864,19 @@
         // ============================================================
         let payoutSummaryCache = { vendors: [], deliveryCompanies: [] };
 
+        // Shared entry point for both the Overview "Premium Subscribers"
+        // stat card and its Quick Actions button — opens the same Payouts
+        // & Commission modal the settings already live in (no new modal
+        // needed), then expands and scrolls straight to the Premium
+        // <details> panel so a Super Admin doesn't have to hunt for it.
+        function openPremiumSubscriptionSettings() {
+            document.getElementById('payouts-modal').classList.add('active');
+            loadPayoutsPanel();
+            const details = document.getElementById('premium-settings-details');
+            details.open = true;
+            setTimeout(() => details.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+        }
+
         async function loadPayoutsPanel() {
             try {
                 const [summary, history] = await Promise.all([
@@ -13757,6 +13907,13 @@
                 document.getElementById('featured-settings-vendor-cap-input').value = summary.platformSettings.featuredVendorSlotCap;
                 loadFeaturedPendingQueue();
 
+                document.getElementById('premium-perk-mode-input').value = summary.platformSettings.premiumFeaturingPerk;
+                document.getElementById('premium-discount-percent-input').value = summary.platformSettings.premiumFeaturingDiscountPercent;
+                document.getElementById('premium-commission-percent-input').value = summary.platformSettings.premiumCommissionPercent;
+                document.getElementById('premium-reminder-days-input').value = summary.platformSettings.premiumReminderLeadDays;
+                loadSubscriptionPlans();
+                loadSubscriptionPendingQueue();
+
                 renderPayoutStandingTable('payouts-vendors-table', summary.vendors, 'vendor', summary.platformSettings.marketplaceCommissionEnabled !== false);
                 renderPayoutStandingTable('payouts-companies-table', summary.deliveryCompanies, 'delivery_company', summary.platformSettings.deliveryCommissionEnabled !== false);
                 renderPayoutHistoryTable(history.payouts || []);
@@ -13776,7 +13933,8 @@
             if (commissionEnabled === false) {
                 html += '<p style="background:#fef3c7; color:#92400e; padding:0.5rem 0.75rem; border-radius:0.5rem; font-size:0.8125rem; font-weight:600; margin-bottom:0.75rem;">Commission is currently switched OFF for this side of the platform — everyone below shows 0% regardless of any custom rate.</p>';
             }
-            html += '<table class="settings-table"><thead><tr><th>Business</th><th>Gross Revenue</th><th>Rate</th><th>Commission</th><th>Net Earned</th><th>Paid Out</th><th>Outstanding</th><th></th></tr></thead><tbody>';
+            const showPremiumCol = recipientType === 'vendor';
+            html += `<table class="settings-table"><thead><tr><th>Business</th><th>Gross Revenue</th><th>Rate</th><th>Commission</th><th>Net Earned</th><th>Paid Out</th><th>Outstanding</th>${showPremiumCol ? '<th>Premium</th>' : ''}<th></th></tr></thead><tbody>`;
             rows.forEach(r => {
                 html += `<tr>
                     <td style="font-weight:700;">${r.businessName}${r.commissionRateOverride !== null ? ' <span title="Custom rate override" style="background:#e0e7ff; color:#3730a3; padding:0.125rem 0.5rem; border-radius:9999px; font-size:0.6875rem; font-weight:700;">Override</span>' : ''}</td>
@@ -13788,6 +13946,10 @@
                     <td>$${r.netEarned.toFixed(2)}</td>
                     <td>$${r.totalPaidOut.toFixed(2)}</td>
                     <td style="font-weight:700; color:${r.outstandingBalance > 0 ? '#b45309' : 'var(--slate)'};">$${r.outstandingBalance.toFixed(2)}</td>
+                    ${showPremiumCol ? `<td style="white-space:nowrap;">
+                        ${r.isPremium ? '<span class="address-card-default-pill" style="margin-right:0.4rem;">⭐ Premium</span>' : ''}
+                        <button type="button" class="btn-small btn-secondary ${r.isPremium ? 'revoke-premium-comp-btn' : 'grant-premium-comp-btn'}" data-id="${r.id}">${r.isPremium ? 'Revoke Free' : 'Grant Free'}</button>
+                    </td>` : ''}
                     <td style="display:flex; gap:0.4rem; flex-wrap:wrap;">
                         <button type="button" class="btn-small btn-secondary record-payout-btn" data-id="${r.id}" data-type="${recipientType}" data-name="${r.businessName.replace(/"/g, '&quot;')}" data-outstanding="${r.outstandingBalance}" data-rate="${r.effectiveRate}">Record Payout</button>
                         <button type="button" class="btn-small btn-secondary commission-statement-btn" data-id="${r.id}" data-type="${recipientType}" data-name="${r.businessName.replace(/"/g, '&quot;')}">Statement</button>
@@ -14017,6 +14179,171 @@
             } finally {
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Save Featured Placement Settings';
+            }
+        }
+
+        // ==== Premium Subscription (Super Admin plan editor + perk/rate
+        // settings + Direct-payment queue + per-vendor free comps) ====
+        let subscriptionPlansCache = [];
+
+        function renderSubscriptionPlansList() {
+            const container = document.getElementById('subscription-plans-list');
+            if (subscriptionPlansCache.length === 0) {
+                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.8125rem; margin:0.5rem 0;">No plans yet — add one below.</p>';
+                return;
+            }
+            container.innerHTML = subscriptionPlansCache.map((p, i) => `
+                <div class="featured-package-row" data-index="${i}" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;">
+                    <input type="text" class="form-input sub-plan-label-input" data-index="${i}" value="${(p.label || '').replace(/"/g, '&quot;')}" placeholder="Label, e.g. Monthly" style="flex:2; min-width:120px;">
+                    <input type="number" class="form-input sub-plan-cycle-input" data-index="${i}" value="${p.cycleDays}" min="1" max="3650" step="1" placeholder="Days" style="flex:1; min-width:80px;">
+                    <input type="number" class="form-input sub-plan-price-input" data-index="${i}" value="${p.price}" min="0" step="0.01" placeholder="Price ($)" style="flex:1; min-width:80px;">
+                    <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.8125rem; white-space:nowrap;">
+                        <input type="checkbox" class="sub-plan-active-input" data-index="${i}" ${p.isActive !== false ? 'checked' : ''}> Active
+                    </label>
+                    <button type="button" class="btn-small btn-success sub-plan-save-btn" data-index="${i}">Save</button>
+                </div>
+            `).join('');
+        }
+
+        async function loadSubscriptionPlans() {
+            try {
+                const data = await apiFetch('/api/super-admin/subscription-plans');
+                subscriptionPlansCache = data.plans || [];
+                renderSubscriptionPlansList();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function addSubscriptionPlanRow() {
+            subscriptionPlansCache.push({ label: '', cycleDays: 30, price: 0, isActive: true });
+            renderSubscriptionPlansList();
+        }
+
+        async function saveSubscriptionPlanRow(idx, btn) {
+            const row = btn.closest('.featured-package-row');
+            const label = row.querySelector('.sub-plan-label-input').value.trim();
+            const cycleDays = Number(row.querySelector('.sub-plan-cycle-input').value);
+            const price = Number(row.querySelector('.sub-plan-price-input').value);
+            const isActive = row.querySelector('.sub-plan-active-input').checked;
+            if (!label) { showToast('Plan label is required', 'error'); return; }
+            const plan = subscriptionPlansCache[idx];
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+            try {
+                if (plan && plan.id) {
+                    await apiFetch(`/api/super-admin/subscription-plans/${plan.id}`, { method: 'PUT', body: JSON.stringify({ label, cycleDays, price, isActive }) });
+                } else {
+                    await apiFetch('/api/super-admin/subscription-plans', { method: 'POST', body: JSON.stringify({ label, cycleDays, price }) });
+                }
+                showToast('Plan saved', 'success');
+                await loadSubscriptionPlans();
+            } catch (err) {
+                showToast(err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Save';
+            }
+        }
+
+        async function handlePremiumPerkSettingsSubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('premium-perk-settings-error');
+            const saveBtn = document.getElementById('premium-perk-settings-save-btn');
+            errorEl.style.display = 'none';
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving…';
+            try {
+                await apiFetch('/api/super-admin/settings/platform', {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        premiumFeaturingPerk: document.getElementById('premium-perk-mode-input').value,
+                        premiumFeaturingDiscountPercent: Number(document.getElementById('premium-discount-percent-input').value),
+                        premiumCommissionPercent: Number(document.getElementById('premium-commission-percent-input').value),
+                        premiumReminderLeadDays: Number(document.getElementById('premium-reminder-days-input').value),
+                    }),
+                });
+                showToast('Premium settings updated', 'success');
+                await loadPayoutsPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Premium Settings';
+            }
+        }
+
+        async function loadSubscriptionPendingQueue() {
+            const container = document.getElementById('subscription-pending-queue');
+            try {
+                const data = await apiFetch('/api/super-admin/subscriptions/pending');
+                const charges = data.charges || [];
+                if (charges.length === 0) {
+                    renderEmptyState(container, 'No pending Direct payment requests.');
+                    return;
+                }
+                container.innerHTML = `<div style="overflow-x:auto;"><table class="settings-table"><thead><tr>
+                    <th>Vendor</th><th>Plan</th><th>Price</th><th>Requested</th><th></th>
+                </tr></thead><tbody>${charges.map(c => `
+                    <tr>
+                        <td>${c.vendorName || c.vendorEmail}</td>
+                        <td>${c.planLabel || '—'}</td>
+                        <td>$${Number(c.price).toFixed(2)}</td>
+                        <td>${new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                        <td style="display:flex; gap:0.4rem; white-space:nowrap;">
+                            <button type="button" class="btn-small btn-success confirm-subscription-request-btn" data-id="${c.id}">Confirm</button>
+                            <button type="button" class="btn-small btn-danger reject-subscription-request-btn" data-id="${c.id}">Reject</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody></table></div>`;
+            } catch (err) {
+                container.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        async function confirmSubscriptionRequest(id) {
+            try {
+                await apiFetch(`/api/super-admin/subscriptions/charges/${id}/confirm`, { method: 'POST' });
+                showToast('Premium subscription confirmed and activated', 'success');
+                await loadSubscriptionPendingQueue();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function rejectSubscriptionRequest(id) {
+            if (!confirm('Reject this Premium subscription request?')) return;
+            try {
+                await apiFetch(`/api/super-admin/subscriptions/charges/${id}/reject`, { method: 'POST' });
+                showToast('Request rejected', 'success');
+                await loadSubscriptionPendingQueue();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // "Super Admin chooses what to give out for free, on his own
+        // time" — indefinite, no billing cycle, revocable any time. See
+        // db.adminGrantPremiumComp/adminRevokePremiumComp.
+        async function grantPremiumComp(id) {
+            if (!confirm('Grant this vendor free Premium, indefinitely, until you revoke it?')) return;
+            try {
+                await apiFetch(`/api/super-admin/vendors/${id}/subscription/grant-comp`, { method: 'POST' });
+                showToast('Free Premium granted', 'success');
+                await loadPayoutsPanel();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function revokePremiumComp(id) {
+            if (!confirm('Revoke this vendor\'s free Premium?')) return;
+            try {
+                await apiFetch(`/api/super-admin/vendors/${id}/subscription/revoke-comp`, { method: 'POST' });
+                showToast('Premium revoked', 'success');
+                await loadPayoutsPanel();
+            } catch (err) {
+                showToast(err.message, 'error');
             }
         }
 
@@ -14773,6 +15100,10 @@
             { q: 'How do I cancel an order?', a: 'Senders can cancel their own order while it\'s still Pending (before an agent accepts it) from their dashboard. Admins can delete any order via "Select" + "Delete Selected".' },
             { q: 'How do I generate a monthly report?', a: 'Open Monthly Report in the sidebar, choose "Business (All Customers)" or a specific customer, then a month and year.' },
             { q: 'I forgot my password — what do I do?', a: 'Use "Forgot password?" on the login screen. A reset code is sent to the email on your account, and also by SMS/WhatsApp if there\'s a phone number on file.' },
+            { q: 'How do I confirm a vendor\'s Featured Placement or Premium payment?', a: 'Open Payouts & Commission from the sidebar/More menu. Featured Placement requests are under "Featured Placements Settings", Premium subscribe/renewal requests are under "Premium Subscription Settings" — each has its own Pending Direct Payment Requests list with Confirm/Reject buttons. Only "Direct" (manual) payments need this; Mobile Money payments confirm themselves automatically once the vendor approves the prompt on their phone.' },
+            { q: 'What is Premium Subscription and what does it unlock for a vendor?', a: 'An optional, recurring paid upgrade for a vendor\'s account — configured under Payouts & Commission > Premium Subscription Settings. It unlocks PDF Monthly Reports, a lower commission rate, a Featured Placement perk (a free included boost or a discount, whichever mode is currently switched on), and priority support. A vendor on the Free plan keeps everything else in the app, including still being able to buy one-time Featured Placement boosts.' },
+            { q: 'How do I give a vendor free Premium?', a: 'Open Payouts & Commission and find the vendor in the "Vendors — Standing" table, then click "Grant Free" in the Premium column. This is indefinite — no billing, no expiry — and stays active until you click "Revoke Free" on that same vendor.' },
+            { q: 'Why does a vendor\'s commission rate show a different number than the platform default?', a: 'Either they have a custom rate override set (click the rate to change it), or they\'re on an active Premium subscription, which uses the Premium Commission Rate set in Premium Subscription Settings instead of the plain marketplace rate. A custom override always takes priority over the Premium rate.' },
         ];
         const DEFAULT_CUSTOMER_FAQS = [
             { q: 'What\'s the difference between ONLib Delivery and ONLib Marketplace?', a: 'ONLib Delivery sends a package you already have from one place to another. ONLib Marketplace is for buying products from real vendors — checkout automatically creates a real delivery order to get it to you.' },
@@ -17467,6 +17798,42 @@
             const noteEl = document.getElementById('featured-form-availability-note');
             noteEl.textContent = `${a.available} of ${a.cap} ${scope === 'product' ? 'product' : 'store'} slots currently available.`;
             noteEl.style.color = a.available > 0 ? 'var(--slate-light)' : '#dc2626';
+            updateFeaturedPremiumNote();
+        }
+
+        // Reflects the vendor's Premium perk (see db.getFeaturedPurchasePricing
+        // for where this is actually applied server-side at purchase time) —
+        // either a free-boost-credit checkbox, or a note that the price shown
+        // at purchase will already include the standing discount. Only one
+        // perk mode is ever live at once (Super Admin's choice), so exactly
+        // one of these ever shows for a Premium vendor.
+        function updateFeaturedPremiumNote() {
+            const noteEl = document.getElementById('featured-form-premium-note');
+            const creditGroup = document.getElementById('featured-form-credit-group');
+            const creditCheckbox = document.getElementById('featured-form-use-credit-checkbox');
+            const paymentGroup = document.getElementById('featured-form-payment-group');
+            const premium = vendorFeaturedConfig && vendorFeaturedConfig.premium;
+            if (!premium || !premium.isPremium) {
+                noteEl.textContent = '';
+                creditGroup.style.display = 'none';
+                creditCheckbox.checked = false;
+                paymentGroup.style.display = 'block';
+                document.getElementById('featured-form-momo-phone-group').style.display = document.getElementById('featured-form-payment').value === 'momo' ? 'block' : 'none';
+                return;
+            }
+            if (premium.perk === 'credit') {
+                creditGroup.style.display = premium.creditsRemaining > 0 ? 'block' : 'none';
+                noteEl.innerHTML = premium.creditsRemaining > 0
+                    ? '<span style="color:var(--primary); font-weight:600;">You have a free Premium boost available this period.</span>'
+                    : '<span style="color:var(--slate-light);">Your free Premium boost for this period is already used.</span>';
+            } else {
+                creditGroup.style.display = 'none';
+                creditCheckbox.checked = false;
+                noteEl.innerHTML = `<span style="color:var(--primary); font-weight:600;">Premium members save ${premium.discountPercent}% on Featured Placement.</span>`;
+            }
+            const useCredit = creditCheckbox.checked && creditGroup.style.display !== 'none';
+            paymentGroup.style.display = useCredit ? 'none' : 'block';
+            document.getElementById('featured-form-momo-phone-group').style.display = (!useCredit && document.getElementById('featured-form-payment').value === 'momo') ? 'block' : 'none';
         }
 
         function openFeaturedPurchaseForm() {
@@ -17484,6 +17851,7 @@
             document.getElementById('featured-form-momo-phone-group').style.display = paymentSelect.value === 'momo' ? 'block' : 'none';
             document.getElementById('featured-form-momo-phone').value = '';
             document.getElementById('featured-form-error').style.display = 'none';
+            document.getElementById('featured-form-use-credit-checkbox').checked = false;
             updateFeaturedPackageOptions();
             document.getElementById('featured-purchase-section').style.display = 'block';
             document.getElementById('featured-purchase-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -17549,6 +17917,196 @@
             }
             document.getElementById('featured-momo-waiting-page').style.display = 'none';
             await loadVendorFeaturedPanel();
+        }
+
+        // ============================================================
+        // Premium subscription — account-wide upgrade. Same momo-poll
+        // machinery as Featured Placements above (own state/timer so the
+        // two never collide if a vendor somehow has both windows open).
+        // vendorIsPremium is read by the Monthly Report button below to
+        // gate PDF downloads — a UI-visibility toggle only, same caveat
+        // as the existing 'reports' feature key elsewhere in this app.
+        // ============================================================
+        let vendorPremiumData = null; // { subscription, plans, charges, isPremium, momoAvailable }
+        let vendorIsPremium = false;
+        let premiumMomoPollTimer = null;
+        let premiumMomoPollAttempts = 0;
+        let currentPremiumChargeId = null;
+
+        function formatPremiumDate(ts) {
+            return ts ? new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        }
+
+        async function loadVendorPremiumPanel() {
+            const statusEl = document.getElementById('vendor-premium-status');
+            try {
+                vendorPremiumData = await apiFetch('/api/vendor/subscription');
+                vendorIsPremium = !!vendorPremiumData.isPremium;
+                renderVendorPremiumStatus();
+                const reportBtn = document.getElementById('open-vendor-report-btn');
+                if (reportBtn) reportBtn.textContent = vendorIsPremium ? '📥 Download Monthly Report PDF' : '🔒 Download Monthly Report PDF (Premium)';
+            } catch (err) {
+                statusEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderVendorPremiumStatus() {
+            const statusEl = document.getElementById('vendor-premium-status');
+            const { subscription, isPremium } = vendorPremiumData;
+            const perks = 'PDF sales reports, a lower commission rate, a Featured Placement perk, and priority support';
+            if (!subscription || subscription.status !== 'active') {
+                statusEl.innerHTML = `
+                    <p style="margin:0 0 0.75rem; color:var(--slate-light); font-size:0.8125rem;">You're on the Free plan. Upgrade to Premium for ${perks}.</p>
+                    <button type="button" class="btn-primary" id="premium-upgrade-btn">Upgrade to Premium</button>
+                `;
+                return;
+            }
+            if (subscription.source === 'admin_comp') {
+                statusEl.innerHTML = `
+                    <div class="address-card"><div class="address-card-body">
+                        <div class="address-card-label-row"><span class="address-card-label">Premium</span><span class="address-card-default-pill">Free — granted by ONLib</span></div>
+                        <div class="address-card-text">You have full Premium access at no charge, for as long as ONLib keeps it active.</div>
+                    </div></div>
+                `;
+                return;
+            }
+            const renewsSoon = subscription.currentPeriodEnd && (new Date(subscription.currentPeriodEnd).getTime() - Date.now()) < 5 * 24 * 60 * 60 * 1000;
+            const expired = !isPremium;
+            statusEl.innerHTML = `
+                <div class="address-card"><div class="address-card-body">
+                    <div class="address-card-label-row">
+                        <span class="address-card-label">${subscription.planLabel || 'Premium'}</span>
+                        ${expired
+                            ? '<span class="address-card-default-pill" style="background:#fee2e2; color:#991b1b;">Expired</span>'
+                            : (renewsSoon
+                                ? `<span class="address-card-default-pill" style="background:#fef3c7; color:#92400e;">Renews ${formatPremiumDate(subscription.currentPeriodEnd)}</span>`
+                                : `<span class="address-card-default-pill">Active until ${formatPremiumDate(subscription.currentPeriodEnd)}</span>`)}
+                    </div>
+                    <div class="address-card-text">Free boost credits this period: ${subscription.featuredBoostCreditsRemaining || 0}</div>
+                </div>
+                ${(expired || renewsSoon) ? `<div class="address-card-actions"><button type="button" class="delete-promotion-btn" id="premium-renew-btn">Renew</button></div>` : ''}
+                </div>
+            `;
+        }
+
+        let premiumFormIsRenew = false;
+
+        function openPremiumSubscribeForm(isRenew) {
+            if (!vendorPremiumData) return;
+            premiumFormIsRenew = !!isRenew;
+            const planGroup = document.getElementById('premium-form-plan').closest('.form-group');
+            if (isRenew) {
+                planGroup.style.display = 'none';
+                document.getElementById('premium-form-save-btn').textContent = 'Renew';
+            } else {
+                planGroup.style.display = 'block';
+                const planSelect = document.getElementById('premium-form-plan');
+                planSelect.innerHTML = (vendorPremiumData.plans || []).map(p => `<option value="${p.id}">${p.label} — $${Number(p.price).toFixed(2)} / ${p.cycleDays}d</option>`).join('');
+                if (!vendorPremiumData.plans || vendorPremiumData.plans.length === 0) {
+                    showToast('No Premium plans are configured yet — check back soon.', 'error');
+                    return;
+                }
+                document.getElementById('premium-form-save-btn').textContent = 'Subscribe';
+            }
+            const paymentSelect = document.getElementById('premium-form-payment');
+            paymentSelect.innerHTML = vendorPremiumData.momoAvailable
+                ? '<option value="momo">Mobile Money</option><option value="direct">Direct (manual — confirmed by ONLib once received)</option>'
+                : '<option value="direct">Direct (manual — confirmed by ONLib once received)</option>';
+            document.getElementById('premium-form-momo-phone-group').style.display = paymentSelect.value === 'momo' ? 'block' : 'none';
+            document.getElementById('premium-form-momo-phone').value = '';
+            document.getElementById('premium-form-error').style.display = 'none';
+            document.getElementById('premium-purchase-section').style.display = 'block';
+            document.getElementById('premium-purchase-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function closePremiumSubscribeForm() {
+            document.getElementById('premium-purchase-section').style.display = 'none';
+        }
+
+        function stopPremiumMomoPolling() {
+            if (premiumMomoPollTimer) clearInterval(premiumMomoPollTimer);
+            premiumMomoPollTimer = null;
+            premiumMomoPollAttempts = 0;
+        }
+
+        function showPremiumMomoWaitingPage(chargeId) {
+            document.getElementById('premium-purchase-section').style.display = 'none';
+            document.getElementById('premium-momo-waiting-page').style.display = 'block';
+            document.getElementById('premium-momo-waiting-title').textContent = 'Check your phone';
+            document.getElementById('premium-momo-waiting-text').textContent = 'We sent a payment request to your phone. Approve it there to activate Premium.';
+            document.getElementById('premium-momo-waiting-error').style.display = 'none';
+            document.getElementById('premium-momo-cancel-wait-btn').style.display = 'inline-flex';
+            document.getElementById('premium-momo-cancel-wait-btn').textContent = 'Cancel';
+            currentPremiumChargeId = chargeId;
+            premiumMomoPollAttempts = 0;
+            stopPremiumMomoPolling();
+            premiumMomoPollTimer = setInterval(() => checkPremiumMomoPaymentOnce(chargeId), FEATURED_MOMO_POLL_INTERVAL_MS);
+        }
+
+        async function checkPremiumMomoPaymentOnce(chargeId) {
+            premiumMomoPollAttempts += 1;
+            try {
+                const data = await apiFetch(`/api/vendor/subscription/charges/${chargeId}/payment-status`);
+                if (data.paymentStatus === 'successful') {
+                    stopPremiumMomoPolling();
+                    document.getElementById('premium-momo-waiting-page').style.display = 'none';
+                    showToast('Payment received — Premium is active!', 'success');
+                    await loadVendorPremiumPanel();
+                    return;
+                }
+                if (data.paymentStatus === 'failed') {
+                    stopPremiumMomoPolling();
+                    document.getElementById('premium-momo-waiting-title').textContent = 'Payment failed';
+                    document.getElementById('premium-momo-waiting-text').textContent = 'The Mobile Money payment wasn\'t completed — nothing was charged. You can try again or use Direct payment instead.';
+                    document.getElementById('premium-momo-cancel-wait-btn').textContent = 'Back';
+                    return;
+                }
+                if (premiumMomoPollAttempts >= FEATURED_MOMO_POLL_MAX_ATTEMPTS) {
+                    stopPremiumMomoPolling();
+                    document.getElementById('premium-momo-waiting-title').textContent = 'Still waiting';
+                    document.getElementById('premium-momo-waiting-text').textContent = 'This is taking longer than expected. You can keep waiting a bit and check back later, or cancel and try Direct payment instead.';
+                    document.getElementById('premium-momo-cancel-wait-btn').textContent = 'Cancel Payment';
+                }
+            } catch (err) {
+                console.error('Premium subscription Mobile Money status check failed', err);
+            }
+        }
+
+        async function cancelPremiumMomoWait(chargeId) {
+            stopPremiumMomoPolling();
+            if (chargeId) {
+                try { await apiFetch(`/api/vendor/subscription/charges/${chargeId}/cancel-payment`, { method: 'POST' }); } catch (err) { /* best-effort */ }
+            }
+            document.getElementById('premium-momo-waiting-page').style.display = 'none';
+            await loadVendorPremiumPanel();
+        }
+
+        async function submitPremiumSubscribe(renew) {
+            const errorEl = document.getElementById('premium-form-error');
+            const btn = document.getElementById('premium-form-save-btn');
+            errorEl.style.display = 'none';
+            const paymentMethod = document.getElementById('premium-form-payment').value;
+            const payload = { paymentMethod };
+            if (paymentMethod === 'momo') payload.phone = document.getElementById('premium-form-momo-phone').value.trim();
+            if (!renew) payload.planId = document.getElementById('premium-form-plan').value;
+            btn.disabled = true;
+            btn.textContent = 'Processing…';
+            try {
+                const data = await apiFetch(`/api/vendor/subscription/${renew ? 'renew' : 'subscribe'}`, { method: 'POST', body: JSON.stringify(payload) });
+                if (paymentMethod === 'momo') {
+                    showPremiumMomoWaitingPage(data.charge.id);
+                } else {
+                    closePremiumSubscribeForm();
+                    showToast('Request submitted — ONLib will confirm once payment is received.', 'success');
+                    await loadVendorPremiumPanel();
+                }
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Subscribe';
+            }
         }
 
         // Real vendor Leads — cached so filtering doesn't need a re-fetch.
@@ -17932,6 +18490,7 @@
             if (shell) shell.scrollTop = 0;
             if (tab === 'reports') {
                 loadVendorReportsTab();
+                loadVendorPremiumPanel(); // keeps the PDF button's lock state accurate even if 'promotions' was never opened this session
             } else if (tab === 'customers') {
                 loadVendorCustomers();
             } else if (tab === 'messages') {
@@ -17942,8 +18501,11 @@
                 closePromotionForm();
                 closeFeaturedPurchaseForm();
                 document.getElementById('featured-momo-waiting-page').style.display = 'none';
+                closePremiumSubscribeForm();
+                document.getElementById('premium-momo-waiting-page').style.display = 'none';
                 loadVendorPromotions();
                 loadVendorFeaturedPanel();
+                loadVendorPremiumPanel();
             } else if (tab === 'leads') {
                 loadVendorLeads();
             } else if (tab === 'settings' && currentUser) {
@@ -18003,6 +18565,8 @@
             document.getElementById('featured-form-payment').addEventListener('change', (e) => {
                 document.getElementById('featured-form-momo-phone-group').style.display = e.target.value === 'momo' ? 'block' : 'none';
             });
+            document.getElementById('featured-form-package').addEventListener('change', updateFeaturedPremiumNote);
+            document.getElementById('featured-form-use-credit-checkbox').addEventListener('change', updateFeaturedPremiumNote);
             document.getElementById('vendor-featured-list').addEventListener('click', (e) => {
                 const btn = e.target.closest('.resume-featured-momo-btn');
                 if (btn) showFeaturedMomoWaitingPage(btn.dataset.id);
@@ -18015,18 +18579,28 @@
                 errorEl.style.display = 'none';
                 const scope = document.getElementById('featured-form-scope').value;
                 const paymentMethod = document.getElementById('featured-form-payment').value;
+                const useCredit = document.getElementById('featured-form-use-credit-checkbox').checked
+                    && document.getElementById('featured-form-credit-group').style.display !== 'none';
                 const payload = {
                     scope,
                     packageId: document.getElementById('featured-form-package').value,
-                    paymentMethod,
                 };
                 if (scope === 'product') payload.productId = document.getElementById('featured-form-product').value;
-                if (paymentMethod === 'momo') payload.phone = document.getElementById('featured-form-momo-phone').value.trim();
+                if (useCredit) {
+                    payload.useCredit = true;
+                } else {
+                    payload.paymentMethod = paymentMethod;
+                    if (paymentMethod === 'momo') payload.phone = document.getElementById('featured-form-momo-phone').value.trim();
+                }
                 btn.disabled = true;
                 btn.textContent = 'Processing…';
                 try {
                     const data = await apiFetch('/api/vendor/featured/purchase', { method: 'POST', body: JSON.stringify(payload) });
-                    if (paymentMethod === 'momo') {
+                    if (useCredit) {
+                        closeFeaturedPurchaseForm();
+                        showToast('Free Premium boost activated!', 'success');
+                        await loadVendorFeaturedPanel();
+                    } else if (paymentMethod === 'momo') {
                         showFeaturedMomoWaitingPage(data.slot.id);
                     } else {
                         closeFeaturedPurchaseForm();
@@ -18040,6 +18614,21 @@
                     btn.disabled = false;
                     btn.textContent = 'Purchase Placement';
                 }
+            });
+
+            // ---- Premium ----
+            document.getElementById('vendor-premium-status').addEventListener('click', (e) => {
+                if (e.target.closest('#premium-upgrade-btn')) openPremiumSubscribeForm(false);
+                if (e.target.closest('#premium-renew-btn')) openPremiumSubscribeForm(true);
+            });
+            document.getElementById('premium-form-cancel-btn').addEventListener('click', closePremiumSubscribeForm);
+            document.getElementById('premium-form-payment').addEventListener('change', (e) => {
+                document.getElementById('premium-form-momo-phone-group').style.display = e.target.value === 'momo' ? 'block' : 'none';
+            });
+            document.getElementById('premium-momo-cancel-wait-btn').addEventListener('click', () => cancelPremiumMomoWait(currentPremiumChargeId));
+            document.getElementById('premium-purchase-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                submitPremiumSubscribe(premiumFormIsRenew);
             });
 
             // ---- Leads ----
@@ -18270,7 +18859,18 @@
             document.getElementById('vendor-delivery-orders-list').addEventListener('click', handleOrderGridClick);
 
             // Vendor's own Monthly Report PDF (Reports tab).
-            document.getElementById('open-vendor-report-btn').addEventListener('click', openVendorReportModal);
+            // PDF Monthly Report is a Premium perk — same "UI-visibility
+            // toggle, not a hard security boundary" caveat as the existing
+            // 'reports' feature key elsewhere in this app (the PDF is built
+            // entirely client-side from data already loaded, so there's no
+            // server endpoint to enforce this against either).
+            document.getElementById('open-vendor-report-btn').addEventListener('click', () => {
+                if (!vendorIsPremium) {
+                    showToast('Monthly Report PDFs are a Premium perk — upgrade from the Promotions tab to unlock them.', 'error');
+                    return;
+                }
+                openVendorReportModal();
+            });
             document.getElementById('close-vendor-report-modal').addEventListener('click', () => {
                 document.getElementById('vendor-report-modal').classList.remove('active');
             });

@@ -206,6 +206,12 @@ function rowToPlatformSettings(r) {
     featuredVendorPackages: r.featured_vendor_packages || [],
     featuredProductSlotCap: r.featured_product_slot_cap !== null && r.featured_product_slot_cap !== undefined ? Number(r.featured_product_slot_cap) : 10,
     featuredVendorSlotCap: r.featured_vendor_slot_cap !== null && r.featured_vendor_slot_cap !== undefined ? Number(r.featured_vendor_slot_cap) : 5,
+    // Premium subscription tier — see the schema.sql comment above these
+    // columns for what each controls.
+    premiumCommissionPercent: Number(r.premium_commission_percent),
+    premiumReminderLeadDays: r.premium_reminder_lead_days !== null && r.premium_reminder_lead_days !== undefined ? Number(r.premium_reminder_lead_days) : 3,
+    premiumFeaturingPerk: r.premium_featuring_perk === 'discount' ? 'discount' : 'credit',
+    premiumFeaturingDiscountPercent: Number(r.premium_featuring_discount_percent),
     updatedAt: r.updated_at,
   };
 }
@@ -248,6 +254,65 @@ function rowToFeaturedSlot(r) {
     confirmedAt: r.confirmed_at,
     createdAt: r.created_at,
   };
+}
+
+function rowToSubscriptionPlan(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    label: r.label,
+    cycleDays: r.cycle_days,
+    price: Number(r.price),
+    isActive: r.is_active,
+    createdAt: r.created_at,
+  };
+}
+
+function rowToVendorSubscription(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    vendorId: r.vendor_id,
+    planId: r.plan_id,
+    status: r.status,
+    source: r.source,
+    currentPeriodStart: r.current_period_start,
+    currentPeriodEnd: r.current_period_end || null,
+    featuredBoostCreditsRemaining: r.featured_boost_credits_remaining,
+    reminderSentAt: r.reminder_sent_at || null,
+    grantedBy: r.granted_by || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function rowToSubscriptionCharge(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    subscriptionId: r.subscription_id,
+    price: Number(r.price),
+    paymentMethod: r.payment_method,
+    paymentStatus: r.payment_status,
+    momoReferenceId: r.momo_reference_id,
+    momoPhone: r.momo_phone,
+    confirmedBy: r.confirmed_by,
+    confirmedAt: r.confirmed_at,
+    createdAt: r.created_at,
+  };
+}
+
+// Whether a vendor_subscriptions row currently grants Premium access —
+// deliberately NOT just "current_period_end is null or future", since a
+// 'paid' subscription with a null current_period_end means its first
+// charge hasn't been confirmed yet (still pending), not "indefinite".
+// Only an admin_comp row is ever indefinite; a paid row must have a
+// real future end date. See the CHECK constraint on vendor_subscriptions
+// in schema.sql for how the two sources are kept from colliding.
+function isSubscriptionCurrentlyActive(sub) {
+  if (!sub || sub.status !== 'active') return false;
+  if (sub.source === 'admin_comp') return true;
+  return !!sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > Date.now();
 }
 
 // Base row only — no joins. getDisputes()/getDisputeById() below build
@@ -1234,8 +1299,18 @@ const db = {
   // wrongly) querying role = 'admin' instead, a leftover from before
   // real vendor accounts existed.
   async getVendors() {
+    // is_premium is computed with the same left-join-and-check pattern
+    // used everywhere else in this file (rather than a stored flag) —
+    // see isSubscriptionCurrentlyActive's comment on why a 'paid' row
+    // needs a real future current_period_end but an 'admin_comp' row
+    // doesn't.
     const { rows } = await pool.query(
-      "SELECT id, business_name, email, phone, approval_status, rejection_reason, applied_at, created_at, is_disabled, commission_rate_override, vendor_type FROM users WHERE role = 'vendor' ORDER BY created_at DESC"
+      `SELECT u.id, u.business_name, u.email, u.phone, u.approval_status, u.rejection_reason, u.applied_at, u.created_at, u.is_disabled, u.commission_rate_override, u.vendor_type,
+         (vs.id IS NOT NULL) AS is_premium, vs.source AS premium_source
+       FROM users u
+       LEFT JOIN vendor_subscriptions vs ON vs.vendor_id = u.id AND vs.status = 'active'
+         AND (vs.source = 'admin_comp' OR (vs.current_period_end IS NOT NULL AND vs.current_period_end > now()))
+       WHERE u.role = 'vendor' ORDER BY u.created_at DESC`
     );
     return rows.map(r => ({
       id: r.id,
@@ -1249,6 +1324,8 @@ const db = {
       isDisabled: r.is_disabled,
       commissionRateOverride: r.commission_rate_override !== null && r.commission_rate_override !== undefined ? Number(r.commission_rate_override) : null,
       vendorType: r.vendor_type || 'store',
+      isPremium: !!r.is_premium,
+      premiumSource: r.premium_source || null,
     }));
   },
 
@@ -2200,7 +2277,17 @@ const db = {
   // mid-transaction can never leave it held. Throws a plain Error with
   // a user-facing message on capacity-full, which server.js surfaces
   // as a 409.
-  async createFeaturedSlotPurchase({ id, vendorId, scope, productId, packageLabel, price, durationDays, paymentMethod, momoReferenceId, momoPhone }) {
+  // useCredit/creditSubscriptionId redeem a Premium vendor's included
+  // free-boost-per-period perk (see vendor_subscriptions.featured_
+  // boost_credits_remaining and platform_settings.premium_featuring_perk
+  // = 'credit') — price should be passed as 0 by the caller in that
+  // case. The credit decrement and slot creation/activation happen in
+  // the same transaction as the capacity check, so a crash mid-request
+  // can never consume a credit without granting the slot, or vice versa.
+  // The 'discount' perk mode needs no special handling here at all —
+  // the caller (server.js) just computes a smaller `price` up front and
+  // this function charges it through the normal momo/direct flow.
+  async createFeaturedSlotPurchase({ id, vendorId, scope, productId, packageLabel, price, durationDays, paymentMethod, momoReferenceId, momoPhone, useCredit, creditSubscriptionId }) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -2216,13 +2303,33 @@ const db = {
         await client.query('ROLLBACK');
         throw new Error(`All ${scope === 'product' ? 'product' : 'store'} featured slots are taken right now — try again once one frees up.`);
       }
+      if (useCredit) {
+        const { rows: creditRows } = await client.query(
+          `UPDATE vendor_subscriptions SET featured_boost_credits_remaining = featured_boost_credits_remaining - 1, updated_at = now()
+           WHERE id = $1 AND vendor_id = $2 AND featured_boost_credits_remaining > 0 RETURNING id`,
+          [creditSubscriptionId, vendorId]
+        );
+        if (!creditRows[0]) {
+          await client.query('ROLLBACK');
+          throw new Error('No free Premium boost credit available right now.');
+        }
+      }
       const { rows } = await client.query(
         `INSERT INTO featured_slots (id, vendor_id, scope, product_id, package_label, price, duration_days, payment_method, payment_status, momo_reference_id, momo_phone)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10) RETURNING *`,
-        [id, vendorId, scope, productId || null, packageLabel, price, durationDays, paymentMethod, momoReferenceId || null, momoPhone || null]
+        // A credit redemption never actually touches MoMo/Direct — it's
+        // recorded as 'direct' (no external reference) so the Super
+        // Admin's pending-payments queue never mistakes it for a live
+        // momo poll, but it's activated immediately below rather than
+        // left pending like a real direct payment would be.
+        [id, vendorId, scope, productId || null, packageLabel, price, durationDays, useCredit ? 'direct' : paymentMethod, momoReferenceId || null, momoPhone || null]
       );
+      let slot = rowToFeaturedSlot(rows[0]);
+      if (useCredit) {
+        slot = await this._activateFeaturedSlotInTx(client, slot.id);
+      }
       await client.query('COMMIT');
-      return rowToFeaturedSlot(rows[0]);
+      return slot;
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -2307,6 +2414,350 @@ const db = {
       [adminId, id]
     );
     return rowToFeaturedSlot(rows[0]);
+  },
+
+  // ============================================================
+  // Premium subscription tier — account-wide, recurring vendor upgrade.
+  // See the long schema.sql comment above vendor_subscriptions for the
+  // full design reasoning (why current_period_end is the live source of
+  // truth, why a NULL end is reserved for admin comps, why there's no
+  // silent auto-charge). Mirrors the Featured Placements payment
+  // machinery above wherever the shape matches (pending/successful/
+  // failed vocabulary, momo/direct split, Super Admin direct-confirm
+  // queue).
+  // ============================================================
+
+  async getSubscriptionPlans() {
+    const { rows } = await pool.query('SELECT * FROM subscription_plans ORDER BY price ASC, created_at ASC');
+    return rows.map(rowToSubscriptionPlan);
+  },
+
+  async getActiveSubscriptionPlans() {
+    const { rows } = await pool.query('SELECT * FROM subscription_plans WHERE is_active = true ORDER BY price ASC, created_at ASC');
+    return rows.map(rowToSubscriptionPlan);
+  },
+
+  async createSubscriptionPlan({ id, label, cycleDays, price }) {
+    const { rows } = await pool.query(
+      `INSERT INTO subscription_plans (id, label, cycle_days, price) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id, label, cycleDays, price]
+    );
+    return rowToSubscriptionPlan(rows[0]);
+  },
+
+  // isActive lets Super Admin retire a plan (hide it from the vendor
+  // picker) without breaking the foreign key from vendors already
+  // subscribed to it — same "never rewrite what's already active"
+  // reasoning as featured_slots snapshotting its package/price.
+  async updateSubscriptionPlan(id, { label, cycleDays, price, isActive }) {
+    const sets = [];
+    const values = [];
+    let i = 1;
+    if (label !== undefined) { sets.push(`label = $${i}`); values.push(label); i += 1; }
+    if (cycleDays !== undefined) { sets.push(`cycle_days = $${i}`); values.push(cycleDays); i += 1; }
+    if (price !== undefined) { sets.push(`price = $${i}`); values.push(price); i += 1; }
+    if (isActive !== undefined) { sets.push(`is_active = $${i}`); values.push(isActive); i += 1; }
+    if (!sets.length) {
+      const { rows } = await pool.query('SELECT * FROM subscription_plans WHERE id = $1', [id]);
+      return rowToSubscriptionPlan(rows[0]);
+    }
+    values.push(id);
+    const { rows } = await pool.query(`UPDATE subscription_plans SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, values);
+    return rowToSubscriptionPlan(rows[0]);
+  },
+
+  // The vendor's current/most-recent subscription record (there's at
+  // most one ACTIVE row per vendor, enforced by the partial unique
+  // index — but a canceled/lapsed history can have older rows too, and
+  // "most recent" is always the right one to show as current status).
+  async getVendorSubscription(vendorId) {
+    const { rows } = await pool.query(
+      `SELECT vs.*, sp.label AS plan_label, sp.cycle_days AS plan_cycle_days, sp.price AS plan_price
+       FROM vendor_subscriptions vs LEFT JOIN subscription_plans sp ON sp.id = vs.plan_id
+       WHERE vs.vendor_id = $1 ORDER BY vs.created_at DESC LIMIT 1`,
+      [vendorId]
+    );
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      ...rowToVendorSubscription(r),
+      planLabel: r.plan_label || null,
+      planCycleDays: r.plan_cycle_days || null,
+      planPrice: r.plan_price !== null && r.plan_price !== undefined ? Number(r.plan_price) : null,
+    };
+  },
+
+  async isVendorPremiumActive(vendorId) {
+    return isSubscriptionCurrentlyActive(await this.getVendorSubscription(vendorId));
+  },
+
+  // Used by getPayoutSummary to batch-resolve which vendors get the
+  // Premium commission rate, without an N+1 query per vendor row.
+  async getActivePremiumVendorIds() {
+    const { rows } = await pool.query(
+      `SELECT vendor_id FROM vendor_subscriptions WHERE status = 'active'
+         AND (source = 'admin_comp' OR (current_period_end IS NOT NULL AND current_period_end > now()))`
+    );
+    return new Set(rows.map(r => r.vendor_id));
+  },
+
+  async getSubscriptionChargesForVendor(vendorId) {
+    const { rows } = await pool.query(
+      `SELECT sc.* FROM subscription_charges sc JOIN vendor_subscriptions vs ON vs.id = sc.subscription_id
+       WHERE vs.vendor_id = $1 ORDER BY sc.created_at DESC`,
+      [vendorId]
+    );
+    return rows.map(rowToSubscriptionCharge);
+  },
+
+  async getSubscriptionChargeById(id) {
+    const { rows } = await pool.query('SELECT * FROM subscription_charges WHERE id = $1', [id]);
+    return rowToSubscriptionCharge(rows[0]);
+  },
+
+  // Computes what a Featured Placement purchase should actually cost a
+  // given vendor right now — the one place platform_settings.premium_
+  // featuring_perk is interpreted. Free/non-Premium vendors always get
+  // basePrice back unchanged.
+  async getFeaturedPurchasePricing(vendorId, basePrice) {
+    const [settings, subscription] = await Promise.all([this.getPlatformSettings(), this.getVendorSubscription(vendorId)]);
+    if (!isSubscriptionCurrentlyActive(subscription)) {
+      return { finalPrice: basePrice, perk: null, creditAvailable: false, subscriptionId: null };
+    }
+    if (settings.premiumFeaturingPerk === 'credit') {
+      return {
+        finalPrice: basePrice,
+        perk: 'credit',
+        creditAvailable: (subscription.featuredBoostCreditsRemaining || 0) > 0,
+        subscriptionId: subscription.id,
+      };
+    }
+    const discounted = Math.round(basePrice * (1 - settings.premiumFeaturingDiscountPercent / 100) * 100) / 100;
+    return { finalPrice: Math.max(0, discounted), perk: 'discount', discountPercent: settings.premiumFeaturingDiscountPercent, creditAvailable: false, subscriptionId: subscription.id };
+  },
+
+  // Creates (first subscribe) or reuses (renewal / completing a still-
+  // pending first charge) the vendor's subscription row, then records a
+  // new pending charge against it. Locks any existing row for this
+  // vendor first so two concurrent subscribe/renew clicks can't both
+  // create duplicate subscription rows.
+  async createSubscriptionCharge({ id, vendorId, planId, paymentMethod, momoReferenceId, momoPhone }) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: existingRows } = await client.query(
+        `SELECT * FROM vendor_subscriptions WHERE vendor_id = $1 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+        [vendorId]
+      );
+      const existing = existingRows[0];
+      const { rows: planRows } = await client.query('SELECT * FROM subscription_plans WHERE id = $1 AND is_active = true', [planId]);
+      const planRow = planRows[0];
+      if (!planRow) {
+        await client.query('ROLLBACK');
+        throw new Error('That plan is no longer available.');
+      }
+
+      let subscriptionId;
+      if (existing && existing.status === 'active' && existing.source === 'admin_comp') {
+        await client.query('ROLLBACK');
+        throw new Error('This account already has a Super-Admin-granted Premium subscription active.');
+      } else if (existing && existing.status === 'active' && existing.source === 'paid') {
+        subscriptionId = existing.id;
+        await client.query('UPDATE vendor_subscriptions SET plan_id = $1, updated_at = now() WHERE id = $2', [planRow.id, subscriptionId]);
+      } else {
+        subscriptionId = crypto.randomUUID();
+        await client.query(
+          `INSERT INTO vendor_subscriptions (id, vendor_id, plan_id, status, source, current_period_start, current_period_end)
+           VALUES ($1, $2, $3, 'active', 'paid', now(), NULL)`,
+          [subscriptionId, vendorId, planRow.id]
+        );
+      }
+      const { rows: chargeRows } = await client.query(
+        `INSERT INTO subscription_charges (id, subscription_id, price, payment_method, payment_status, momo_reference_id, momo_phone)
+         VALUES ($1, $2, $3, $4, 'pending', $5, $6) RETURNING *`,
+        [id, subscriptionId, planRow.price, paymentMethod, momoReferenceId || null, momoPhone || null]
+      );
+      await client.query('COMMIT');
+      return { charge: rowToSubscriptionCharge(chargeRows[0]), plan: rowToSubscriptionPlan(planRow) };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  // Shared activation step, mirroring _activateFeaturedSlotInTx: flips
+  // the charge to successful and extends the subscription's period.
+  // GREATEST(current_period_end, now()) means renewing early keeps the
+  // remaining paid time instead of losing it, while renewing after a
+  // lapse starts the new period from now(). Also resets the free-boost
+  // credit and the reminder marker for the new period. Scoped to
+  // payment_status = 'pending' so a duplicate confirm is a safe no-op.
+  async _activateSubscriptionChargeInTx(client, chargeId) {
+    const { rows: chargeRows } = await client.query(
+      `UPDATE subscription_charges SET payment_status = 'successful' WHERE id = $1 AND payment_status = 'pending' RETURNING *`,
+      [chargeId]
+    );
+    const charge = chargeRows[0];
+    if (!charge) return null;
+    const { rows: subRows } = await client.query(
+      `UPDATE vendor_subscriptions vs SET
+         current_period_end = GREATEST(COALESCE(vs.current_period_end, now()), now()) + (sp.cycle_days || ' days')::interval,
+         current_period_start = CASE WHEN vs.current_period_end IS NULL OR vs.current_period_end <= now() THEN now() ELSE vs.current_period_start END,
+         featured_boost_credits_remaining = 1,
+         reminder_sent_at = NULL,
+         status = 'active',
+         updated_at = now()
+       FROM subscription_plans sp
+       WHERE vs.id = $1 AND sp.id = vs.plan_id
+       RETURNING vs.*`,
+      [charge.subscription_id]
+    );
+    return { charge: rowToSubscriptionCharge(charge), subscription: rowToVendorSubscription(subRows[0]) };
+  },
+
+  async confirmSubscriptionChargePayment(chargeId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await this._activateSubscriptionChargeInTx(client, chargeId);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async voidFailedSubscriptionCharge(id) {
+    const { rows } = await pool.query(
+      `UPDATE subscription_charges SET payment_status = 'failed' WHERE id = $1 AND payment_status = 'pending' RETURNING *`,
+      [id]
+    );
+    return rowToSubscriptionCharge(rows[0]);
+  },
+
+  // Super Admin's queue of Direct-payment subscription charges still
+  // waiting on a real-world payment to be confirmed — mirrors
+  // getPendingDirectFeaturedSlots exactly.
+  async getPendingDirectSubscriptionCharges() {
+    const { rows } = await pool.query(
+      `SELECT sc.*, vs.vendor_id, sp.label AS plan_label, u.business_name AS vendor_name, u.email AS vendor_email
+       FROM subscription_charges sc
+       JOIN vendor_subscriptions vs ON vs.id = sc.subscription_id
+       LEFT JOIN subscription_plans sp ON sp.id = vs.plan_id
+       JOIN users u ON u.id = vs.vendor_id
+       WHERE sc.payment_method = 'direct' AND sc.payment_status = 'pending'
+       ORDER BY sc.created_at ASC`
+    );
+    return rows.map(r => ({ ...rowToSubscriptionCharge(r), vendorId: r.vendor_id, vendorName: r.vendor_name, vendorEmail: r.vendor_email, planLabel: r.plan_label }));
+  },
+
+  async adminConfirmDirectSubscriptionCharge(id, adminId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: guardRows } = await client.query(
+        `SELECT id FROM subscription_charges WHERE id = $1 AND payment_method = 'direct' AND payment_status = 'pending'`, [id]
+      );
+      if (!guardRows[0]) { await client.query('ROLLBACK'); return null; }
+      const result = await this._activateSubscriptionChargeInTx(client, id);
+      if (result) {
+        await client.query('UPDATE subscription_charges SET confirmed_by = $1, confirmed_at = now() WHERE id = $2', [adminId, id]);
+      }
+      await client.query('COMMIT');
+      return result ? { ...result, charge: { ...result.charge, confirmedBy: adminId } } : null;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminRejectDirectSubscriptionCharge(id, adminId) {
+    const { rows } = await pool.query(
+      `UPDATE subscription_charges SET payment_status = 'failed', confirmed_by = $1, confirmed_at = now()
+       WHERE id = $2 AND payment_method = 'direct' AND payment_status = 'pending' RETURNING *`,
+      [adminId, id]
+    );
+    return rowToSubscriptionCharge(rows[0]);
+  },
+
+  // Super Admin manually granting free Premium — indefinite, no billing
+  // cycle, active until explicitly revoked (see schema.sql's comment on
+  // why current_period_end stays NULL here). Blocked if the vendor
+  // already has any active subscription (paid or comped) so this never
+  // silently clobbers one — an admin revokes/waits first.
+  async adminGrantPremiumComp(vendorId, adminId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: existingRows } = await client.query(
+        `SELECT id FROM vendor_subscriptions WHERE vendor_id = $1 AND status = 'active' FOR UPDATE`, [vendorId]
+      );
+      if (existingRows[0]) {
+        await client.query('ROLLBACK');
+        throw new Error('This vendor already has an active subscription — revoke or cancel it first.');
+      }
+      const id = crypto.randomUUID();
+      const { rows } = await client.query(
+        `INSERT INTO vendor_subscriptions (id, vendor_id, plan_id, status, source, current_period_start, current_period_end, granted_by)
+         VALUES ($1, $2, NULL, 'active', 'admin_comp', now(), NULL, $3) RETURNING *`,
+        [id, vendorId, adminId]
+      );
+      await client.query('COMMIT');
+      return rowToVendorSubscription(rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminRevokePremiumComp(vendorId) {
+    const { rows } = await pool.query(
+      `UPDATE vendor_subscriptions SET status = 'canceled', updated_at = now()
+       WHERE vendor_id = $1 AND status = 'active' AND source = 'admin_comp' RETURNING *`,
+      [vendorId]
+    );
+    return rowToVendorSubscription(rows[0]);
+  },
+
+  // Best-effort hourly scan (see the setInterval in server.js) for
+  // subscriptions entering their renewal window. reminder_sent_at IS
+  // NULL is the whole re-fire guard — it's reset to NULL on every
+  // successful (re)activation (see _activateSubscriptionChargeInTx), so
+  // this naturally fires at most once per billing period without a
+  // separate "which period was this for" column to maintain.
+  async getSubscriptionsNeedingReminder() {
+    const settings = await this.getPlatformSettings();
+    const { rows } = await pool.query(
+      `SELECT vs.*, u.business_name AS vendor_name, u.email AS vendor_email, u.phone AS vendor_phone, sp.label AS plan_label
+       FROM vendor_subscriptions vs
+       JOIN users u ON u.id = vs.vendor_id
+       LEFT JOIN subscription_plans sp ON sp.id = vs.plan_id
+       WHERE vs.status = 'active' AND vs.source = 'paid' AND vs.current_period_end IS NOT NULL
+         AND vs.current_period_end > now()
+         AND vs.current_period_end <= now() + ($1 || ' days')::interval
+         AND vs.reminder_sent_at IS NULL`,
+      [settings.premiumReminderLeadDays]
+    );
+    return rows.map(r => ({
+      ...rowToVendorSubscription(r),
+      vendorName: r.vendor_name,
+      vendorEmail: r.vendor_email,
+      vendorPhone: r.vendor_phone,
+      planLabel: r.plan_label,
+    }));
+  },
+
+  async markSubscriptionReminderSent(id) {
+    await pool.query('UPDATE vendor_subscriptions SET reminder_sent_at = now() WHERE id = $1', [id]);
   },
 
   // ---- Wishlist ---------------------------------------------------------
@@ -2814,7 +3265,7 @@ const db = {
   // and the platform-wide settings (default delivery fee, service
   // area, maintenance mode) added later, so both panels can share one
   // upsert path instead of drifting into two near-duplicate ones.
-  async upsertPlatformSettings({ marketplaceCommissionPercent, deliveryCommissionPercent, marketplaceCommissionEnabled, deliveryCommissionEnabled, defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee, invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle, invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote, featuredProductPackages, featuredVendorPackages, featuredProductSlotCap, featuredVendorSlotCap }) {
+  async upsertPlatformSettings({ marketplaceCommissionPercent, deliveryCommissionPercent, marketplaceCommissionEnabled, deliveryCommissionEnabled, defaultDeliveryFee, serviceArea, maintenanceMode, maintenanceMessage, serviceFee, invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle, invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote, featuredProductPackages, featuredVendorPackages, featuredProductSlotCap, featuredVendorSlotCap, premiumCommissionPercent, premiumReminderLeadDays, premiumFeaturingPerk, premiumFeaturingDiscountPercent }) {
     await this.getPlatformSettings(); // ensures the row exists
     const sets = [];
     const values = [];
@@ -2840,6 +3291,10 @@ const db = {
     if (featuredVendorPackages !== undefined) { sets.push(`featured_vendor_packages = $${i}`); values.push(JSON.stringify(featuredVendorPackages)); i += 1; }
     if (featuredProductSlotCap !== undefined) { sets.push(`featured_product_slot_cap = $${i}`); values.push(featuredProductSlotCap); i += 1; }
     if (featuredVendorSlotCap !== undefined) { sets.push(`featured_vendor_slot_cap = $${i}`); values.push(featuredVendorSlotCap); i += 1; }
+    if (premiumCommissionPercent !== undefined) { sets.push(`premium_commission_percent = $${i}`); values.push(premiumCommissionPercent); i += 1; }
+    if (premiumReminderLeadDays !== undefined) { sets.push(`premium_reminder_lead_days = $${i}`); values.push(premiumReminderLeadDays); i += 1; }
+    if (premiumFeaturingPerk !== undefined) { sets.push(`premium_featuring_perk = $${i}`); values.push(premiumFeaturingPerk); i += 1; }
+    if (premiumFeaturingDiscountPercent !== undefined) { sets.push(`premium_featuring_discount_percent = $${i}`); values.push(premiumFeaturingDiscountPercent); i += 1; }
     sets.push('updated_at = now()');
     if (sets.length > 1) {
       await pool.query(`UPDATE platform_settings SET ${sets.join(', ')} WHERE id = 'platform'`, values);
@@ -2869,7 +3324,7 @@ const db = {
   // payouts; only used to show current standing (gross earned
   // all-time, net of refunds, vs. already paid out all-time).
   async getPayoutSummary() {
-    const [vendorRows, companyRows, vendorRevenue, deliveryRevenue, vendorRefunds, deliveryRefunds, paidOut, platformSettings] = await Promise.all([
+    const [vendorRows, companyRows, vendorRevenue, deliveryRevenue, vendorRefunds, deliveryRefunds, paidOut, platformSettings, premiumVendorIds] = await Promise.all([
       pool.query("SELECT id, business_name, email, commission_rate_override FROM users WHERE role = 'vendor' AND approval_status = 'approved' ORDER BY business_name"),
       pool.query("SELECT id, business_name, email, commission_rate_override FROM users WHERE role = 'delivery_company' AND approval_status = 'approved' ORDER BY business_name"),
       pool.query("SELECT vendor_id, COALESCE(SUM(total_amount), 0)::numeric AS gross FROM purchases GROUP BY vendor_id"),
@@ -2888,6 +3343,7 @@ const db = {
       ),
       pool.query("SELECT recipient_id, COALESCE(SUM(net_amount), 0)::numeric AS paid FROM payouts GROUP BY recipient_id"),
       this.getPlatformSettings(),
+      this.getActivePremiumVendorIds(),
     ]);
     const vendorRevMap = new Map(vendorRevenue.rows.map(r => [r.vendor_id, Number(r.gross)]));
     const deliveryRevMap = new Map(deliveryRevenue.rows.map(r => [r.delivery_company_id, Number(r.gross)]));
@@ -2895,16 +3351,22 @@ const db = {
     const deliveryRefundMap = new Map(deliveryRefunds.rows.map(r => [r.delivery_company_id, Number(r.refunded)]));
     const paidMap = new Map(paidOut.rows.map(r => [r.recipient_id, Number(r.paid)]));
 
-    const build = (rows, revMap, refundMap, recipientType, defaultRate, commissionEnabled) => rows.map(r => {
+    // premiumRate/premiumSet are only ever passed for recipientType =
+    // 'vendor' — Premium is a vendor-only tier, delivery companies
+    // always use their plain default/override rate.
+    const build = (rows, revMap, refundMap, recipientType, defaultRate, commissionEnabled, premiumRate, premiumSet) => rows.map(r => {
       // Clamped at 0 rather than allowed to go negative — refunds can
       // never exceed what was actually sold, but this guards against
       // it visually even if it somehow did.
       const gross = Math.max(0, (revMap.get(r.id) || 0) - (refundMap.get(r.id) || 0));
       const override = r.commission_rate_override !== null && r.commission_rate_override !== undefined ? Number(r.commission_rate_override) : null;
-      // The master on/off switch wins over any per-account override —
-      // turning commission off for a recipient type means off for
-      // everyone of that type, not just accounts without a custom rate.
-      const effectiveRate = commissionEnabled ? (override !== null ? override : defaultRate) : 0;
+      const isPremium = !!(premiumSet && premiumSet.has(r.id));
+      // Precedence: the master on/off switch always wins (off means 0%
+      // for everyone of that type); then a per-account override (most
+      // specific — a manual Super Admin decision for this one account);
+      // then the Premium tier rate if this vendor is currently
+      // subscribed; then the plain platform default.
+      const effectiveRate = commissionEnabled ? (override !== null ? override : (isPremium ? premiumRate : defaultRate)) : 0;
       const commissionAmount = Math.round(gross * (effectiveRate / 100) * 100) / 100;
       const netEarned = Math.round((gross - commissionAmount) * 100) / 100;
       const totalPaidOut = paidMap.get(r.id) || 0;
@@ -2914,6 +3376,7 @@ const db = {
         email: r.email,
         recipientType,
         commissionRateOverride: override,
+        isPremium,
         effectiveRate,
         grossRevenue: gross,
         commissionAmount,
@@ -2925,8 +3388,8 @@ const db = {
 
     return {
       platformSettings,
-      vendors: build(vendorRows.rows, vendorRevMap, vendorRefundMap, 'vendor', platformSettings.marketplaceCommissionPercent, platformSettings.marketplaceCommissionEnabled),
-      deliveryCompanies: build(companyRows.rows, deliveryRevMap, deliveryRefundMap, 'delivery_company', platformSettings.deliveryCommissionPercent, platformSettings.deliveryCommissionEnabled),
+      vendors: build(vendorRows.rows, vendorRevMap, vendorRefundMap, 'vendor', platformSettings.marketplaceCommissionPercent, platformSettings.marketplaceCommissionEnabled, platformSettings.premiumCommissionPercent, premiumVendorIds),
+      deliveryCompanies: build(companyRows.rows, deliveryRevMap, deliveryRefundMap, 'delivery_company', platformSettings.deliveryCommissionPercent, platformSettings.deliveryCommissionEnabled, null, null),
     };
   },
 
@@ -2955,12 +3418,14 @@ const db = {
   // owed back, regardless of what payment_method says.
   async getCommissionStatement({ recipientType, recipientId, periodStart, periodEnd }) {
     if (!['vendor', 'delivery_company'].includes(recipientType)) return null;
-    const [recipientRes, platformSettings] = await Promise.all([
+    const [recipientRes, platformSettings, isPremium] = await Promise.all([
       pool.query(
         `SELECT id, business_name, email, commission_rate_override FROM users WHERE id = $1 AND role = $2`,
         [recipientId, recipientType]
       ),
       this.getPlatformSettings(),
+      // Premium is a vendor-only tier — never true for a delivery company.
+      recipientType === 'vendor' ? this.isVendorPremiumActive(recipientId) : Promise.resolve(false),
     ]);
     const recipient = recipientRes.rows[0];
     if (!recipient) return null;
@@ -3021,7 +3486,11 @@ const db = {
     }
 
     const netGrossRevenue = Math.max(0, Math.round((grossRevenue - refunded) * 100) / 100);
-    const effectiveRate = commissionEnabled ? (override !== null ? override : defaultRate) : 0;
+    // Same precedence as getPayoutSummary's build(): master switch >
+    // per-account override > Premium tier rate > plain default.
+    const effectiveRate = commissionEnabled
+      ? (override !== null ? override : (isPremium ? platformSettings.premiumCommissionPercent : defaultRate))
+      : 0;
     const commissionAmount = Math.round(netGrossRevenue * (effectiveRate / 100) * 100) / 100;
     serviceFeeOwed = Math.round(serviceFeeOwed * 100) / 100;
 
@@ -3057,6 +3526,7 @@ const db = {
       refunded: Math.round(refunded * 100) / 100,
       netGrossRevenue,
       effectiveRate,
+      isPremium,
       commissionEnabled,
       commissionAmount,
       serviceFeeOwed,

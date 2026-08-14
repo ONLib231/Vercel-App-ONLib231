@@ -9,7 +9,7 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const db = require('./db');
-const { notifyNewOrder, sendMessage, notifyNewVendorApplication, sendEmail } = require('./notify');
+const { notifyNewOrder, sendMessage, notifyNewVendorApplication, sendEmail, notifySubscriptionRenewalDue } = require('./notify');
 const momo = require('./momo');
 const { parsePriceRowsFromText } = require('./pricePresetPdfParser');
 const DEFAULT_HOME_BANNERS = require('./seed-data/default-home-banners');
@@ -1999,6 +1999,7 @@ app.put('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, as
     invoiceShowServiceFeeLine, invoiceShowMomoLine, invoiceHeaderTitle, invoiceHeaderSubtitle,
     invoiceFooterNote, invoiceCommissionNote, invoiceServiceFeeNote, invoiceMomoNote,
     featuredProductPackages, featuredVendorPackages, featuredProductSlotCap, featuredVendorSlotCap,
+    premiumCommissionPercent, premiumReminderLeadDays, premiumFeaturingPerk, premiumFeaturingDiscountPercent,
   } = req.body || {};
   const fields = {};
   if (defaultDeliveryFee !== undefined) {
@@ -2085,6 +2086,30 @@ app.put('/api/super-admin/settings/platform', requireAuth, requireSuperAdmin, as
       return res.status(400).json({ error: 'featuredVendorSlotCap must be a whole number between 1 and 1000' });
     }
     fields.featuredVendorSlotCap = featuredVendorSlotCap;
+  }
+  if (premiumCommissionPercent !== undefined) {
+    if (typeof premiumCommissionPercent !== 'number' || isNaN(premiumCommissionPercent) || premiumCommissionPercent < 0 || premiumCommissionPercent > 100) {
+      return res.status(400).json({ error: 'premiumCommissionPercent must be a number between 0 and 100' });
+    }
+    fields.premiumCommissionPercent = premiumCommissionPercent;
+  }
+  if (premiumReminderLeadDays !== undefined) {
+    if (typeof premiumReminderLeadDays !== 'number' || !Number.isInteger(premiumReminderLeadDays) || premiumReminderLeadDays < 1 || premiumReminderLeadDays > 30) {
+      return res.status(400).json({ error: 'premiumReminderLeadDays must be a whole number between 1 and 30' });
+    }
+    fields.premiumReminderLeadDays = premiumReminderLeadDays;
+  }
+  if (premiumFeaturingPerk !== undefined) {
+    if (!['credit', 'discount'].includes(premiumFeaturingPerk)) {
+      return res.status(400).json({ error: 'premiumFeaturingPerk must be "credit" or "discount"' });
+    }
+    fields.premiumFeaturingPerk = premiumFeaturingPerk;
+  }
+  if (premiumFeaturingDiscountPercent !== undefined) {
+    if (typeof premiumFeaturingDiscountPercent !== 'number' || isNaN(premiumFeaturingDiscountPercent) || premiumFeaturingDiscountPercent < 0 || premiumFeaturingDiscountPercent > 100) {
+      return res.status(400).json({ error: 'premiumFeaturingDiscountPercent must be a number between 0 and 100' });
+    }
+    fields.premiumFeaturingDiscountPercent = premiumFeaturingDiscountPercent;
   }
   try {
     const settings = await db.upsertPlatformSettings(fields);
@@ -3798,15 +3823,27 @@ app.post('/api/payments/momo/callback', async (req, res) => {
 
 app.get('/api/vendor/featured/config', requireAuth, requireVendor, async (req, res) => {
   try {
-    const [settings, availability] = await Promise.all([
+    const [settings, availability, subscription, isPremium] = await Promise.all([
       db.getPlatformSettings(),
       db.getFeaturedSlotAvailability(),
+      db.getVendorSubscription(req.user.id),
+      db.isVendorPremiumActive(req.user.id),
     ]);
     res.json({
       productPackages: settings.featuredProductPackages,
       vendorPackages: settings.featuredVendorPackages,
       availability,
       momoAvailable: momo.isConfigured,
+      // Premium pricing context — see db.getFeaturedPurchasePricing for
+      // where this is actually applied at purchase time. Sent here too
+      // so the vendor sees the perk (discounted price / free-credit
+      // availability) before they even open the purchase form.
+      premium: {
+        isPremium,
+        perk: settings.premiumFeaturingPerk,
+        discountPercent: settings.premiumFeaturingDiscountPercent,
+        creditsRemaining: subscription ? subscription.featuredBoostCreditsRemaining : 0,
+      },
     });
   } catch (err) {
     console.error('GET /api/vendor/featured/config failed', err);
@@ -3825,21 +3862,24 @@ app.get('/api/vendor/featured/history', requireAuth, requireVendor, async (req, 
 });
 
 app.post('/api/vendor/featured/purchase', requireAuth, requireVendor, async (req, res) => {
-  const { scope, productId, packageId, paymentMethod, phone } = req.body || {};
+  const { scope, productId, packageId, paymentMethod, phone, useCredit } = req.body || {};
   if (!['product', 'vendor'].includes(scope)) {
     return res.status(400).json({ error: 'scope must be "product" or "vendor"' });
   }
-  if (!['momo', 'direct'].includes(paymentMethod)) {
+  // useCredit redeems a Premium vendor's included free boost for this
+  // period — no payment method needed at all in that case (see
+  // db.getFeaturedPurchasePricing / createFeaturedSlotPurchase).
+  if (!useCredit && !['momo', 'direct'].includes(paymentMethod)) {
     return res.status(400).json({ error: 'paymentMethod must be "momo" or "direct"' });
   }
   if (scope === 'product' && !productId) {
     return res.status(400).json({ error: 'productId is required when scope is "product"' });
   }
-  if (paymentMethod === 'momo' && !momo.isConfigured) {
+  if (!useCredit && paymentMethod === 'momo' && !momo.isConfigured) {
     return res.status(503).json({ error: 'Mobile Money isn\'t available yet — please use the Direct payment option.' });
   }
   let cleanPhone = null;
-  if (paymentMethod === 'momo') {
+  if (!useCredit && paymentMethod === 'momo') {
     cleanPhone = String(phone || '').replace(/[^\d]/g, '');
     if (cleanPhone.length < 8 || cleanPhone.length > 15) {
       return res.status(400).json({ error: 'Enter a valid Mobile Money phone number, digits only (with country code, e.g. 231XXXXXXXXX).' });
@@ -3856,7 +3896,18 @@ app.post('/api/vendor/featured/purchase', requireAuth, requireVendor, async (req
     const pkg = (packages || []).find(p => p.id === packageId);
     if (!pkg) return res.status(400).json({ error: 'That package is no longer available — reload the options and try again.' });
 
-    const momoReferenceId = paymentMethod === 'momo' ? crypto.randomUUID() : null;
+    // Premium perk pricing — free credit or a standing discount,
+    // whichever mode the Super Admin currently has switched on. See
+    // db.getFeaturedPurchasePricing for the full logic; non-Premium
+    // vendors just get the package's plain price back unchanged.
+    const pricing = await db.getFeaturedPurchasePricing(req.user.id, Number(pkg.price));
+    if (useCredit && (pricing.perk !== 'credit' || !pricing.creditAvailable)) {
+      return res.status(400).json({ error: 'No free Premium boost credit available right now.' });
+    }
+    const finalPrice = useCredit ? 0 : pricing.finalPrice;
+    const effectivePaymentMethod = useCredit ? 'direct' : paymentMethod;
+
+    const momoReferenceId = (!useCredit && paymentMethod === 'momo') ? crypto.randomUUID() : null;
     let slot;
     try {
       slot = await db.createFeaturedSlotPurchase({
@@ -3865,17 +3916,19 @@ app.post('/api/vendor/featured/purchase', requireAuth, requireVendor, async (req
         scope,
         productId: scope === 'product' ? productId : null,
         packageLabel: pkg.label,
-        price: Number(pkg.price),
+        price: finalPrice,
         durationDays: Number(pkg.days),
-        paymentMethod,
+        paymentMethod: effectivePaymentMethod,
         momoReferenceId,
         momoPhone: cleanPhone,
+        useCredit: !!useCredit,
+        creditSubscriptionId: useCredit ? pricing.subscriptionId : null,
       });
     } catch (capacityErr) {
       return res.status(409).json({ error: capacityErr.message });
     }
 
-    if (paymentMethod === 'momo') {
+    if (!useCredit && paymentMethod === 'momo') {
       try {
         await momo.requestToPay({
           referenceId: momoReferenceId,
@@ -3995,6 +4048,288 @@ app.post('/api/super-admin/featured/:id/reject', requireAuth, requireSuperAdmin,
   } catch (err) {
     console.error('POST /api/super-admin/featured/:id/reject failed', err);
     res.status(500).json({ error: 'Failed to reject Featured Placement request' });
+  }
+});
+
+// ============================================================
+// Premium subscription tier — account-wide, recurring vendor upgrade.
+// Momo/direct payment machinery here deliberately mirrors the Featured
+// Placements routes above line for line (same polling-not-webhook
+// reasoning — see momo.js and the marketplace checkout momo flow this
+// pattern originated from).
+// ============================================================
+
+app.get('/api/vendor/subscription', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const [subscription, plans, charges, isPremium] = await Promise.all([
+      db.getVendorSubscription(req.user.id),
+      db.getActiveSubscriptionPlans(),
+      db.getSubscriptionChargesForVendor(req.user.id),
+      db.isVendorPremiumActive(req.user.id),
+    ]);
+    res.json({ subscription, plans, charges, isPremium, momoAvailable: momo.isConfigured });
+  } catch (err) {
+    console.error('GET /api/vendor/subscription failed', err);
+    res.status(500).json({ error: 'Failed to load your Premium subscription' });
+  }
+});
+
+async function startSubscriptionCharge(req, res, { planId }) {
+  const { paymentMethod, phone } = req.body || {};
+  if (!['momo', 'direct'].includes(paymentMethod)) {
+    return res.status(400).json({ error: 'paymentMethod must be "momo" or "direct"' });
+  }
+  if (paymentMethod === 'momo' && !momo.isConfigured) {
+    return res.status(503).json({ error: 'Mobile Money isn\'t available yet — please use the Direct payment option.' });
+  }
+  let cleanPhone = null;
+  if (paymentMethod === 'momo') {
+    cleanPhone = String(phone || '').replace(/[^\d]/g, '');
+    if (cleanPhone.length < 8 || cleanPhone.length > 15) {
+      return res.status(400).json({ error: 'Enter a valid Mobile Money phone number, digits only (with country code, e.g. 231XXXXXXXXX).' });
+    }
+  }
+  const momoReferenceId = paymentMethod === 'momo' ? crypto.randomUUID() : null;
+  let result;
+  try {
+    result = await db.createSubscriptionCharge({
+      id: crypto.randomUUID(),
+      vendorId: req.user.id,
+      planId,
+      paymentMethod,
+      momoReferenceId,
+      momoPhone: cleanPhone,
+    });
+  } catch (err) {
+    return res.status(409).json({ error: err.message });
+  }
+  const { charge, plan } = result;
+
+  if (paymentMethod === 'momo') {
+    try {
+      await momo.requestToPay({
+        referenceId: momoReferenceId,
+        amount: charge.price,
+        externalId: charge.id,
+        payerMsisdn: cleanPhone,
+        payerMessage: `ONLib Premium (${plan.label})`,
+        payeeNote: `Subscription charge ${charge.id}`,
+      });
+    } catch (momoErr) {
+      await db.voidFailedSubscriptionCharge(charge.id);
+      console.error('Premium subscription momo initiation failed', momoErr);
+      return res.status(400).json({ error: momoErr.message || 'Mobile Money request failed — please try again or use Direct payment.' });
+    }
+  }
+
+  res.json({ ok: true, charge, plan });
+}
+
+app.post('/api/vendor/subscription/subscribe', requireAuth, requireVendor, async (req, res) => {
+  const { planId } = req.body || {};
+  if (!planId) return res.status(400).json({ error: 'planId is required' });
+  try {
+    await startSubscriptionCharge(req, res, { planId });
+  } catch (err) {
+    console.error('POST /api/vendor/subscription/subscribe failed', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to start Premium subscription' });
+  }
+});
+
+// Renews using the vendor's existing plan — no planId needed, so the
+// vendor dashboard's "Renew" button can be a single click.
+app.post('/api/vendor/subscription/renew', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const existing = await db.getVendorSubscription(req.user.id);
+    if (!existing || !existing.planId) {
+      return res.status(404).json({ error: 'No previous subscription plan found to renew — subscribe to a plan first.' });
+    }
+    await startSubscriptionCharge(req, res, { planId: existing.planId });
+  } catch (err) {
+    console.error('POST /api/vendor/subscription/renew failed', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to renew Premium subscription' });
+  }
+});
+
+// Polling — same reasoning as the Featured Placements / marketplace
+// checkout momo flows: polling is the reliable mechanism.
+app.get('/api/vendor/subscription/charges/:id/payment-status', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const charge = await db.getSubscriptionChargeById(req.params.id);
+    if (!charge) return res.status(404).json({ error: 'Subscription charge not found' });
+    const subscription = await db.getVendorSubscription(req.user.id);
+    if (!subscription || subscription.id !== charge.subscriptionId) return res.status(404).json({ error: 'Subscription charge not found' });
+    if (charge.paymentMethod !== 'momo' || charge.paymentStatus !== 'pending') {
+      return res.json({ paymentStatus: charge.paymentStatus, charge });
+    }
+    const live = await momo.getRequestToPayStatus(charge.momoReferenceId);
+    if (live.status === 'SUCCESSFUL') {
+      const result = await db.confirmSubscriptionChargePayment(charge.id);
+      return res.json({ paymentStatus: 'successful', charge: result.charge, subscription: result.subscription });
+    }
+    if (live.status === 'FAILED') {
+      const voided = await db.voidFailedSubscriptionCharge(charge.id);
+      return res.json({ paymentStatus: 'failed', reason: live.reason, charge: voided });
+    }
+    res.json({ paymentStatus: 'pending', charge });
+  } catch (err) {
+    console.error('GET /api/vendor/subscription/charges/:id/payment-status failed', err);
+    res.status(500).json({ error: 'Failed to check payment status' });
+  }
+});
+
+app.post('/api/vendor/subscription/charges/:id/cancel-payment', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const charge = await db.getSubscriptionChargeById(req.params.id);
+    if (!charge) return res.status(404).json({ error: 'Subscription charge not found' });
+    const subscription = await db.getVendorSubscription(req.user.id);
+    if (!subscription || subscription.id !== charge.subscriptionId) return res.status(404).json({ error: 'Subscription charge not found' });
+    if (charge.paymentMethod !== 'momo' || charge.paymentStatus !== 'pending') {
+      return res.status(400).json({ error: 'This charge is not a pending Mobile Money payment' });
+    }
+    const voided = await db.voidFailedSubscriptionCharge(charge.id);
+    res.json({ ok: true, charge: voided });
+  } catch (err) {
+    console.error('POST /api/vendor/subscription/charges/:id/cancel-payment failed', err);
+    res.status(500).json({ error: 'Failed to cancel payment' });
+  }
+});
+
+// ---- Super Admin: plan editor + the Direct-payment queue + comps ----
+
+const MAX_SUBSCRIPTION_PLAN_LABEL_LENGTH = 60;
+
+app.get('/api/super-admin/subscription-plans', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const plans = await db.getSubscriptionPlans();
+    res.json({ plans });
+  } catch (err) {
+    console.error('GET /api/super-admin/subscription-plans failed', err);
+    res.status(500).json({ error: 'Failed to load subscription plans' });
+  }
+});
+
+app.post('/api/super-admin/subscription-plans', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { label, cycleDays, price } = req.body || {};
+  if (typeof label !== 'string' || !label.trim() || label.length > MAX_SUBSCRIPTION_PLAN_LABEL_LENGTH) {
+    return res.status(400).json({ error: `label must be a non-empty string under ${MAX_SUBSCRIPTION_PLAN_LABEL_LENGTH} characters` });
+  }
+  if (typeof cycleDays !== 'number' || !Number.isInteger(cycleDays) || cycleDays < 1 || cycleDays > 3650) {
+    return res.status(400).json({ error: 'cycleDays must be a whole number between 1 and 3650' });
+  }
+  if (typeof price !== 'number' || isNaN(price) || price < 0 || price > 100000) {
+    return res.status(400).json({ error: 'price must be a non-negative number' });
+  }
+  try {
+    const plan = await db.createSubscriptionPlan({ id: crypto.randomUUID(), label: label.trim(), cycleDays, price });
+    await logAudit(req, 'subscription_plan.create', { targetType: 'subscription_plan', targetId: plan.id, targetLabel: plan.label, details: { cycleDays, price } });
+    res.json({ ok: true, plan });
+  } catch (err) {
+    console.error('POST /api/super-admin/subscription-plans failed', err);
+    res.status(500).json({ error: 'Failed to create subscription plan' });
+  }
+});
+
+app.put('/api/super-admin/subscription-plans/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { label, cycleDays, price, isActive } = req.body || {};
+  const fields = {};
+  if (label !== undefined) {
+    if (typeof label !== 'string' || !label.trim() || label.length > MAX_SUBSCRIPTION_PLAN_LABEL_LENGTH) {
+      return res.status(400).json({ error: `label must be a non-empty string under ${MAX_SUBSCRIPTION_PLAN_LABEL_LENGTH} characters` });
+    }
+    fields.label = label.trim();
+  }
+  if (cycleDays !== undefined) {
+    if (typeof cycleDays !== 'number' || !Number.isInteger(cycleDays) || cycleDays < 1 || cycleDays > 3650) {
+      return res.status(400).json({ error: 'cycleDays must be a whole number between 1 and 3650' });
+    }
+    fields.cycleDays = cycleDays;
+  }
+  if (price !== undefined) {
+    if (typeof price !== 'number' || isNaN(price) || price < 0 || price > 100000) {
+      return res.status(400).json({ error: 'price must be a non-negative number' });
+    }
+    fields.price = price;
+  }
+  if (isActive !== undefined) {
+    if (typeof isActive !== 'boolean') return res.status(400).json({ error: 'isActive must be true or false' });
+    fields.isActive = isActive;
+  }
+  try {
+    const plan = await db.updateSubscriptionPlan(req.params.id, fields);
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    await logAudit(req, 'subscription_plan.update', { targetType: 'subscription_plan', targetId: plan.id, targetLabel: plan.label, details: fields });
+    res.json({ ok: true, plan });
+  } catch (err) {
+    console.error('PUT /api/super-admin/subscription-plans/:id failed', err);
+    res.status(500).json({ error: 'Failed to update subscription plan' });
+  }
+});
+
+app.get('/api/super-admin/subscriptions/pending', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const charges = await db.getPendingDirectSubscriptionCharges();
+    res.json({ charges });
+  } catch (err) {
+    console.error('GET /api/super-admin/subscriptions/pending failed', err);
+    res.status(500).json({ error: 'Failed to load pending Premium subscription requests' });
+  }
+});
+
+app.post('/api/super-admin/subscriptions/charges/:id/confirm', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const result = await db.adminConfirmDirectSubscriptionCharge(req.params.id, req.user.id);
+    if (!result) return res.status(409).json({ error: 'This request was already resolved or is not a pending Direct payment' });
+    await logAudit(req, 'subscription_charge.confirm', { targetType: 'subscription_charge', targetId: result.charge.id, details: { vendorId: result.subscription.vendorId, price: result.charge.price } });
+    res.json({ ok: true, charge: result.charge, subscription: result.subscription });
+  } catch (err) {
+    console.error('POST /api/super-admin/subscriptions/charges/:id/confirm failed', err);
+    res.status(500).json({ error: 'Failed to confirm Premium subscription request' });
+  }
+});
+
+app.post('/api/super-admin/subscriptions/charges/:id/reject', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const charge = await db.adminRejectDirectSubscriptionCharge(req.params.id, req.user.id);
+    if (!charge) return res.status(409).json({ error: 'This request was already resolved or is not a pending Direct payment' });
+    await logAudit(req, 'subscription_charge.reject', { targetType: 'subscription_charge', targetId: charge.id, details: {} });
+    res.json({ ok: true, charge });
+  } catch (err) {
+    console.error('POST /api/super-admin/subscriptions/charges/:id/reject failed', err);
+    res.status(500).json({ error: 'Failed to reject Premium subscription request' });
+  }
+});
+
+// Manual comp — "Super Admin chooses what to give out for free, on his
+// own time": indefinite, no billing cycle, active until revoked. See
+// db.adminGrantPremiumComp/adminRevokePremiumComp for the full reasoning.
+app.post('/api/super-admin/vendors/:id/subscription/grant-comp', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const vendor = await db.getUserById(req.params.id);
+    if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
+    const subscription = await db.adminGrantPremiumComp(vendor.id, req.user.id);
+    await logAudit(req, 'subscription.grant_comp', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: {} });
+    res.json({ ok: true, subscription });
+  } catch (err) {
+    if (err.message && err.message.includes('already has an active subscription')) {
+      return res.status(409).json({ error: err.message });
+    }
+    console.error('POST /api/super-admin/vendors/:id/subscription/grant-comp failed', err);
+    res.status(500).json({ error: 'Failed to grant free Premium' });
+  }
+});
+
+app.post('/api/super-admin/vendors/:id/subscription/revoke-comp', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const vendor = await db.getUserById(req.params.id);
+    if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
+    const subscription = await db.adminRevokePremiumComp(vendor.id);
+    if (!subscription) return res.status(409).json({ error: 'This vendor does not have an active Super-Admin-granted Premium comp to revoke' });
+    await logAudit(req, 'subscription.revoke_comp', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: {} });
+    res.json({ ok: true, subscription });
+  } catch (err) {
+    console.error('POST /api/super-admin/vendors/:id/subscription/revoke-comp failed', err);
+    res.status(500).json({ error: 'Failed to revoke free Premium' });
   }
 });
 
@@ -4173,6 +4508,41 @@ async function seedHomeBannersIfEmpty() {
   console.log(`[seed] Seeded ${DEFAULT_HOME_BANNERS.length} default home banner slides`);
 }
 
+// Best-effort hourly scan for Premium subscriptions entering their
+// renewal window — see db.getSubscriptionsNeedingReminder for the full
+// reasoning on why this is safe to run as a plain in-process interval
+// rather than a real cron/queue: reminders are advisory (a missed one
+// because of a Railway restart just means the vendor gets it on the
+// next hourly tick, or relies on the in-app "renews in Xd" badge
+// instead), unlike current_period_end itself, which is never dependent
+// on this process staying alive. Runs once at startup too, so a
+// reminder due right after a deploy doesn't wait up to an hour.
+const PREMIUM_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+async function runPremiumReminderScan() {
+  try {
+    const due = await db.getSubscriptionsNeedingReminder();
+    for (const sub of due) {
+      try {
+        await notifySubscriptionRenewalDue(
+          { businessName: sub.vendorName, email: sub.vendorEmail, phone: sub.vendorPhone },
+          sub
+        );
+      } catch (sendErr) {
+        console.error(`[premium-reminder] Failed to notify vendor ${sub.vendorId}`, sendErr);
+        continue; // don't mark as sent if it never actually went out
+      }
+      await db.markSubscriptionReminderSent(sub.id);
+    }
+    if (due.length) console.log(`[premium-reminder] Sent ${due.length} renewal reminder(s)`);
+  } catch (err) {
+    console.error('[premium-reminder] Scan failed', err);
+  }
+}
+function startPremiumReminderScheduler() {
+  runPremiumReminderScan();
+  setInterval(runPremiumReminderScan, PREMIUM_REMINDER_INTERVAL_MS);
+}
+
 db.init()
   .then(migrateManageAgentToOnlib)
   .then(seedAdminIfConfigured)
@@ -4184,6 +4554,7 @@ db.init()
   .then(seedVertaDeliveryCompanyIfPossible)
   .then(() => {
     server.listen(PORT, () => console.log(`Verta Delivery server listening on :${PORT}`));
+    startPremiumReminderScheduler();
   })
   .catch((err) => {
     console.error('Failed to initialize database', err);
