@@ -96,6 +96,14 @@ function rowToProduct(r) {
     colors: r.colors || [],
     sizes: r.sizes || [],
     sizeChart: r.size_chart || null,
+    // Low-stock alerts — threshold is null when the vendor hasn't set
+    // one (alerts off for this product). isLowStock is precomputed here,
+    // same reasoning as isFeatured below, so every caller (Products tab
+    // badge, Home tab summary) sees the same answer without recomputing
+    // the comparison itself.
+    lowStockThreshold: r.low_stock_threshold != null ? Number(r.low_stock_threshold) : null,
+    isLowStock: r.low_stock_threshold != null && r.stock_quantity <= r.low_stock_threshold,
+    followersNotifiedAt: r.followers_notified_at || null,
     // Featured Placements — featuredUntil is this product's own paid
     // placement (null/past = not featured). vendorFeaturedUntil only
     // appears on rows from queries that joined it in (storefront/PDP
@@ -1629,10 +1637,10 @@ const db = {
     return rowToProduct(rows[0]);
   },
 
-  async createProduct({ id, vendorId, name, description, price, category, imageDataUrl, stockQuantity, colors, sizes, sizeChart }) {
+  async createProduct({ id, vendorId, name, description, price, category, imageDataUrl, stockQuantity, colors, sizes, sizeChart, lowStockThreshold }) {
     const { rows } = await pool.query(
-      `INSERT INTO products (id, vendor_id, name, description, price, category, image_data_url, stock_quantity, colors, sizes, size_chart)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      `INSERT INTO products (id, vendor_id, name, description, price, category, image_data_url, stock_quantity, colors, sizes, size_chart, low_stock_threshold)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
       [
         id, vendorId, name, description || null, price, category || null, imageDataUrl || null, stockQuantity || 0,
         // Explicit JSON.stringify before handing JSONB columns to pg —
@@ -1645,6 +1653,7 @@ const db = {
         colors && colors.length ? JSON.stringify(colors) : null,
         sizes && sizes.length ? JSON.stringify(sizes) : null,
         sizeChart ? JSON.stringify(sizeChart) : null,
+        lowStockThreshold != null && lowStockThreshold !== '' ? Number(lowStockThreshold) : null,
       ]
     );
     return rowToProduct(rows[0]);
@@ -1654,7 +1663,7 @@ const db = {
     const colMap = {
       name: 'name', description: 'description', price: 'price', category: 'category',
       imageDataUrl: 'image_data_url', stockQuantity: 'stock_quantity', isActive: 'is_active',
-      colors: 'colors', sizes: 'sizes', sizeChart: 'size_chart',
+      colors: 'colors', sizes: 'sizes', sizeChart: 'size_chart', lowStockThreshold: 'low_stock_threshold',
     };
     // These three are JSONB columns — stringify explicitly (see
     // createProduct above) and normalize empty arrays/falsy to NULL
@@ -1667,14 +1676,50 @@ const db = {
         let value = fields[key];
         if (jsonKeys.has(key)) {
           value = value && (Array.isArray(value) ? value.length : true) ? JSON.stringify(value) : null;
+        } else if (key === 'lowStockThreshold') {
+          value = value != null && value !== '' ? Number(value) : null;
         }
         sets.push(`${col} = $${i}`); values.push(value); i += 1;
       }
+    }
+    // A vendor explicitly changing the stock count (almost always a
+    // restock) clears any previously-sent low-stock alert, so the next
+    // scan re-evaluates from scratch instead of staying permanently
+    // silenced after the one alert that already went out.
+    if (Object.prototype.hasOwnProperty.call(fields, 'stockQuantity')) {
+      sets.push('low_stock_alert_sent_at = NULL');
     }
     if (sets.length === 0) return this.getProductById(id);
     values.push(id);
     const { rows } = await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, values);
     return rowToProduct(rows[0]);
+  },
+
+  // Best-effort periodic scan (see the setInterval in server.js) for
+  // products that have dropped to/below their vendor-set low-stock
+  // threshold. low_stock_alert_sent_at IS NULL is the re-fire guard —
+  // cleared automatically whenever a vendor explicitly changes the stock
+  // count (see updateProduct above), so this fires once per "dip" below
+  // the threshold rather than on every scan tick.
+  async getProductsNeedingLowStockAlert() {
+    const { rows } = await pool.query(
+      `SELECT p.*, u.business_name AS vendor_name, u.email AS vendor_email, u.phone AS vendor_phone
+       FROM products p
+       JOIN users u ON u.id = p.vendor_id
+       WHERE p.is_active = true AND p.low_stock_threshold IS NOT NULL
+         AND p.stock_quantity <= p.low_stock_threshold
+         AND p.low_stock_alert_sent_at IS NULL`
+    );
+    return rows.map(r => ({
+      ...rowToProduct(r),
+      vendorName: r.vendor_name,
+      vendorEmail: r.vendor_email,
+      vendorPhone: r.vendor_phone,
+    }));
+  },
+
+  async markLowStockAlertSent(productId) {
+    await pool.query('UPDATE products SET low_stock_alert_sent_at = now() WHERE id = $1', [productId]);
   },
 
   async deleteProduct(id) {
@@ -2208,6 +2253,152 @@ const db = {
       avgRating: Number(r.avg_rating),
       reviewCount: r.review_count,
       unitsSold: r.units_sold,
+      images: r.extra_images || [],
+    }));
+  },
+
+  // ---- Per-vendor Marketplace storefront page ("Visit Store") ----------
+  // Public — real vendor info + real aggregates (follower count, review
+  // average, active listing count), never fabricated. Same shape as
+  // getRelatedVendorProducts's vendor fields, just not scoped to
+  // excluding one product or a small limit, since this is the page a
+  // customer lands on specifically to browse everything this vendor has.
+  async getVendorStorefrontProfile(vendorId) {
+    const { rows } = await pool.query(`
+      SELECT u.id, u.business_name, u.profile_image_url, u.store_address, u.vendor_type, u.created_at,
+        COALESCE(vr.avg_rating, 0)::numeric AS avg_rating,
+        COALESCE(vr.review_count, 0)::int AS review_count,
+        COALESCE(sf.follower_count, 0)::int AS follower_count,
+        COALESCE(pc.product_count, 0)::int AS product_count
+      FROM users u
+      LEFT JOIN (
+        SELECT vendor_id, AVG(rating) AS avg_rating, COUNT(*) AS review_count
+        FROM vendor_reviews GROUP BY vendor_id
+      ) vr ON vr.vendor_id = u.id
+      LEFT JOIN (
+        SELECT vendor_id, COUNT(*) AS follower_count
+        FROM store_follows GROUP BY vendor_id
+      ) sf ON sf.vendor_id = u.id
+      LEFT JOIN (
+        SELECT vendor_id, COUNT(*) AS product_count
+        FROM products WHERE is_active = true AND stock_quantity > 0 GROUP BY vendor_id
+      ) pc ON pc.vendor_id = u.id
+      WHERE u.id = $1 AND u.role = 'vendor'
+    `, [vendorId]);
+    if (!rows[0]) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      businessName: r.business_name,
+      profileImageUrl: r.profile_image_url,
+      storeAddress: r.store_address,
+      vendorType: r.vendor_type,
+      memberSince: r.created_at,
+      avgRating: Number(r.avg_rating),
+      reviewCount: r.review_count,
+      followerCount: r.follower_count,
+      productCount: r.product_count,
+    };
+  },
+
+  // Every active, in-stock product from one vendor — same shape/filters
+  // as getActiveProductsForStorefront, just scoped to a single vendor and
+  // with no exclusion or limit (unlike getRelatedVendorProducts, which is
+  // for the PDP's small "more from this store" strip).
+  async getVendorStorefrontProducts(vendorId) {
+    const { rows } = await pool.query(`
+      SELECT p.*, u.business_name AS vendor_name,
+        COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
+        COUNT(DISTINCT r.id)::int AS review_count,
+        COALESCE(sold.units_sold, 0)::int AS units_sold,
+        promo.discount_percent, promo.ends_at AS promo_ends_at,
+        (
+          SELECT json_agg(json_build_object('id', pi.id, 'imageDataUrl', pi.image_data_url) ORDER BY pi.position, pi.created_at)
+          FROM product_images pi WHERE pi.product_id = p.id
+        ) AS extra_images
+      FROM products p
+      JOIN users u ON u.id = p.vendor_id
+      LEFT JOIN product_reviews r ON r.product_id = p.id
+      LEFT JOIN (
+        SELECT product_id, SUM(quantity)::int AS units_sold
+        FROM purchase_items GROUP BY product_id
+      ) sold ON sold.product_id = p.id
+      LEFT JOIN (
+        SELECT DISTINCT ON (product_id) product_id, discount_percent, ends_at
+        FROM promotions
+        WHERE starts_at <= now() AND ends_at > now()
+        ORDER BY product_id, ends_at ASC
+      ) promo ON promo.product_id = p.id
+      WHERE p.vendor_id = $1 AND p.is_active = true AND p.stock_quantity > 0
+      GROUP BY p.id, u.business_name, sold.units_sold, promo.discount_percent, promo.ends_at
+      ORDER BY p.created_at DESC
+    `, [vendorId]);
+    return rows.map(r => {
+      const originalPrice = Number(r.price);
+      const discountPercent = r.discount_percent ? Number(r.discount_percent) : null;
+      const effectivePrice = discountPercent ? Number((originalPrice * (1 - discountPercent / 100)).toFixed(2)) : originalPrice;
+      return {
+        ...rowToProduct(r),
+        vendorName: r.vendor_name,
+        avgRating: Number(r.avg_rating),
+        reviewCount: r.review_count,
+        unitsSold: r.units_sold,
+        originalPrice,
+        price: effectivePrice,
+        discountPercent,
+        promoEndsAt: r.promo_ends_at,
+        images: r.extra_images || [],
+      };
+    });
+  },
+
+  // ---- Real co-purchase recommendations ("customers who bought this
+  // also bought") ---------------------------------------------------
+  // A real query against purchase_items — every other product that has
+  // ever shared a purchase (any vendor, not just this one) with the
+  // product being viewed, ranked by how many distinct purchases they've
+  // co-occurred in. No fabricated "customers who bought X also bought Y"
+  // copy here — if nobody has ever bought this product alongside
+  // anything else, this simply returns an empty list (the PDP falls
+  // back to "More From This Store" in that case — see loadPdpCoPurchased
+  // in index.html).
+  async getCoPurchasedProducts(productId, limit = 8) {
+    const { rows } = await pool.query(`
+      SELECT p.*, u.business_name AS vendor_name,
+        COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
+        COUNT(DISTINCT r.id)::int AS review_count,
+        COALESCE(sold.units_sold, 0)::int AS units_sold,
+        co.co_count::int AS co_count,
+        (
+          SELECT json_agg(json_build_object('id', pi.id, 'imageDataUrl', pi.image_data_url) ORDER BY pi.position, pi.created_at)
+          FROM product_images pi WHERE pi.product_id = p.id
+        ) AS extra_images
+      FROM (
+        SELECT pi2.product_id, COUNT(DISTINCT pi1.purchase_id) AS co_count
+        FROM purchase_items pi1
+        JOIN purchase_items pi2 ON pi2.purchase_id = pi1.purchase_id AND pi2.product_id != pi1.product_id
+        WHERE pi1.product_id = $1
+        GROUP BY pi2.product_id
+      ) co
+      JOIN products p ON p.id = co.product_id
+      JOIN users u ON u.id = p.vendor_id
+      LEFT JOIN product_reviews r ON r.product_id = p.id
+      LEFT JOIN (
+        SELECT product_id, SUM(quantity)::int AS units_sold
+        FROM purchase_items GROUP BY product_id
+      ) sold ON sold.product_id = p.id
+      WHERE p.is_active = true AND p.stock_quantity > 0
+      GROUP BY p.id, u.business_name, co.co_count, sold.units_sold
+      ORDER BY co.co_count DESC, p.created_at DESC
+      LIMIT $2
+    `, [productId, limit]);
+    return rows.map(r => ({
+      ...rowToProduct(r),
+      vendorName: r.vendor_name,
+      avgRating: Number(r.avg_rating),
+      reviewCount: r.review_count,
+      unitsSold: r.units_sold,
+      coCount: r.co_count,
       images: r.extra_images || [],
     }));
   },
@@ -2873,6 +3064,24 @@ const db = {
   async getFollowedStoreIds(customerId) {
     const { rows } = await pool.query('SELECT vendor_id FROM store_follows WHERE customer_id = $1', [customerId]);
     return rows.map(r => r.vendor_id);
+  },
+
+  // Real followers of one vendor's store — used by the follower
+  // broadcast feature (see POST /api/vendor/products/:id/notify-followers
+  // in server.js) to send a real notification to each one, never a
+  // fabricated "reached N people" figure.
+  async getStoreFollowers(vendorId) {
+    const { rows } = await pool.query(
+      `SELECT u.id, u.business_name, u.email, u.phone
+       FROM store_follows sf JOIN users u ON u.id = sf.customer_id
+       WHERE sf.vendor_id = $1`,
+      [vendorId]
+    );
+    return rows.map(r => ({ id: r.id, businessName: r.business_name, email: r.email, phone: r.phone }));
+  },
+
+  async markFollowersNotified(productId) {
+    await pool.query('UPDATE products SET followers_notified_at = now() WHERE id = $1', [productId]);
   },
 
   // ---- Saved Addresses ---------------------------------------------------
@@ -3659,6 +3868,25 @@ const db = {
     const { rows } = await pool.query(
       `${this._disputeSelect()} WHERE d.customer_id = $1 ORDER BY d.created_at DESC`,
       [customerId]
+    );
+    return rows.map(r => this._rowToDisputeWithContext(r));
+  },
+
+  // Read-only vendor visibility — every dispute tied to one of this
+  // vendor's own Marketplace purchases (d.purchase_id, never d.order_id
+  // — an order_id dispute is a Delivery Company matter, not this
+  // vendor's, per the schema.sql comment on the disputes table). A
+  // vendor currently has no other way to know a dispute happened at
+  // all beyond a lower payout, so this is intentionally read-only: no
+  // vendor-side status/resolution mutation route exists, only Super
+  // Admin resolves disputes.
+  async getDisputesForVendor(vendorId, { status } = {}) {
+    const values = [vendorId];
+    let where = 'WHERE pur.vendor_id = $1';
+    if (status) { values.push(status); where += ` AND d.status = $${values.length}`; }
+    const { rows } = await pool.query(
+      `${this._disputeSelect()} ${where} ORDER BY (d.status = 'open') DESC, d.created_at DESC`,
+      values
     );
     return rows.map(r => this._rowToDisputeWithContext(r));
   },

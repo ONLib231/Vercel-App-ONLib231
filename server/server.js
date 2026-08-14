@@ -9,7 +9,7 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const db = require('./db');
-const { notifyNewOrder, sendMessage, notifyNewVendorApplication, sendEmail, notifySubscriptionRenewalDue } = require('./notify');
+const { notifyNewOrder, sendMessage, notifyNewVendorApplication, sendEmail, notifySubscriptionRenewalDue, notifyLowStock, notifyNewProductFromFollowedStore } = require('./notify');
 const momo = require('./momo');
 const { parsePriceRowsFromText } = require('./pricePresetPdfParser');
 const DEFAULT_HOME_BANNERS = require('./seed-data/default-home-banners');
@@ -1211,6 +1211,55 @@ app.post('/api/admin/change-password', requireAuth, requireAdmin, authLimiter, a
     res.json({ ok: true });
   } catch (err) {
     console.error('change-password failed', err);
+    res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+// Role-generic self-service email/password change — any authenticated
+// role (vendor, customer, admin, super admin) can change their own email
+// or password this way. Mirrors /api/admin/change-email and
+// /api/admin/change-password above almost verbatim, but gated on
+// requireAuth only so it isn't blocked for non-admin roles like vendors.
+app.post('/api/me/change-email', requireAuth, authLimiter, async (req, res) => {
+  const { newEmail, currentPassword } = req.body || {};
+  if (!newEmail || !currentPassword) {
+    return res.status(400).json({ error: 'New email and current password are required' });
+  }
+  try {
+    const user = await db.getUserById(req.user.id);
+    const match = await comparePassword(currentPassword, user.passwordHash);
+    if (!match) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    const existing = await db.getUserByEmail(newEmail);
+    if (existing && existing.id !== user.id) {
+      return res.status(409).json({ error: 'That email is already in use' });
+    }
+    const updated = await db.updateUserEmail(user.id, newEmail);
+    const token = signToken(updated); // token embeds email, so it must be reissued
+    res.json({ ok: true, token, user: { id: updated.id, businessName: updated.businessName, email: updated.email, role: updated.role } });
+  } catch (err) {
+    console.error('change-email (self) failed', err);
+    res.status(500).json({ error: 'Failed to change email' });
+  }
+});
+
+app.post('/api/me/change-password', requireAuth, authLimiter, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+  try {
+    const user = await db.getUserById(req.user.id);
+    const match = await comparePassword(currentPassword, user.passwordHash);
+    if (!match) return res.status(401).json({ error: 'Current password is incorrect' });
+    const passwordHash = await hashPassword(newPassword);
+    await db.updateUserPassword(user.id, passwordHash);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('change-password (self) failed', err);
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -2548,7 +2597,13 @@ const MAX_SIZE_CHART_ROWS = 10;
 // caps/shapes even though the UI itself already limits them (matching
 // every other "don't trust the client" check already in this file).
 // Returns an error string, or null if everything (present) is valid.
-function validateProductVariantFields({ colors, sizes, sizeChart }) {
+function validateProductVariantFields({ colors, sizes, sizeChart, lowStockThreshold }) {
+  if (lowStockThreshold !== undefined && lowStockThreshold !== null && lowStockThreshold !== '') {
+    const n = Number(lowStockThreshold);
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      return 'Low-stock alert threshold must be a whole number of 0 or more';
+    }
+  }
   if (colors !== undefined && colors !== null) {
     if (!Array.isArray(colors)) return 'Colors must be a list';
     if (colors.length > MAX_PRODUCT_COLORS) return `A product can have at most ${MAX_PRODUCT_COLORS} colors`;
@@ -2581,14 +2636,14 @@ function validateProductVariantFields({ colors, sizes, sizeChart }) {
 }
 
 app.post('/api/vendor/products', requireAuth, requireVendor, async (req, res) => {
-  const { name, description, price, category, imageDataUrl, stockQuantity, colors, sizes, sizeChart } = req.body || {};
+  const { name, description, price, category, imageDataUrl, stockQuantity, colors, sizes, sizeChart, lowStockThreshold } = req.body || {};
   if (!name || !name.trim() || price === undefined || isNaN(Number(price)) || Number(price) < 0) {
     return res.status(400).json({ error: 'A name and a valid non-negative price are required' });
   }
   if (imageDataUrl && imageDataUrl.length > MAX_PRODUCT_IMAGE_BYTES) {
     return res.status(400).json({ error: 'Product image is too large — please use an image under ~500KB.' });
   }
-  const variantError = validateProductVariantFields({ colors, sizes, sizeChart });
+  const variantError = validateProductVariantFields({ colors, sizes, sizeChart, lowStockThreshold });
   if (variantError) return res.status(400).json({ error: variantError });
   try {
     const product = await db.createProduct({
@@ -2603,6 +2658,7 @@ app.post('/api/vendor/products', requireAuth, requireVendor, async (req, res) =>
       colors,
       sizes,
       sizeChart,
+      lowStockThreshold,
     });
     res.json({ ok: true, product });
   } catch (err) {
@@ -2639,6 +2695,47 @@ app.delete('/api/vendor/products/:id', requireAuth, requireVendor, async (req, r
   } catch (err) {
     console.error('DELETE /api/vendor/products failed', err);
     res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
+// Follower broadcast — a vendor announces one product (a new listing or
+// a sale) to everyone who follows their store. Real recipients only
+// (store_follows rows), best-effort delivery per notify.js's existing
+// pattern, and rate-limited to once per 24h per product (via
+// followers_notified_at) so this can't be used to spam the same
+// followers over and over.
+const FOLLOWER_BROADCAST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+app.post('/api/vendor/products/:id/notify-followers', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const product = await db.getProductById(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    if (product.vendorId !== req.user.id) return res.status(403).json({ error: 'Not your product' });
+    if (product.followersNotifiedAt) {
+      const elapsed = Date.now() - new Date(product.followersNotifiedAt).getTime();
+      if (elapsed < FOLLOWER_BROADCAST_COOLDOWN_MS) {
+        const hoursLeft = Math.ceil((FOLLOWER_BROADCAST_COOLDOWN_MS - elapsed) / (60 * 60 * 1000));
+        return res.status(429).json({ error: `You already notified your followers about this product recently — try again in about ${hoursLeft}h.` });
+      }
+    }
+    const followers = await db.getStoreFollowers(req.user.id);
+    if (followers.length === 0) {
+      return res.json({ ok: true, notifiedCount: 0 });
+    }
+    const vendor = await db.getUserById(req.user.id);
+    let notifiedCount = 0;
+    for (const follower of followers) {
+      try {
+        const sent = await notifyNewProductFromFollowedStore(follower, vendor, product);
+        if (sent) notifiedCount += 1;
+      } catch (sendErr) {
+        console.error(`[follower-broadcast] Failed to notify follower ${follower.id}`, sendErr);
+      }
+    }
+    await db.markFollowersNotified(product.id);
+    res.json({ ok: true, notifiedCount, followerCount: followers.length });
+  } catch (err) {
+    console.error('POST /api/vendor/products/:id/notify-followers failed', err);
+    res.status(500).json({ error: 'Failed to notify followers' });
   }
 });
 
@@ -3050,6 +3147,23 @@ app.get('/api/vendor/customers', requireAuth, requireVendor, async (req, res) =>
   }
 });
 
+// Real, read-only dispute visibility for a vendor — every dispute tied
+// to one of their own purchases. Before this, a vendor had no way to
+// know a dispute even happened, only a quieter lower payout once Super
+// Admin resolved it with a refund. No resolution route here — only
+// Super Admin can decide/refund a dispute (see PUT
+// /api/super-admin/disputes/:id/resolve above); this is view-only.
+app.get('/api/vendor/disputes', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const status = ['open', 'resolved', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
+    const disputes = await db.getDisputesForVendor(req.user.id, { status });
+    res.json({ disputes });
+  } catch (err) {
+    console.error('GET /api/vendor/disputes failed', err);
+    res.status(500).json({ error: 'Failed to load disputes' });
+  }
+});
+
 // Real order-status breakdown — used for the dashboard's donut chart in
 // place of the mockup's "Sales by Channel" (no traffic-source tracking
 // exists in this app; status IS real, tracked data).
@@ -3160,6 +3274,26 @@ app.post('/api/marketplace/products/:id/reviews', requireAuth, async (req, res) 
   } catch (err) {
     console.error('POST reviews failed', err);
     res.status(500).json({ error: 'Failed to save review' });
+  }
+});
+
+// Real per-vendor Marketplace storefront page ("Visit Store") — public,
+// combines the vendor's public profile (with real follower/rating/
+// listing-count aggregates, never fabricated) and their full active
+// product grid in one call, so the Stores directory cards and PDP
+// vendor pill (both of which already know the vendorId) have one real
+// destination to route to instead of a generic, unscoped Stores tab.
+app.get('/api/marketplace/vendors/:id/storefront', async (req, res) => {
+  try {
+    const profile = await db.getVendorStorefrontProfile(req.params.id);
+    if (!profile || profile.vendorType !== 'store') {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+    const products = await db.getVendorStorefrontProducts(req.params.id);
+    res.json({ vendor: profile, products });
+  } catch (err) {
+    console.error('GET /api/marketplace/vendors/:id/storefront failed', err);
+    res.status(500).json({ error: 'Failed to load store' });
   }
 });
 
@@ -3277,6 +3411,21 @@ app.get('/api/marketplace/products/:id/related', async (req, res) => {
   } catch (err) {
     console.error('GET /api/marketplace/products/:id/related failed', err);
     res.status(500).json({ error: 'Failed to load recommended products' });
+  }
+});
+
+// Real "customers who bought this also bought" — see
+// db.getCoPurchasedProducts for the actual purchase_items query. Public,
+// same as /related above, since the PDP itself is public.
+app.get('/api/marketplace/products/:id/co-purchased', async (req, res) => {
+  try {
+    const product = await db.getProductById(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    const products = await db.getCoPurchasedProducts(product.id, 8);
+    res.json({ products });
+  } catch (err) {
+    console.error('GET /api/marketplace/products/:id/co-purchased failed', err);
+    res.status(500).json({ error: 'Failed to load co-purchased products' });
   }
 });
 
@@ -3548,6 +3697,28 @@ app.post('/api/conversations', requireAuth, async (req, res) => {
     res.json({ conversationId: conversation.id, vendorName: vendor.businessName });
   } catch (err) {
     console.error('POST /api/conversations failed', err);
+    res.status(500).json({ error: 'Failed to start conversation' });
+  }
+});
+
+// Vendor-initiated conversation — the counterpart to POST /api/conversations
+// above, which only lets a customer start a thread. Used by the
+// abandoned-checkout recovery view's "Message this customer" action, so
+// a vendor can reach out first instead of waiting for the customer to.
+// Reuses the same getOrCreateConversation as the customer-initiated
+// path (a thread started either direction is the same conversation),
+// just doesn't log a MESSAGE_SENT lead — that lead type tracks a
+// customer's own outreach, not the vendor's.
+app.post('/api/vendor/conversations', requireAuth, requireVendor, async (req, res) => {
+  const { customerId } = req.body || {};
+  if (!customerId) return res.status(400).json({ error: 'customerId is required' });
+  try {
+    const customer = await db.getUserById(customerId);
+    if (!customer || customer.role !== 'sender') return res.status(404).json({ error: 'Customer not found' });
+    const { conversation } = await db.getOrCreateConversation(customerId, req.user.id);
+    res.json({ conversationId: conversation.id, customerName: customer.businessName });
+  } catch (err) {
+    console.error('POST /api/vendor/conversations failed', err);
     res.status(500).json({ error: 'Failed to start conversation' });
   }
 });
@@ -4567,6 +4738,37 @@ function startPremiumReminderScheduler() {
   setInterval(runPremiumReminderScan, PREMIUM_REMINDER_INTERVAL_MS);
 }
 
+// Best-effort periodic scan for products that have dropped to/below the
+// vendor's own low-stock threshold — same in-process-interval reasoning
+// as the Premium reminder scan above (advisory, not safety-critical; a
+// missed tick just means the vendor is alerted on the next one, or sees
+// the in-app low-stock badge in the meantime). Runs once at startup too.
+const LOW_STOCK_SCAN_INTERVAL_MS = 30 * 60 * 1000; // every 30 minutes
+async function runLowStockScan() {
+  try {
+    const due = await db.getProductsNeedingLowStockAlert();
+    for (const product of due) {
+      try {
+        await notifyLowStock(
+          { businessName: product.vendorName, email: product.vendorEmail, phone: product.vendorPhone },
+          product
+        );
+      } catch (sendErr) {
+        console.error(`[low-stock] Failed to notify vendor ${product.vendorId} about product ${product.id}`, sendErr);
+        continue; // don't mark as sent if it never actually went out
+      }
+      await db.markLowStockAlertSent(product.id);
+    }
+    if (due.length) console.log(`[low-stock] Sent ${due.length} low-stock alert(s)`);
+  } catch (err) {
+    console.error('[low-stock] Scan failed', err);
+  }
+}
+function startLowStockScheduler() {
+  runLowStockScan();
+  setInterval(runLowStockScan, LOW_STOCK_SCAN_INTERVAL_MS);
+}
+
 db.init()
   .then(migrateManageAgentToOnlib)
   .then(seedAdminIfConfigured)
@@ -4579,6 +4781,7 @@ db.init()
   .then(() => {
     server.listen(PORT, () => console.log(`Verta Delivery server listening on :${PORT}`));
     startPremiumReminderScheduler();
+    startLowStockScheduler();
   })
   .catch((err) => {
     console.error('Failed to initialize database', err);

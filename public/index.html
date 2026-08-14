@@ -2501,6 +2501,27 @@
             .product-card-sold { font-size: 0.625rem; color: var(--slate-lighter); }
         }
 
+        /* ---- Per-vendor Marketplace storefront page ("Visit Store") ---- */
+        #mp-view-storefront {
+            position: fixed; inset: 0; z-index: 89; background: white; display: none;
+            overflow-y: auto; -webkit-overflow-scrolling: touch;
+        }
+        #mp-view-storefront.open { display: block; }
+        .storefront-header-bar {
+            display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border); position: sticky; top: 0; background: white; z-index: 2;
+        }
+        .storefront-hero {
+            padding: 1.5rem 1.25rem; display: flex; align-items: center; gap: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .storefront-hero-avatar {
+            width: 64px; height: 64px; border-radius: 50%; background: var(--primary); color: white;
+            display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; flex-shrink: 0;
+        }
+        .storefront-hero-meta { font-size: 0.8125rem; color: var(--slate-light); margin-top: 0.25rem; display:flex; gap:0.75rem; flex-wrap:wrap; }
+        .storefront-tabs { display: flex; gap: 0.625rem; padding: 1rem 1.25rem 0; }
+
         /* ---- Product Detail Page (PDP) ---- */
         #mp-view-product-detail {
             position: fixed; inset: 0; z-index: 90; background: white; display: none;
@@ -2699,7 +2720,7 @@
                the scrolling ancestor — #mp-view-product-detail.open,
                which already has overflow-y: auto). */
             .pdp-buybox-col {
-                grid-column: 2; grid-row: 1 / 6; position: sticky; top: 1.5rem; align-self: start;
+                grid-column: 2; grid-row: 1 / 7; position: sticky; top: 1.5rem; align-self: start;
                 border: 1px solid var(--border); border-radius: 1rem; overflow: hidden; max-height: calc(100vh - 3rem);
                 display: flex; flex-direction: column;
             }
@@ -2717,7 +2738,8 @@
             #pdp-size-chart-section.pdp-section { grid-row: 2; }
             #pdp-reviews-section.pdp-section { grid-row: 3; }
             #pdp-qna-section.pdp-section { grid-row: 4; }
-            #pdp-recommended-section.pdp-section { grid-row: 5; }
+            #pdp-copurchased-section.pdp-section { grid-row: 5; }
+            #pdp-recommended-section.pdp-section { grid-row: 6; }
         }
 
         /* Full Stores directory (Stores tab / "View All") stays a
@@ -4046,6 +4068,48 @@
             </div>
         </div>
 
+        <!-- Real per-vendor Marketplace storefront page ("Visit Store") —
+             fetched from GET /api/marketplace/vendors/:id/storefront.
+             Reached from a Stores directory card, the PDP vendor pill, or
+             a product card's vendor name. -->
+        <div id="mp-view-storefront">
+            <div class="storefront-header-bar">
+                <button type="button" class="pdp-icon-btn" id="storefront-back-btn" aria-label="Back">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                </button>
+                <div style="font-weight:700; flex:1;" id="storefront-header-title">Store</div>
+                <button type="button" class="store-card-follow-btn" id="storefront-follow-btn" style="position:static;" aria-label="Follow store">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                </button>
+            </div>
+            <div class="storefront-hero">
+                <div class="storefront-hero-avatar" id="storefront-avatar">?</div>
+                <div style="flex:1; min-width:0;">
+                    <div style="font-weight:800; font-size:1.125rem;" id="storefront-name">—</div>
+                    <div id="storefront-rating-row"></div>
+                    <div class="storefront-hero-meta">
+                        <span id="storefront-follower-count">0 followers</span>
+                        <span id="storefront-product-count">0 products</span>
+                    </div>
+                    <div class="storefront-hero-meta" id="storefront-address-row"></div>
+                </div>
+            </div>
+            <div class="storefront-tabs">
+                <button type="button" class="btn-small btn-primary storefront-page-tab active" data-storefront-tab="products" id="storefront-tab-products">Products</button>
+                <button type="button" class="btn-small btn-secondary storefront-page-tab" data-storefront-tab="reviews" id="storefront-tab-reviews">Reviews</button>
+            </div>
+            <div style="padding: 1rem 1.25rem;">
+                <div id="storefront-products-panel">
+                    <div id="storefront-products-grid" class="product-grid"></div>
+                </div>
+                <div id="storefront-reviews-panel" style="display:none;">
+                    <div id="storefront-reviews-summary"></div>
+                    <div id="storefront-review-form-wrap"></div>
+                    <div id="storefront-reviews-list"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Product Detail Page — populated from the same
              storefrontProducts data already loaded for the grid feed
              (no extra API call needed). -->
@@ -4162,6 +4226,11 @@
                 <h3 class="pdp-section-title">Questions &amp; Answers</h3>
                 <div id="pdp-qna-ask-wrap"></div>
                 <div id="pdp-qna-list"></div>
+            </div>
+
+            <div class="pdp-section" id="pdp-copurchased-section" style="display:none;">
+                <h3 class="pdp-section-title">Customers Also Bought</h3>
+                <div id="pdp-copurchased-grid" class="product-grid"></div>
             </div>
 
             <div class="pdp-section" id="pdp-recommended-section" style="display:none;">
@@ -5488,6 +5557,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
                     Promotions
                 </button>
+                <button type="button" class="desktop-sidebar-item" data-vendor-tab="disputes">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    Disputes
+                </button>
                 <button type="button" class="desktop-sidebar-item" data-vendor-tab="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     Settings
@@ -5562,6 +5635,14 @@
                         <div class="vendor-welcome-name" id="vendor-store-name-hero">Vendor</div>
                     </div>
                     <span class="vendor-online-pill">✓ Online</span>
+                </div>
+
+                <div class="mobile-section" id="vendor-low-stock-banner" style="display:none; margin-top:1.25rem; background:#fffbeb; border:1px solid #fde68a; border-radius:0.875rem; padding:0.875rem 1rem; align-items:center; gap:0.75rem; cursor:pointer;" data-vendor-tab="products">
+                    <span style="font-size:1.25rem;">⚠️</span>
+                    <div style="flex:1;">
+                        <div style="font-weight:700; color:#92400e; font-size:0.9375rem;" id="vendor-low-stock-banner-text">0 products running low on stock</div>
+                        <div style="font-size:0.8125rem; color:#92400e; opacity:0.85;">Tap to view them in Products</div>
+                    </div>
                 </div>
 
                 <div class="mobile-section" style="margin-top:1.25rem;">
@@ -5885,6 +5966,24 @@
                 </div>
             </div>
 
+            <!-- Disputes — real, read-only. A vendor previously had zero
+                 visibility into a dispute against one of their purchases,
+                 only a quieter lower payout once Super Admin resolved it.
+                 Only Super Admin can decide/refund one; this is view-only. -->
+            <div id="vendor-view-disputes" style="display:none;">
+                <div class="mobile-section-header" style="margin-top:0;">
+                    <div class="mobile-section-title">Disputes</div>
+                </div>
+                <p class="settings-hint" style="margin-bottom:1rem;">Real disputes customers have filed against your purchases. Only Super Admin can resolve one (with or without a refund) — this is a read-only view so you always know when and why.</p>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;" id="vendor-disputes-filter-row">
+                    <button type="button" class="category-item active-category vendor-dispute-filter-btn" data-status="">All</button>
+                    <button type="button" class="category-item vendor-dispute-filter-btn" data-status="open">Open</button>
+                    <button type="button" class="category-item vendor-dispute-filter-btn" data-status="resolved">Resolved</button>
+                    <button type="button" class="category-item vendor-dispute-filter-btn" data-status="rejected">Rejected</button>
+                </div>
+                <div id="vendor-disputes-list"></div>
+            </div>
+
             <!-- Settings — real account info, read-only for now -->
             <div id="vendor-view-settings" style="display:none;">
                 <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Store Settings</div></div>
@@ -5929,7 +6028,44 @@
                     <div class="auth-error" id="vendor-settings-error"></div>
                     <button type="submit" class="btn-primary" id="vendor-settings-save-btn" style="width:100%;">Save Changes</button>
                 </form>
-                <p style="color:var(--slate-light); font-size:0.8125rem; margin-top:1rem;">Email and password changes aren't part of this form yet — those need their own careful flow (uniqueness checks, verification).</p>
+
+                <!-- Security: change email / change password — mirrors the
+                     admin Security block, but posts to the role-generic
+                     /api/me/change-email and /api/me/change-password routes
+                     so a vendor account can use it too. -->
+                <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                    <div class="mobile-section-title" style="margin-bottom:0.75rem;">Security</div>
+                    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                        <button type="button" class="btn-small btn-secondary" id="vendor-toggle-change-email-btn">Change Email</button>
+                        <button type="button" class="btn-small btn-secondary" id="vendor-toggle-change-password-btn">Change Password</button>
+                    </div>
+
+                    <form id="vendor-change-email-form" style="display:none; background:var(--bg-light); padding:1.25rem; border-radius:0.875rem; margin-top:1rem;">
+                        <div class="form-group">
+                            <label class="form-label">New Email</label>
+                            <input type="email" class="form-input" id="vendor-change-email-new" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Current Password</label>
+                            <input type="password" class="form-input" id="vendor-change-email-current-password" required>
+                        </div>
+                        <div class="auth-error" id="vendor-change-email-error"></div>
+                        <button type="submit" class="btn-small btn-success">Update Email</button>
+                    </form>
+
+                    <form id="vendor-change-password-form" style="display:none; background:var(--bg-light); padding:1.25rem; border-radius:0.875rem; margin-top:1rem;">
+                        <div class="form-group">
+                            <label class="form-label">Current Password</label>
+                            <input type="password" class="form-input" id="vendor-change-password-current" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">New Password</label>
+                            <input type="password" class="form-input" id="vendor-change-password-new" placeholder="At least 8 characters" required minlength="8">
+                        </div>
+                        <div class="auth-error" id="vendor-change-password-error"></div>
+                        <button type="submit" class="btn-small btn-success">Update Password</button>
+                    </form>
+                </div>
             </div>
 
             <!-- Account -->
@@ -5941,7 +6077,9 @@
                         <div style="font-size:0.8125rem; color:var(--slate-light);">Vendor Account</div>
                     </div>
                 </div>
-                <button type="button" class="btn-primary" id="switch-to-marketplace-btn" style="width:100%; margin-top:1.5rem;">Switch to Marketplace</button>
+                <button type="button" class="quick-access-btn secondary" data-vendor-tab="settings" style="width:100%; margin-top:1.5rem;">Store Settings</button>
+                <button type="button" class="quick-access-btn secondary" data-vendor-tab="disputes" style="width:100%; margin-top:0.75rem;">Disputes</button>
+                <button type="button" class="btn-primary" id="switch-to-marketplace-btn" style="width:100%; margin-top:0.75rem;">Switch to Marketplace</button>
                 <button type="button" class="quick-access-btn secondary" id="vendor-logout-btn" style="width:100%; margin-top:0.75rem;">Logout</button>
             </div>
         </div>
@@ -6002,6 +6140,11 @@
                         <label class="form-label">Stock Quantity</label>
                         <input type="number" class="form-input" id="product-stock-input" min="0" step="1" required>
                     </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Low-Stock Alert Threshold <span style="font-weight:400; color:var(--slate-light); font-size:0.8125rem;">(optional)</span></label>
+                    <input type="number" class="form-input" id="product-low-stock-threshold-input" min="0" step="1" placeholder="e.g. 5">
+                    <p class="settings-hint">Get notified when stock drops to or below this number. Leave blank to turn off alerts for this product.</p>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Product Photo</label>
@@ -12273,6 +12416,67 @@
                 }
             });
 
+            // ---- Vendor Settings: change email / change password ----
+            // Same pattern as the admin Security block above, but posts to
+            // the role-generic /api/me/change-email and
+            // /api/me/change-password routes (requireAuth only) instead of
+            // the admin-only /api/admin/change-email(-password) routes, so
+            // vendor accounts can actually use it.
+            if (document.getElementById('vendor-toggle-change-email-btn')) {
+                document.getElementById('vendor-toggle-change-email-btn').addEventListener('click', () => {
+                    const form = document.getElementById('vendor-change-email-form');
+                    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+                });
+                document.getElementById('vendor-toggle-change-password-btn').addEventListener('click', () => {
+                    const form = document.getElementById('vendor-change-password-form');
+                    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+                });
+
+                document.getElementById('vendor-change-email-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const errorEl = document.getElementById('vendor-change-email-error');
+                    errorEl.style.display = 'none';
+                    try {
+                        const data = await apiFetch('/api/me/change-email', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                newEmail: document.getElementById('vendor-change-email-new').value,
+                                currentPassword: document.getElementById('vendor-change-email-current-password').value,
+                            }),
+                        });
+                        saveAuth(data.token, data.user); // token embeds email — must refresh the stored one
+                        document.getElementById('vendor-settings-email').value = data.user.email;
+                        document.getElementById('vendor-change-email-form').style.display = 'none';
+                        document.getElementById('vendor-change-email-form').reset();
+                        showToast('Email updated', 'success');
+                    } catch (err) {
+                        errorEl.textContent = err.message;
+                        errorEl.style.display = 'block';
+                    }
+                });
+
+                document.getElementById('vendor-change-password-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const errorEl = document.getElementById('vendor-change-password-error');
+                    errorEl.style.display = 'none';
+                    try {
+                        await apiFetch('/api/me/change-password', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                currentPassword: document.getElementById('vendor-change-password-current').value,
+                                newPassword: document.getElementById('vendor-change-password-new').value,
+                            }),
+                        });
+                        document.getElementById('vendor-change-password-form').style.display = 'none';
+                        document.getElementById('vendor-change-password-form').reset();
+                        showToast('Password updated', 'success');
+                    } catch (err) {
+                        errorEl.textContent = err.message;
+                        errorEl.style.display = 'block';
+                    }
+                });
+            }
+
             document.getElementById('logout-this-device-btn').addEventListener('click', async () => {
                 await clearAuth();
                 showAuthScreen();
@@ -17807,6 +18011,19 @@
                 renderVendorProducts();
                 renderVendorOrders(purchases);
 
+                // Low-stock Home banner — real count from the products
+                // just loaded, no fabricated numbers. Only shown when
+                // there's actually something to flag.
+                const lowStockCount = vendorProducts.filter(p => p.isLowStock).length;
+                const lowStockBanner = document.getElementById('vendor-low-stock-banner');
+                if (lowStockCount > 0) {
+                    document.getElementById('vendor-low-stock-banner-text').textContent =
+                        lowStockCount === 1 ? '1 product running low on stock' : `${lowStockCount} products running low on stock`;
+                    lowStockBanner.style.display = 'flex';
+                } else {
+                    lowStockBanner.style.display = 'none';
+                }
+
                 renderVendorSalesChart(dailySalesData.days || [], 'vendor-sales-chart', 'vendor-sales-trend');
                 renderNotificationCenter();
                 apiFetch('/api/conversations').then(data => {
@@ -17947,14 +18164,30 @@
                         <div class="product-card-name">${p.name}</div>
                         ${p.category ? `<div class="product-card-vendor">${p.category}</div>` : ''}
                         <div class="product-card-price">$${p.price.toFixed(2)}</div>
-                        <div class="product-card-stock">${p.stockQuantity} in stock ${p.isActive ? '' : '· <span style="color:#dc2626;">Hidden</span>'}</div>
+                        <div class="product-card-stock">${p.stockQuantity} in stock ${p.isActive ? '' : '· <span style="color:#dc2626;">Hidden</span>'} ${p.isLowStock ? '· <span style="color:#b45309; font-weight:700;">Low stock</span>' : ''}</div>
                     </div>
                     <div class="product-card-actions">
                         <button type="button" class="btn-small btn-secondary edit-product-btn" data-id="${p.id}" style="flex:1;">Edit</button>
                         <button type="button" class="btn-small btn-danger delete-product-btn" data-id="${p.id}" style="flex:1;">Delete</button>
                     </div>
+                    <div class="product-card-actions" style="margin-top:0.5rem;">
+                        <button type="button" class="btn-small btn-secondary notify-followers-btn" data-id="${p.id}" style="flex:1;" title="Announce this product to everyone following your store">📣 Notify Followers</button>
+                    </div>
                 </div>
             `).join('')}</div>`;
+        }
+
+        async function notifyFollowersAboutProduct(productId) {
+            try {
+                const data = await apiFetch(`/api/vendor/products/${productId}/notify-followers`, { method: 'POST' });
+                if (data.notifiedCount === 0 && data.followerCount === undefined) {
+                    showToast("You don't have any followers yet.", 'info');
+                } else {
+                    showToast(`Notified ${data.notifiedCount} of your ${data.followerCount} follower${data.followerCount === 1 ? '' : 's'}`, 'success');
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
         }
 
         // Real vendor Promotions — cached client-side so the delete/cancel
@@ -18471,8 +18704,27 @@
                         <option value="CONVERTED" ${l.status === 'CONVERTED' ? 'selected' : ''}>Converted</option>
                         <option value="ARCHIVED" ${l.status === 'ARCHIVED' ? 'selected' : ''}>Archived</option>
                     </select>
+                    ${l.buyerId ? `<button type="button" class="btn-small btn-secondary lead-message-btn" data-buyer-id="${l.buyerId}" style="margin-left:0.5rem; white-space:nowrap;">Message</button>` : ''}
                 </div>
             `).join('');
+        }
+
+        // "Message this customer" — the abandoned-checkout recovery
+        // action. Works from any lead with a real buyerId (most useful
+        // on CHECKOUT_STARTED leads, but not restricted to that type),
+        // via the vendor-initiated conversation route — the regular
+        // POST /api/conversations only allows a customer to start a
+        // thread, so this hits its own endpoint.
+        async function messageLeadCustomer(buyerId) {
+            if (!buyerId) return;
+            try {
+                const data = await apiFetch('/api/vendor/conversations', { method: 'POST', body: JSON.stringify({ customerId: buyerId }) });
+                setVendorTab('messages');
+                await loadConversations('vendor');
+                await openConversationThread('vendor', data.conversationId);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
         }
 
         async function updateLeadStatusHandler(leadId, status) {
@@ -18484,6 +18736,52 @@
             } catch (err) {
                 showToast(err.message, 'error');
             }
+        }
+
+        // Real, read-only vendor dispute visibility — reuses the same
+        // DISPUTE_CATEGORY_LABELS / DISPUTE_STATUS_PILLS the customer's own
+        // "My Disputes" panel already defines (see loadMyDisputesPanel),
+        // just fetched from the vendor-scoped endpoint and showing who
+        // filed it instead of who it was filed against. No status/refund
+        // controls here — only Super Admin resolves a dispute.
+        let vendorDisputesFilter = '';
+
+        async function loadVendorDisputes() {
+            const listEl = document.getElementById('vendor-disputes-list');
+            listEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
+            try {
+                const params = vendorDisputesFilter ? `?status=${vendorDisputesFilter}` : '';
+                const data = await apiFetch(`/api/vendor/disputes${params}`);
+                renderVendorDisputesList(data.disputes || []);
+            } catch (err) {
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderVendorDisputesList(disputes) {
+            const listEl = document.getElementById('vendor-disputes-list');
+            if (disputes.length === 0) {
+                renderEmptyState(listEl, 'No disputes against your purchases — real ones will show up here.');
+                return;
+            }
+            listEl.innerHTML = disputes.map(d => `
+                <div style="border:1px solid var(--border); border-radius:0.875rem; padding:1rem 1.25rem; margin-bottom:0.875rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.5rem;">
+                        <div>
+                            <div style="font-weight:700; color:var(--slate);">${DISPUTE_CATEGORY_LABELS[d.category] || d.category}</div>
+                            <div style="font-size:0.75rem; color:var(--slate-light);">${new Date(d.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · Filed by ${d.customerName}${d.purchase ? ` · $${d.purchase.amount.toFixed(2)} purchase` : ''}</div>
+                        </div>
+                        ${DISPUTE_STATUS_PILLS[d.status] || d.status}
+                    </div>
+                    <div style="font-size:0.875rem; color:var(--slate); margin-bottom:${d.resolutionNote ? '0.625rem' : '0'};">${d.description}</div>
+                    ${d.resolutionNote ? `
+                        <div style="background:var(--bg-light); border-radius:0.625rem; padding:0.75rem 0.875rem; font-size:0.8125rem; color:var(--slate);">
+                            <strong>Super Admin ${d.status === 'resolved' ? 'resolution' : 'response'}:</strong> ${d.resolutionNote}
+                            ${d.refundAmount ? `<div style="margin-top:0.375rem; font-weight:700; color:#15803d;">Refunded to customer: $${d.refundAmount.toFixed(2)}</div>` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
         }
 
         function vendorOrderRowHtml(p) {
@@ -18543,6 +18841,7 @@
                 document.getElementById('product-category-input').value = p && p.category ? p.category : '';
                 document.getElementById('product-price-input').value = p ? p.price : '';
                 document.getElementById('product-stock-input').value = p ? p.stockQuantity : '';
+                document.getElementById('product-low-stock-threshold-input').value = (p && p.lowStockThreshold != null) ? p.lowStockThreshold : '';
                 document.getElementById('product-image-preview').src = (p && p.imageDataUrl) || 'assets/logo.png';
                 // Additional photos only make sense once a product exists
                 // (they attach to its id) — so this section only shows in
@@ -18753,6 +19052,8 @@
                 price: parseFloat(document.getElementById('product-price-input').value),
                 stockQuantity: parseInt(document.getElementById('product-stock-input').value, 10),
             };
+            const lowStockRaw = document.getElementById('product-low-stock-threshold-input').value;
+            payload.lowStockThreshold = lowStockRaw === '' ? null : parseInt(lowStockRaw, 10);
             if (pendingProductImageDataUrl) payload.imageDataUrl = pendingProductImageDataUrl;
             payload.colors = pendingProductColors;
             payload.sizes = pendingProductSizes;
@@ -18788,7 +19089,7 @@
             }
         }
 
-        const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'settings', 'account'];
+        const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'disputes', 'settings', 'account'];
         function setVendorTab(tab) {
             document.querySelectorAll('#vendor-app .mobile-nav-item, #vendor-app .desktop-sidebar-item[data-vendor-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.vendorTab === tab));
             VENDOR_TAB_VIEWS.forEach(v => {
@@ -18817,6 +19118,8 @@
                 loadVendorPremiumPanel();
             } else if (tab === 'leads') {
                 loadVendorLeads();
+            } else if (tab === 'disputes') {
+                loadVendorDisputes();
             } else if (tab === 'settings' && currentUser) {
                 document.getElementById('vendor-settings-name-input').value = currentUser.businessName || '';
                 splitPhoneNumber(currentUser.phone, 'vendor-settings-phone-country', 'vendor-settings-phone-input');
@@ -18953,6 +19256,18 @@
                 const select = e.target.closest('.lead-status-select');
                 if (select) updateLeadStatusHandler(select.dataset.id, select.value);
             });
+            document.getElementById('vendor-leads-list').addEventListener('click', (e) => {
+                const btn = e.target.closest('.lead-message-btn');
+                if (btn) messageLeadCustomer(btn.dataset.buyerId);
+            });
+            document.getElementById('vendor-disputes-filter-row').addEventListener('click', (e) => {
+                const btn = e.target.closest('.vendor-dispute-filter-btn');
+                if (!btn) return;
+                document.querySelectorAll('.vendor-dispute-filter-btn').forEach(b => b.classList.remove('active-category'));
+                btn.classList.add('active-category');
+                vendorDisputesFilter = btn.dataset.status;
+                loadVendorDisputes();
+            });
             document.getElementById('promotion-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const errorEl = document.getElementById('promotion-form-error');
@@ -19049,6 +19364,7 @@
             document.getElementById('vendor-products-container').addEventListener('click', (e) => {
                 if (e.target.classList.contains('edit-product-btn')) openProductModal(e.target.dataset.id);
                 if (e.target.classList.contains('delete-product-btn')) deleteProduct(e.target.dataset.id);
+                if (e.target.classList.contains('notify-followers-btn')) notifyFollowersAboutProduct(e.target.dataset.id);
             });
 
             document.getElementById('product-gallery-upload-btn').addEventListener('click', () => {
@@ -19585,7 +19901,7 @@
             }
             const canFollow = currentUser && currentUser.role === 'sender';
             container.innerHTML = stores.map(s => `
-                <div class="store-card">
+                <div class="store-card" data-id="${s.id}" role="button" tabindex="0">
                     ${canFollow ? `
                         <button type="button" class="store-card-follow-btn ${followedVendorIds.has(s.id) ? 'following' : ''}" data-id="${s.id}" aria-label="Follow store" title="${followedVendorIds.has(s.id) ? 'Following' : 'Follow this store'}">
                             <svg viewBox="0 0 24 24" fill="${followedVendorIds.has(s.id) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
@@ -19623,6 +19939,149 @@
                 return;
             }
             renderStoreCards(container, filtered);
+        }
+
+        // ---- Real per-vendor Marketplace storefront page ("Visit Store") --
+        // Reached from a Stores directory card or the PDP vendor pill.
+        // Mirrors the ONLib Delivery restaurant-menu-page pattern
+        // (openDcustRestaurantMenu / loadDcustVendorReviews), just backed
+        // by GET /api/marketplace/vendors/:id/storefront instead of the
+        // delivery-only menu endpoint, and using the same
+        // /api/marketplace/vendors/:id/reviews vendor-review routes.
+        let currentStorefrontVendorId = null;
+        let storefrontReviews = [];
+        let storefrontReviewSelectedStars = 0;
+
+        async function openVendorStorefront(vendorId) {
+            currentStorefrontVendorId = vendorId;
+            document.getElementById('storefront-tab-products').classList.replace('btn-secondary', 'btn-primary');
+            document.getElementById('storefront-tab-reviews').classList.replace('btn-primary', 'btn-secondary');
+            document.getElementById('storefront-products-panel').style.display = 'block';
+            document.getElementById('storefront-reviews-panel').style.display = 'none';
+            document.getElementById('storefront-header-title').textContent = 'Store';
+            document.getElementById('storefront-name').textContent = 'Loading…';
+            document.getElementById('storefront-avatar').textContent = '?';
+            document.getElementById('storefront-rating-row').innerHTML = '';
+            document.getElementById('storefront-follower-count').textContent = '';
+            document.getElementById('storefront-product-count').textContent = '';
+            document.getElementById('storefront-address-row').innerHTML = '';
+            document.getElementById('storefront-products-grid').innerHTML = '<p style="grid-column: 1 / -1; text-align:center; color:var(--slate-light);">Loading…</p>';
+            document.getElementById('mp-view-storefront').classList.add('open');
+            document.getElementById('mp-view-storefront').scrollTop = 0;
+            updateStorefrontFollowBtn();
+
+            try {
+                const data = await apiFetch(`/api/marketplace/vendors/${vendorId}/storefront`);
+                if (currentStorefrontVendorId !== vendorId) return; // navigated away before this resolved
+                const vendor = data.vendor;
+                document.getElementById('storefront-header-title').textContent = vendor.businessName;
+                document.getElementById('storefront-name').textContent = vendor.businessName;
+                document.getElementById('storefront-avatar').textContent = vendor.businessName.charAt(0).toUpperCase();
+                document.getElementById('storefront-rating-row').innerHTML = renderStars(vendor.avgRating, vendor.reviewCount);
+                document.getElementById('storefront-follower-count').textContent =
+                    vendor.followerCount === 1 ? '1 follower' : `${vendor.followerCount} followers`;
+                document.getElementById('storefront-product-count').textContent =
+                    vendor.productCount === 1 ? '1 product' : `${vendor.productCount} products`;
+                document.getElementById('storefront-address-row').innerHTML = vendor.storeAddress ? `<span>${vendor.storeAddress}</span>` : '';
+
+                const products = data.products || [];
+                products.forEach(p => { productCache[p.id] = p; }); // so opening the PDP from here works like everywhere else
+                const grid = document.getElementById('storefront-products-grid');
+                if (products.length === 0) {
+                    renderEmptyState(grid, `${vendor.businessName} hasn't listed any products yet.`);
+                } else {
+                    grid.innerHTML = products.map(productCardHtml).join('');
+                }
+            } catch (err) {
+                console.error('Failed to load storefront', err);
+                document.getElementById('storefront-name').textContent = 'Store not found';
+                renderEmptyState(document.getElementById('storefront-products-grid'), 'This store could not be loaded.');
+            }
+        }
+
+        function closeVendorStorefront() {
+            document.getElementById('mp-view-storefront').classList.remove('open');
+            currentStorefrontVendorId = null;
+        }
+
+        function updateStorefrontFollowBtn() {
+            const btn = document.getElementById('storefront-follow-btn');
+            const following = currentStorefrontVendorId && followedVendorIds.has(currentStorefrontVendorId);
+            btn.classList.toggle('following', Boolean(following));
+            btn.style.display = (currentUser && currentUser.role === 'sender') ? 'flex' : 'none';
+            btn.querySelector('svg').setAttribute('fill', following ? 'currentColor' : 'none');
+        }
+
+        async function loadStorefrontReviews(vendorId) {
+            try {
+                const data = await apiFetch(`/api/marketplace/vendors/${vendorId}/reviews`);
+                if (currentStorefrontVendorId !== vendorId) return; // navigated away before this resolved
+                storefrontReviews = data.reviews || [];
+                renderStorefrontReviews();
+            } catch (err) {
+                console.error('Failed to load vendor reviews', err);
+            }
+        }
+
+        function renderStorefrontReviews() {
+            const vendorName = document.getElementById('storefront-name').textContent || 'this store';
+            const avg = storefrontReviews.length ? storefrontReviews.reduce((s, r) => s + r.rating, 0) / storefrontReviews.length : 0;
+            document.getElementById('storefront-reviews-summary').innerHTML = storefrontReviews.length ? `
+                <div class="pdp-review-summary-row">
+                    <span class="pdp-review-summary-avg">${avg.toFixed(1)}</span>
+                    ${renderStars(avg, storefrontReviews.length)}
+                </div>
+            ` : `<p class="pdp-empty-note">No reviews of ${vendorName} yet — be the first to leave one.</p>`;
+
+            const formWrap = document.getElementById('storefront-review-form-wrap');
+            if (currentUser && currentUser.role === 'sender') {
+                formWrap.innerHTML = `
+                    <form class="pdp-review-form" id="storefront-review-form">
+                        <div class="pdp-star-picker" id="storefront-review-star-picker">
+                            ${[1, 2, 3, 4, 5].map(n => `<button type="button" data-star="${n}"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></button>`).join('')}
+                        </div>
+                        <textarea class="form-input" id="storefront-review-comment-input" rows="2" placeholder="Share your experience with ${vendorName} (optional)"></textarea>
+                        <div class="auth-error" id="storefront-review-form-error" style="display:none;"></div>
+                        <button type="submit" class="btn-small btn-success" style="margin-top:0.625rem;">Submit Review</button>
+                        <p style="color:var(--slate-light); font-size:0.75rem; margin-top:0.5rem;">You can only review a store you've ordered from.</p>
+                    </form>
+                `;
+            } else {
+                formWrap.innerHTML = '<p class="pdp-empty-note">Log in to leave a review.</p>';
+            }
+
+            document.getElementById('storefront-reviews-list').innerHTML = storefrontReviews.length ? storefrontReviews.map(r => `
+                <div class="pdp-review-item">
+                    <div class="pdp-review-item-head">
+                        <span class="pdp-review-author">${r.customerName}</span>
+                        <span class="pdp-review-date">${new Date(r.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    ${renderStars(r.rating, 1)}
+                    ${r.comment ? `<div class="pdp-review-comment">${r.comment}</div>` : ''}
+                </div>
+            `).join('') : '';
+        }
+
+        async function submitStorefrontReview() {
+            const errorEl = document.getElementById('storefront-review-form-error');
+            errorEl.style.display = 'none';
+            if (!storefrontReviewSelectedStars) {
+                errorEl.textContent = 'Please pick a star rating.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            try {
+                await apiFetch(`/api/marketplace/vendors/${currentStorefrontVendorId}/reviews`, {
+                    method: 'POST',
+                    body: JSON.stringify({ rating: storefrontReviewSelectedStars, comment: document.getElementById('storefront-review-comment-input').value.trim() }),
+                });
+                storefrontReviewSelectedStars = 0;
+                showToast('Review submitted — thank you!', 'success');
+                loadStorefrontReviews(currentStorefrontVendorId);
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
         }
 
         // Real wishlist — tracked as a Set of product ids so the PDP's
@@ -20147,9 +20606,11 @@
             document.getElementById('pdp-qna-list').innerHTML = '';
             document.getElementById('pdp-qna-ask-wrap').innerHTML = '';
             document.getElementById('pdp-recommended-section').style.display = 'none';
+            document.getElementById('pdp-copurchased-section').style.display = 'none';
             loadPdpReviews(productId);
             loadPdpQuestions(productId);
             loadPdpRecommended(product);
+            loadPdpCoPurchased(product);
         }
 
         function closeProductDetail() {
@@ -20514,6 +20975,27 @@
             }
         }
 
+        // ---- Real co-purchase recommendations ("Customers Also Bought") --
+        // Backed by db.getCoPurchasedProducts — a real query over
+        // purchase_items, not a client-side guess. If nobody has ever
+        // bought this product alongside anything else, the section just
+        // stays hidden — "More From This Store" below still covers that
+        // case, no fabricated substitute is shown in its place.
+        async function loadPdpCoPurchased(product) {
+            try {
+                const data = await apiFetch(`/api/marketplace/products/${product.id}/co-purchased`);
+                if (currentPdpProductId !== product.id) return;
+                const coPurchased = data.products || [];
+                coPurchased.forEach(p => { productCache[p.id] = p; });
+                const section = document.getElementById('pdp-copurchased-section');
+                if (!coPurchased.length) { section.style.display = 'none'; return; }
+                section.style.display = 'block';
+                document.getElementById('pdp-copurchased-grid').innerHTML = coPurchased.map(p => productCardHtml(p)).join('');
+            } catch (err) {
+                console.error('Failed to load co-purchased products', err);
+            }
+        }
+
         async function openCheckoutModal() {
             if (cart.length === 0) return;
             if (!currentUser || currentUser.role !== 'sender') {
@@ -20757,13 +21239,17 @@
             });
             document.getElementById('mp-stores-full-list').addEventListener('click', (e) => {
                 const btn = e.target.closest('.store-card-follow-btn');
-                if (btn) toggleFollowStore(btn.dataset.id);
+                if (btn) { toggleFollowStore(btn.dataset.id); return; }
+                const card = e.target.closest('.store-card[data-id]');
+                if (card) openVendorStorefront(card.dataset.id);
             });
             const popularStoresPreview = document.getElementById('mp-popular-stores-preview');
             if (popularStoresPreview) {
                 popularStoresPreview.addEventListener('click', (e) => {
                     const btn = e.target.closest('.store-card-follow-btn');
-                    if (btn) toggleFollowStore(btn.dataset.id);
+                    if (btn) { toggleFollowStore(btn.dataset.id); return; }
+                    const card = e.target.closest('.store-card[data-id]');
+                    if (card) openVendorStorefront(card.dataset.id);
                 });
             }
 
@@ -20955,6 +21441,8 @@
             wireProductGridDelegation('wishlist-products-container');
             wireProductGridDelegation('deals-products-container');
             wireProductGridDelegation('pdp-recommended-grid');
+            wireProductGridDelegation('storefront-products-grid');
+            wireProductGridDelegation('pdp-copurchased-grid');
 
             document.getElementById('open-cart-btn').addEventListener('click', () => {
                 renderCartModal();
@@ -21048,8 +21536,14 @@
                 }
             });
             document.getElementById('pdp-vendor-pill').addEventListener('click', () => {
-                closeProductDetail();
-                setMarketplaceTab('stores');
+                const product = currentPdpProduct || storefrontProducts.find(p => p.id === currentPdpProductId);
+                if (product && product.vendorId) {
+                    closeProductDetail();
+                    openVendorStorefront(product.vendorId);
+                } else {
+                    closeProductDetail();
+                    setMarketplaceTab('stores');
+                }
             });
             document.getElementById('pdp-add-to-cart-btn').addEventListener('click', addToCartFromPdp);
             document.getElementById('pdp-buy-now-btn').addEventListener('click', () => {
@@ -21136,6 +21630,38 @@
                 document.getElementById('dcust-vendor-menu-panel').style.display = 'none';
                 document.getElementById('dcust-vendor-reviews-panel').style.display = 'block';
                 if (currentDcustVendorId) loadDcustVendorReviews(currentDcustVendorId);
+            });
+
+            // ---- Marketplace per-vendor storefront page ----
+            document.getElementById('storefront-back-btn').addEventListener('click', closeVendorStorefront);
+            document.getElementById('storefront-follow-btn').addEventListener('click', () => {
+                if (currentStorefrontVendorId) toggleFollowStore(currentStorefrontVendorId).then(updateStorefrontFollowBtn);
+            });
+            document.getElementById('storefront-tab-products').addEventListener('click', () => {
+                document.getElementById('storefront-tab-products').classList.replace('btn-secondary', 'btn-primary');
+                document.getElementById('storefront-tab-reviews').classList.replace('btn-primary', 'btn-secondary');
+                document.getElementById('storefront-products-panel').style.display = 'block';
+                document.getElementById('storefront-reviews-panel').style.display = 'none';
+            });
+            document.getElementById('storefront-tab-reviews').addEventListener('click', () => {
+                document.getElementById('storefront-tab-reviews').classList.replace('btn-secondary', 'btn-primary');
+                document.getElementById('storefront-tab-products').classList.replace('btn-primary', 'btn-secondary');
+                document.getElementById('storefront-products-panel').style.display = 'none';
+                document.getElementById('storefront-reviews-panel').style.display = 'block';
+                if (currentStorefrontVendorId) loadStorefrontReviews(currentStorefrontVendorId);
+            });
+            document.getElementById('storefront-review-form-wrap').addEventListener('click', (e) => {
+                const starBtn = e.target.closest('#storefront-review-star-picker button');
+                if (!starBtn) return;
+                storefrontReviewSelectedStars = Number(starBtn.dataset.star);
+                document.querySelectorAll('#storefront-review-star-picker button').forEach(b => {
+                    b.classList.toggle('active', Number(b.dataset.star) <= storefrontReviewSelectedStars);
+                });
+            });
+            document.getElementById('storefront-review-form-wrap').addEventListener('submit', (e) => {
+                if (e.target.id !== 'storefront-review-form') return;
+                e.preventDefault();
+                submitStorefrontReview();
             });
 
             // ---- Post-delivery review prompt ----

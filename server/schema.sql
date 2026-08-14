@@ -248,6 +248,22 @@ CREATE TABLE IF NOT EXISTS products (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Low-stock alerts: a vendor-set threshold (null = alerts off for this
+-- product) plus a dedup timestamp so the periodic scan (see
+-- db.getProductsNeedingLowStockAlert / server.js runLowStockScan) fires
+-- once per dip below the threshold instead of every scan tick.
+-- low_stock_alert_sent_at is cleared automatically whenever a vendor
+-- explicitly changes the stock count (see db.updateProduct).
+ALTER TABLE products ADD COLUMN IF NOT EXISTS low_stock_threshold INTEGER;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS low_stock_alert_sent_at TIMESTAMPTZ;
+
+-- Follower broadcast — lets a vendor notify their store_follows
+-- followers about a product (new listing or a sale). Timestamped (not a
+-- boolean) so a cooldown can be enforced server-side (see
+-- POST /api/vendor/products/:id/notify-followers in server.js),
+-- preventing a vendor from spamming their followers on every request.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS followers_notified_at TIMESTAMPTZ;
+
 -- Additional product photos, beyond the one primary photo stored on
 -- products.image_data_url — lets the PDP show a real multi-image
 -- gallery instead of being capped at a single picture. position

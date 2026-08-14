@@ -232,4 +232,48 @@ async function notifySubscriptionRenewalDue(vendor, subscription) {
   return results.some(Boolean);
 }
 
-module.exports = { notifyNewOrder, sendMessage, isConfigured, sendEmail, notifyNewVendorApplication, isEmailConfigured, notifySubscriptionRenewalDue };
+// Low-stock alert — sent to the vendor directly (same "best-effort on
+// whichever channel they have" pattern as notifySubscriptionRenewalDue
+// above). Called from the periodic scan in server.js
+// (db.getProductsNeedingLowStockAlert) — see that function's comment
+// for why this only fires once per dip below the vendor's threshold.
+async function notifyLowStock(vendor, product) {
+  const subject = `Low stock: ${product.name}`;
+  const body =
+    `Hi ${vendor.businessName || ''},\n\n` +
+    `Your product "${product.name}" is down to ${product.stockQuantity} in stock — at or below the alert threshold you set (${product.lowStockThreshold}). ` +
+    `Restock soon to avoid running out.\n\n` +
+    `You can update stock any time from the Products tab in your ONLib vendor dashboard.`;
+
+  const results = await Promise.all([
+    vendor.email ? sendEmail(vendor.email, subject, body) : Promise.resolve(false),
+    vendor.phone ? sendMessage(vendor.phone, body) : Promise.resolve(false),
+  ]);
+  return results.some(Boolean);
+}
+
+// Follower broadcast — sent to one customer who follows a store, about
+// one product that store's vendor chose to announce (new listing or a
+// sale). Called once per follower from the loop in server.js
+// (POST /api/vendor/products/:id/notify-followers) — best-effort on
+// whichever channel that follower has, same pattern as the other
+// per-recipient notify functions in this file.
+async function notifyNewProductFromFollowedStore(follower, vendor, product) {
+  const subject = `${vendor.businessName || 'A store you follow'} just added: ${product.name}`;
+  const priceLine = product.discountPercent
+    ? `$${product.price.toFixed(2)} (was $${product.originalPrice.toFixed(2)}, ${Math.round(product.discountPercent)}% off)`
+    : `$${product.price.toFixed(2)}`;
+  const body =
+    `Hi ${follower.businessName || ''},\n\n` +
+    `${vendor.businessName || 'A store you follow'} just posted a new product you might like:\n\n` +
+    `${product.name} — ${priceLine}\n\n` +
+    `Open the ONLib Marketplace to check it out.`;
+
+  const results = await Promise.all([
+    follower.email ? sendEmail(follower.email, subject, body) : Promise.resolve(false),
+    follower.phone ? sendMessage(follower.phone, body) : Promise.resolve(false),
+  ]);
+  return results.some(Boolean);
+}
+
+module.exports = { notifyNewOrder, sendMessage, isConfigured, sendEmail, notifyNewVendorApplication, isEmailConfigured, notifySubscriptionRenewalDue, notifyLowStock, notifyNewProductFromFollowedStore };
