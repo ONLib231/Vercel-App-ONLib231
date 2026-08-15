@@ -1246,7 +1246,17 @@ const db = {
 
   async getSettings() {
     const { rows } = await pool.query("SELECT * FROM settings WHERE id = 'business'");
-    return rowToSettings(rows[0]);
+    // The 'business' row is normally created the first time anyone
+    // saves Settings > Business Profile (see upsertSettings, which
+    // inserts it on first write) — but nothing before that point has
+    // ever required it to exist, so a fresh deployment where no admin
+    // has opened Settings yet has zero rows here. Every caller of
+    // getSettings() (checkout, /api/config, etc.) expects an object
+    // back, not null, so this falls back to the same all-null/default
+    // shape rowToSettings() would produce for an existing-but-empty
+    // row, rather than crashing every caller that does
+    // `settings.someField` right after awaiting this.
+    return rowToSettings(rows[0]) || rowToSettings({ open_days: [] });
   },
 
   async upsertSettings(fields) {
