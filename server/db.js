@@ -213,6 +213,13 @@ function rowToPurchase(r) {
     paymentStatus: r.payment_status,
     momoReferenceId: r.momo_reference_id,
     momoPhone: r.momo_phone,
+    // 'momo_manual' fields — see the payment_method comment in
+    // schema.sql. paymentProvider/paymentReference are null for every
+    // other payment_method.
+    paymentProvider: r.payment_provider || null,
+    paymentReference: r.payment_reference || null,
+    paymentConfirmedBy: r.payment_confirmed_by || null,
+    paymentConfirmedAt: r.payment_confirmed_at || null,
   };
 }
 
@@ -947,13 +954,20 @@ const db = {
   // firing after the polling path already confirmed it (or vice versa)
   // is a safe no-op, not a double-apply/double-order. Returns null if
   // the purchase was already resolved (paid or already voided).
-  async confirmMomoPaymentAndCreateOrder(purchaseId) {
+  //
+  // confirmedBy is only passed by the manual Mobile Money admin-confirm
+  // route (Super Admin matching a reference code by hand) — left null
+  // for the automated MTN path above, which nobody manually approved.
+  // payment_confirmed_at is stamped either way, since "when did this
+  // resolve" is meaningful regardless of mechanism.
+  async confirmMomoPaymentAndCreateOrder(purchaseId, confirmedBy = null) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const { rows: purchaseRows } = await client.query(
-        `UPDATE purchases SET payment_status = 'successful' WHERE id = $1 AND payment_status = 'pending' RETURNING *`,
-        [purchaseId]
+        `UPDATE purchases SET payment_status = 'successful', payment_confirmed_by = $2, payment_confirmed_at = now()
+         WHERE id = $1 AND payment_status = 'pending' RETURNING *`,
+        [purchaseId, confirmedBy]
       );
       if (!purchaseRows[0]) {
         await client.query('ROLLBACK');
@@ -2104,11 +2118,30 @@ const db = {
   async checkout({
     customerId, customerName, vendorId, items, pickupAddress, dropoffAddress, createDeliveryOrder,
     paymentMethod = 'cod', paymentStatus = 'not_applicable', momoReferenceId = null, momoPhone = null,
-    couponCode = null,
+    paymentProvider = null, couponCode = null,
   }) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      // For the manual Mobile Money flow only: generate the short code
+      // the customer types into their own transfer and a Super Admin
+      // later matches by hand (see the payment_reference comment in
+      // schema.sql). Generated inside this same transaction, checked
+      // against the DB fresh each attempt — the unique index on
+      // payment_reference is the real backstop against a collision
+      // slipping through a race between two simultaneous checkouts,
+      // this loop is just what keeps that backstop from ever actually
+      // firing in practice (900,000 possible codes, checked before use).
+      let paymentReference = null;
+      if (paymentMethod === 'momo_manual') {
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const candidate = `REF-${crypto.randomInt(100000, 1000000)}`;
+          const { rows: existing } = await client.query('SELECT 1 FROM purchases WHERE payment_reference = $1', [candidate]);
+          if (!existing.length) { paymentReference = candidate; break; }
+        }
+        if (!paymentReference) throw new Error('Could not generate a unique payment reference — please try again');
+      }
 
       let totalAmount = 0;
       const lineItems = [];
@@ -2260,9 +2293,9 @@ const db = {
       const serviceFee = feeRes.rows[0] ? Number(feeRes.rows[0].service_fee) : 0;
 
       await client.query(
-        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, pending_pickup_address, pending_dropoff_address, coupon_id, coupon_code, discount_amount)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, pendingPickupAddress, pendingDropoffAddress, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount]
+        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, payment_provider, payment_reference, pending_pickup_address, pending_dropoff_address, coupon_id, coupon_code, discount_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, paymentProvider, paymentReference, pendingPickupAddress, pendingDropoffAddress, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount]
       );
       for (const li of lineItems) {
         await client.query(
@@ -2286,7 +2319,7 @@ const db = {
 
       await client.query('COMMIT');
       const grandTotal = Math.round((totalAmount - discountAmount + serviceFee) * 100) / 100;
-      return { purchaseId, deliveryOrderId, totalAmount, serviceFee, discountAmount, couponCode: coupon ? coupon.code : null, grandTotal, paymentMethod, paymentStatus };
+      return { purchaseId, deliveryOrderId, totalAmount, serviceFee, discountAmount, couponCode: coupon ? coupon.code : null, grandTotal, paymentMethod, paymentStatus, paymentProvider, paymentReference };
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -2398,6 +2431,31 @@ const db = {
   async getPurchaseById(id) {
     const { rows } = await pool.query('SELECT * FROM purchases WHERE id = $1', [id]);
     return rowToPurchase(rows[0]);
+  },
+
+  // Super Admin's manual Mobile Money reconciliation queue — every
+  // purchase still waiting on a Super Admin to match its
+  // payment_reference against a real received payment and confirm it
+  // by hand. Same shape/purpose as getPendingDirectFeaturedSlots()
+  // above for Featured Placements' 'direct' payment method, just
+  // scoped to marketplace purchases instead.
+  async getPendingManualMomoPurchases() {
+    const { rows } = await pool.query(`
+      SELECT p.*, c.business_name AS customer_name, c.email AS customer_email, c.phone AS customer_phone,
+        v.business_name AS vendor_name
+      FROM purchases p
+      JOIN users c ON c.id = p.customer_id
+      JOIN users v ON v.id = p.vendor_id
+      WHERE p.payment_method = 'momo_manual' AND p.payment_status = 'pending'
+      ORDER BY p.created_at ASC
+    `);
+    return rows.map(r => ({
+      ...rowToPurchase(r),
+      customerName: r.customer_name,
+      customerEmail: r.customer_email,
+      customerPhone: r.customer_phone,
+      vendorName: r.vendor_name,
+    }));
   },
 
   // ---- Self-service returns — distinct from disputes, see the

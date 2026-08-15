@@ -319,11 +319,16 @@ CREATE INDEX IF NOT EXISTS idx_purchases_customer_id ON purchases (customer_id);
 -- an ordinary delivery order; this one tracks online payment for a
 -- marketplace purchase itself, before any delivery even happens.
 -- 'cod' (pay on delivery, the original/default behavior — payment_status
--- stays 'not_applicable' since nothing digital is tracked for it) or
--- 'momo' (MTN Mobile Money — payment_status starts 'pending' at
--- checkout and is flipped to 'successful' or 'failed' once MTN
--- confirms; see db.checkout()/voidFailedPayment() and server.js's
--- /api/marketplace/checkout/momo routes).
+-- stays 'not_applicable' since nothing digital is tracked for it),
+-- 'momo' (an automated MTN Open API push-to-phone flow — payment_status
+-- starts 'pending' at checkout and is flipped to 'successful' or
+-- 'failed' once MTN confirms; see db.checkout()/voidFailedMomoPayment()
+-- and server.js's /api/marketplace/checkout/momo routes — currently
+-- unreachable from the checkout UI, see README), or 'momo_manual' (the
+-- customer transfers to the platform's own Mobile Money number
+-- themselves and types a generated reference code into their transfer;
+-- a Super Admin matches it by hand and confirms — see payment_provider/
+-- payment_reference/payment_confirmed_by/payment_confirmed_at below).
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'cod';
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'not_applicable';
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS momo_reference_id TEXT;
@@ -335,6 +340,24 @@ ALTER TABLE purchases ADD COLUMN IF NOT EXISTS momo_phone TEXT;
 -- for yet. Cleared back to NULL once the real order is created.
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS pending_pickup_address TEXT;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS pending_dropoff_address TEXT;
+
+-- 'momo_manual' payment fields — see the payment_method comment above.
+-- payment_provider is which Mobile Money network the customer chose
+-- ('orange_money' or 'lonestar_mtn'); payment_reference is the
+-- system-generated 'REF-######' code shown to the customer and typed
+-- into their own transfer, generated inside db.checkout() and unique
+-- platform-wide (enforced below, not just app-side) so two customers'
+-- codes can never collide and get cross-matched by mistake during
+-- reconciliation. payment_confirmed_by/payment_confirmed_at record
+-- which Super Admin matched the reference against a real received
+-- payment and when — same audit shape as featured_slots/
+-- subscription_charges' confirmed_by/confirmed_at for their own
+-- 'direct' manual payment method.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_provider TEXT;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_reference TEXT;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_confirmed_by TEXT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_purchases_payment_reference ON purchases (payment_reference) WHERE payment_reference IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS purchase_items (
     id            TEXT PRIMARY KEY,

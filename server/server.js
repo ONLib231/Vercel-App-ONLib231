@@ -1058,10 +1058,17 @@ app.get('/api/config', async (req, res) => {
       // same "guest should see it before hitting a wall" reasoning as
       // the fields above.
       serviceFee: platformSettings.serviceFee,
+      // The platform's own Mobile Money number — shown on the manual
+      // Mobile Money checkout flow's "Send Payment To" instructions
+      // (see /api/marketplace/checkout/momo-manual below). Reuses the
+      // existing Super-Admin-editable Business Phone setting rather
+      // than adding a second, separate "payments phone" field — same
+      // number Contact Us/support already show elsewhere in this file.
+      momoSendToPhone: settings.businessPhone || '+231880465612',
     });
   } catch (err) {
     console.error('GET /api/config failed', err);
-    res.json({ googleClientId: GOOGLE_CLIENT_ID || null, privacyPolicy: null, termsOfService: null, serviceArea: null, defaultDeliveryFee: null, maintenanceMode: false, maintenanceMessage: null, serviceFee: 0.10 });
+    res.json({ googleClientId: GOOGLE_CLIENT_ID || null, privacyPolicy: null, termsOfService: null, serviceArea: null, defaultDeliveryFee: null, maintenanceMode: false, maintenanceMessage: null, serviceFee: 0.10, momoSendToPhone: '+231880465612' });
   }
 });
 
@@ -4836,6 +4843,78 @@ app.post('/api/marketplace/checkout/momo', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// Mobile Money (manual/reference-code) checkout — the customer's
+// actual "Pay with Mobile Money" path (Orange Money or Lonestar Cell
+// MTN). Unlike the automated push-and-poll route above (which depends
+// on real MTN Open API credentials being configured, and never
+// supported Orange Money at all), this needs no payment gateway
+// integration: the customer transfers to the platform's own Mobile
+// Money number themselves and types the generated reference code
+// below into their own transfer, then a Super Admin matches it
+// against a real received payment by hand (see the pending queue at
+// GET /api/super-admin/marketplace-payments/pending below) — the same
+// pending-then-admin-confirmed shape as Featured Placements'/Premium's
+// 'direct' payment method, just with a generated code to match against
+// instead of nothing. No stock-reservation failure mode to void here
+// (unlike the momo route above) — db.checkout() either fully commits
+// or fully rolls back in one transaction, with no external API call in
+// between that could fail after the fact.
+// ============================================================
+
+app.post('/api/marketplace/checkout/momo-manual', requireAuth, async (req, res) => {
+  if (req.user.role !== 'sender') {
+    return res.status(403).json({ error: 'Only customers can check out' });
+  }
+  const [settings, platformSettings] = await Promise.all([db.getSettings(), db.getPlatformSettings()]);
+  if (platformSettings.maintenanceMode) {
+    return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
+  }
+  const { vendorId, items, pickupAddress, dropoffAddress, provider, couponCode } = req.body || {};
+  if (!vendorId || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'A vendor and at least one item are required' });
+  }
+  if (!pickupAddress || !dropoffAddress) {
+    return res.status(400).json({ error: 'Pickup and dropoff addresses are required' });
+  }
+  if (!['orange_money', 'lonestar_mtn'].includes(provider)) {
+    return res.status(400).json({ error: 'Choose Orange Money or Lonestar Cell MTN' });
+  }
+  try {
+    const result = await db.checkout({
+      customerId: req.user.id,
+      customerName: req.user.businessName,
+      vendorId,
+      items,
+      pickupAddress,
+      dropoffAddress,
+      createDeliveryOrder: false,
+      paymentMethod: 'momo_manual',
+      paymentStatus: 'pending',
+      paymentProvider: provider,
+      couponCode,
+    });
+    io.to(`vendor:${vendorId}`).emit('purchase:created', result);
+    // Lets an open Super Admin Payouts panel refresh its pending queue
+    // live rather than only on next visit — same "admins" room every
+    // other admin-facing realtime event in this file uses.
+    io.to('admins').emit('marketplace_payment:new', { purchaseId: result.purchaseId });
+    res.json({
+      ok: true,
+      purchaseId: result.purchaseId,
+      paymentReference: result.paymentReference,
+      grandTotal: result.grandTotal,
+      // Same source of truth as /api/config's momoSendToPhone — fetched
+      // fresh here rather than trusting the frontend's cached copy, in
+      // case a Super Admin changed it since the page loaded.
+      sendToPhone: settings.businessPhone || '+231880465612',
+    });
+  } catch (err) {
+    console.error('POST /api/marketplace/checkout/momo-manual failed', err);
+    res.status(400).json({ error: err.message || 'Checkout failed' });
+  }
+});
+
 app.get('/api/marketplace/purchases/:id/payment-status', requireAuth, async (req, res) => {
   try {
     const purchase = await db.getPurchaseById(req.params.id);
@@ -4874,17 +4953,18 @@ app.get('/api/marketplace/purchases/:id/payment-status', requireAuth, async (req
 });
 
 // Customer-initiated cancel of their own still-pending Mobile Money
-// payment — e.g. they backed out of approving it on their phone.
-// Restocks the reserved items the same way a failed/expired payment
-// does; without this, walking away from the waiting screen would leave
-// the stock reservation in place indefinitely.
+// payment — e.g. they backed out of approving it on their phone
+// (automated 'momo'), or changed their mind before actually sending
+// the transfer (manual 'momo_manual'). Restocks the reserved items the
+// same way a failed/expired payment does; without this, walking away
+// would leave the stock reservation in place indefinitely.
 app.post('/api/marketplace/purchases/:id/cancel-payment', requireAuth, async (req, res) => {
   try {
     const purchase = await db.getPurchaseById(req.params.id);
     if (!purchase || purchase.customerId !== req.user.id) {
       return res.status(404).json({ error: 'Purchase not found' });
     }
-    if (purchase.paymentMethod !== 'momo' || purchase.paymentStatus !== 'pending') {
+    if (!['momo', 'momo_manual'].includes(purchase.paymentMethod) || purchase.paymentStatus !== 'pending') {
       return res.status(400).json({ error: 'This purchase is not a pending Mobile Money payment' });
     }
     await db.voidFailedMomoPayment(purchase.id);
@@ -4934,6 +5014,71 @@ app.post('/api/payments/momo/callback', async (req, res) => {
     console.error('[momo webhook] handling failed (polling will still resolve this)', err);
   }
   res.status(200).json({ ok: true });
+});
+
+// Super Admin's manual Mobile Money reconciliation queue — the
+// confirm/reject side of the 'momo_manual' checkout flow above. Same
+// shape as Featured Placements'/Premium's own Direct-payment queues
+// further down this file (GET .../pending, POST .../:id/confirm, POST
+// .../:id/reject), just for marketplace purchases: a Super Admin
+// checks the platform's real Mobile Money account for a transfer
+// matching the reference code and amount, then confirms (which creates
+// the real delivery order for the first time — see
+// confirmMomoPaymentAndCreateOrder's comment on why order creation is
+// deferred until payment resolves) or rejects (which restocks the
+// items, same as any other failed/cancelled Mobile Money payment).
+app.get('/api/super-admin/marketplace-payments/pending', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const purchases = await db.getPendingManualMomoPurchases();
+    res.json({ purchases });
+  } catch (err) {
+    console.error('GET /api/super-admin/marketplace-payments/pending failed', err);
+    res.status(500).json({ error: 'Failed to load pending Mobile Money payments' });
+  }
+});
+
+app.post('/api/super-admin/marketplace-payments/:id/confirm', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const existing = await db.getPurchaseById(req.params.id);
+    if (!existing || existing.paymentMethod !== 'momo_manual') {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+    const confirmed = await db.confirmMomoPaymentAndCreateOrder(req.params.id, req.user.id);
+    if (!confirmed) return res.status(409).json({ error: 'This payment was already resolved' });
+    io.to(`vendor:${confirmed.purchase.vendorId}`).emit('purchase:updated', confirmed.purchase);
+    io.to(`user:${confirmed.purchase.customerId}`).emit('purchase:updated', confirmed.purchase);
+    if (confirmed.deliveryOrderId) {
+      const deliveryOrder = await db.getOrder(confirmed.deliveryOrderId);
+      if (deliveryOrder) {
+        orderRooms(deliveryOrder).forEach((r) => io.to(r).emit('order:created', deliveryOrder));
+        notifyNewOrder(deliveryOrder);
+      }
+    }
+    sendPushToUser(db, confirmed.purchase.customerId, { title: 'Payment confirmed', body: `Your Mobile Money payment (${confirmed.purchase.paymentReference}) was confirmed — your order is on its way.`, url: '/' }); // fire-and-forget
+    await logAudit(req, 'marketplace_payment.confirm', { targetType: 'purchase', targetId: existing.id, targetLabel: existing.paymentReference, details: { customerId: existing.customerId, vendorId: existing.vendorId, provider: existing.paymentProvider, amount: existing.grandTotal } });
+    res.json({ ok: true, purchase: confirmed.purchase, deliveryOrderId: confirmed.deliveryOrderId });
+  } catch (err) {
+    console.error('POST /api/super-admin/marketplace-payments/:id/confirm failed', err);
+    res.status(500).json({ error: 'Failed to confirm payment' });
+  }
+});
+
+app.post('/api/super-admin/marketplace-payments/:id/reject', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const existing = await db.getPurchaseById(req.params.id);
+    if (!existing || existing.paymentMethod !== 'momo_manual') {
+      return res.status(404).json({ error: 'Purchase not found' });
+    }
+    const purchase = await db.voidFailedMomoPayment(req.params.id);
+    if (!purchase) return res.status(409).json({ error: 'This payment was already resolved' });
+    io.to(`user:${purchase.customerId}`).emit('purchase:updated', purchase);
+    sendPushToUser(db, purchase.customerId, { title: 'Payment not confirmed', body: `We couldn't match a payment for reference ${purchase.paymentReference} — please try again or use Pay on Delivery.`, url: '/' }); // fire-and-forget
+    await logAudit(req, 'marketplace_payment.reject', { targetType: 'purchase', targetId: existing.id, targetLabel: existing.paymentReference, details: { customerId: existing.customerId, vendorId: existing.vendorId, provider: existing.paymentProvider } });
+    res.json({ ok: true, purchase });
+  } catch (err) {
+    console.error('POST /api/super-admin/marketplace-payments/:id/reject failed', err);
+    res.status(500).json({ error: 'Failed to reject payment' });
+  }
 });
 
 // ============================================================

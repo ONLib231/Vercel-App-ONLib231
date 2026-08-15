@@ -1416,6 +1416,21 @@
         .mp-purchase-total { font-weight: 800; color: var(--slate); font-size: 1rem; }
         .mp-purchase-total span { font-weight: 500; color: var(--slate-light); font-size: 0.8125rem; margin-right: 0.375rem; }
 
+        /* Payment Information (Step 4 of the "Pay with Mobile Money"
+           flow) — a small sub-card inside mp-purchase-card, only
+           rendered for payment_method='momo_manual' purchases. */
+        .mp-purchase-payment-info {
+            background: var(--bg-light); border-radius: 0.75rem; padding: 0.875rem 1rem;
+            margin-top: 0.875rem; font-size: 0.8125rem;
+        }
+        .mp-purchase-payment-info-title { font-weight: 700; color: var(--slate); margin-bottom: 0.5rem; font-size: 0.8125rem; }
+        .mp-purchase-payment-info-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 0.25rem 0; color: var(--slate-light);
+        }
+        .mp-purchase-payment-info-row strong { color: var(--slate); font-weight: 700; letter-spacing: 0.02em; }
+        .mp-purchase-payment-info-hint { color: var(--slate-light); margin: 0.5rem 0 0; line-height: 1.5; }
+
         /* Account hub — hero card, overview cards, menu list */
         .mp-account-hero {
             background: linear-gradient(135deg, var(--golib-red), #991b1b);
@@ -6107,6 +6122,17 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </button>
                 <div class="desktop-profile-menu" id="vendor-profile-menu">
+                    <!-- Desktop counterpart to the mobile Account view's
+                         "⭐ Upgrade to Premium" quick-access button
+                         (#vendor-mobile-premium-btn) — the Premium section
+                         was always technically reachable on desktop via the
+                         sidebar's "Promotions" item, but nothing on desktop
+                         said "Premium" or "Upgrade" anywhere a vendor would
+                         look first; this is the same one-click shortcut,
+                         just placed in the profile dropdown since desktop
+                         has no Account tab of its own for it to live in.
+                         See openVendorPremiumSection(). -->
+                    <button type="button" id="vendor-desktop-premium-btn">⭐ Upgrade to Premium</button>
                     <button type="button" data-vendor-tab="settings">Settings</button>
                     <button type="button" id="vendor-profile-logout-btn">Logout</button>
                 </div>
@@ -6920,6 +6946,14 @@
                     Checking out creates a real delivery order for these items — same tracking as any other order.
                 </p>
                 <form id="checkout-form">
+                    <!-- Step 1: Payment Method Selection. "Pay with Mobile
+                         Money" is a manual reconciliation flow, not an
+                         automated payment-gateway push — see the
+                         checkout-momo-provider-group note below and the
+                         README for why. The old single automated-MTN
+                         option + disabled "Orange Money (Coming soon)"
+                         placeholder are gone; both providers now go
+                         through the same manual flow. -->
                     <div class="form-group">
                         <label class="form-label">Payment Method</label>
                         <div class="payment-method-options" id="checkout-payment-method-options">
@@ -6927,20 +6961,32 @@
                                 <input type="radio" name="checkout-payment-method" value="cod" checked>
                                 <span>Pay on Delivery</span>
                             </label>
-                            <label class="payment-method-option" id="checkout-momo-option">
-                                <input type="radio" name="checkout-payment-method" value="momo">
-                                <span>Mobile Money (MTN)</span>
-                            </label>
-                            <label class="payment-method-option disabled" title="Not available yet">
-                                <input type="radio" disabled>
-                                <span>Orange Money <em>(Coming soon)</em></span>
+                            <label class="payment-method-option">
+                                <input type="radio" name="checkout-payment-method" value="momo_manual">
+                                <span>Pay with Mobile Money</span>
                             </label>
                         </div>
                     </div>
-                    <div class="form-group" id="checkout-momo-phone-group" style="display:none;">
-                        <label class="form-label">Mobile Money Phone Number</label>
-                        <input type="tel" class="form-input" id="checkout-momo-phone-input" placeholder="e.g. 231881234567">
-                        <p class="settings-hint">You'll get a prompt on this phone to approve the payment.</p>
+                    <!-- Provider sub-choice, shown only once "Pay with
+                         Mobile Money" is selected above. Both options go
+                         through POST /api/marketplace/checkout/momo-manual
+                         — the customer transfers to the platform's own
+                         Mobile Money number themselves and types the
+                         reference code shown on the next screen into
+                         their own transfer; there's no live payment-
+                         gateway integration for either network. -->
+                    <div class="form-group" id="checkout-momo-provider-group" style="display:none;">
+                        <label class="form-label">Mobile Money Provider</label>
+                        <div class="payment-method-options" id="checkout-momo-provider-options">
+                            <label class="payment-method-option">
+                                <input type="radio" name="checkout-momo-provider" value="orange_money" checked>
+                                <span>🟠 Orange Money</span>
+                            </label>
+                            <label class="payment-method-option">
+                                <input type="radio" name="checkout-momo-provider" value="lonestar_mtn">
+                                <span>🟡 Lonestar Cell MTN</span>
+                            </label>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Pickup Address (vendor/store)</label>
@@ -6954,7 +7000,16 @@
                         </select>
                         <input type="text" class="form-input" id="checkout-dropoff-address" required>
                     </div>
-                    <div id="checkout-summary" style="background: var(--bg-light); padding: 1rem; border-radius: 0.75rem; margin-bottom: 1rem; font-weight: 700;"></div>
+                    <!-- Step 2: Billing & Confirmation — populated by
+                         updateCheckoutSummary() with a real Subtotal/Fee/
+                         Total breakdown, plus the selected provider when
+                         Mobile Money is chosen. The submit button below
+                         relabels itself to "Confirm & Pay $[Amount]" for
+                         Mobile Money (see updateCheckoutSummary()), which
+                         together with this breakdown is Step 2 of the
+                         spec — there's no separate confirmation screen,
+                         since this is already exactly that content. -->
+                    <div id="checkout-summary" style="background: var(--bg-light); padding: 1rem; border-radius: 0.75rem; margin-bottom: 1rem;"></div>
                     <div class="auth-error" id="checkout-error"></div>
                     <div class="modal-footer">
                         <button type="button" class="btn-small btn-secondary" id="cancel-checkout">Back to Cart</button>
@@ -6962,14 +7017,42 @@
                     </div>
                 </form>
             </div>
-            <div id="checkout-momo-waiting-page" style="display:none; text-align:center; padding:1rem 0.5rem;">
-                <div class="momo-waiting-spinner"></div>
-                <h4 style="margin:1rem 0 0.5rem;" id="checkout-momo-waiting-title">Check your phone</h4>
-                <p style="color:var(--slate-light); margin-bottom:1.5rem;" id="checkout-momo-waiting-text">
-                    We sent a payment request to your phone. Approve it there to complete your order.
-                </p>
-                <div class="auth-error" id="checkout-momo-waiting-error"></div>
-                <button type="button" class="btn-small btn-secondary" id="checkout-momo-cancel-wait-btn">Cancel</button>
+            <!-- Step 3: Post-Click Reference Screen — shown after a
+                 successful momo_manual checkout. Replaces the old
+                 spinner-based "waiting for MTN to confirm" page (that
+                 page belonged to the automated push flow, which this
+                 replaces for the checkout UI — see README). Nothing to
+                 poll here: the purchase just sits pending until a Super
+                 Admin matches the reference code against a real received
+                 payment (see the Super Admin Payouts panel). -->
+            <div id="checkout-momo-reference-page" style="display:none; padding:0.5rem;">
+                <div style="text-align:center; margin-bottom:1.25rem;">
+                    <div style="font-size:2rem; margin-bottom:0.5rem;">✅</div>
+                    <h4 style="margin:0 0 0.375rem;">Order Placed – Pending Payment</h4>
+                    <p style="color:var(--slate-light); margin:0;" id="checkout-momo-reference-order-id"></p>
+                </div>
+                <div style="background:var(--bg-light); border:2px dashed var(--border); border-radius:0.875rem; padding:1.25rem;">
+                    <p style="font-weight:700; margin:0 0 0.875rem;">Payment Instructions</p>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.625rem;">
+                        <span style="color:var(--slate-light); font-size:0.875rem;">Send Payment To</span>
+                        <strong id="checkout-momo-reference-phone" style="font-size:1.0625rem;"></strong>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem;">
+                        <span style="color:var(--slate-light); font-size:0.875rem;">Reference Code</span>
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <strong id="checkout-momo-reference-code" style="font-size:1.0625rem; letter-spacing:0.03em;"></strong>
+                            <button type="button" class="btn-small btn-secondary" id="checkout-momo-copy-reference-btn" style="padding:0.375rem 0.75rem;">Copy Code</button>
+                        </div>
+                    </div>
+                    <p style="color:var(--slate-light); font-size:0.8125rem; margin:1rem 0 0;">
+                        To ensure your transaction is processed smoothly, please transfer to <strong id="checkout-momo-reference-phone-inline"></strong> and enter this reference number in the payment reference/note field during your transfer.
+                        We'll confirm your payment and get your order moving once we match it.
+                    </p>
+                </div>
+                <div class="modal-footer" style="margin-top:1.25rem;">
+                    <button type="button" class="btn-small btn-secondary" id="checkout-momo-reference-copy-btn">Copy Reference Number</button>
+                    <button type="button" class="btn-small btn-success" id="checkout-momo-reference-done-btn">View My Orders</button>
+                </div>
             </div>
         </div>
     </div>
@@ -8515,6 +8598,28 @@
                     <div class="auth-error" id="invoice-settings-error" style="display:none;"></div>
                     <button type="submit" class="btn-small btn-success" id="invoice-settings-save-btn">Save Statement Settings</button>
                 </form>
+            </details>
+
+            <!-- Marketplace checkout's "Pay with Mobile Money" — the
+                 customer transfers to the platform's own Mobile Money
+                 number (Business Phone, set in Platform Settings) and
+                 types the generated reference code into their transfer;
+                 this queue is where a Super Admin matches that reference
+                 against a real received payment and confirms it (which
+                 creates the real delivery order for the first time) or
+                 rejects it (which restocks the items). Same
+                 pending-then-admin-confirmed shape as the Direct payment
+                 queues below, just for marketplace purchases instead of
+                 Featured Placements/Premium. -->
+            <details id="marketplace-payments-details" style="margin-bottom: 1.5rem; background: var(--bg-light); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+                <summary style="cursor:pointer; font-weight:700;">📱 Mobile Money Payments</summary>
+                <p style="color: var(--slate-light); margin: 0.75rem 0; font-size: 0.8125rem;">
+                    Marketplace orders paid with "Pay with Mobile Money" (Orange Money or Lonestar Cell MTN) sit
+                    here until confirmed — check the platform's real Mobile Money account for a transfer matching
+                    the reference code and amount, then Confirm to place the order, or Reject to release the
+                    reserved stock back.
+                </p>
+                <div id="marketplace-payments-pending-queue"><p style="text-align:center; color:var(--slate-light); padding:1rem 0;">Loading…</p></div>
             </details>
 
             <!-- Featured Placements — vendors pay to boost a product or
@@ -10318,7 +10423,7 @@
         // rather than requireAuth's /api/state. defaultDeliveryFee is
         // included here mainly so it's available without a Super Admin
         // session for anywhere a suggested amount might help.
-        let publicPlatformConfig = { maintenanceMode: false, maintenanceMessage: null, serviceArea: null, defaultDeliveryFee: null, serviceFee: 0.10 };
+        let publicPlatformConfig = { maintenanceMode: false, maintenanceMessage: null, serviceArea: null, defaultDeliveryFee: null, serviceFee: 0.10, momoSendToPhone: '+231880465612' };
 
         async function loadPublicConfig() {
             try {
@@ -10330,6 +10435,11 @@
                     serviceArea: config.serviceArea || null,
                     defaultDeliveryFee: config.defaultDeliveryFee !== undefined ? config.defaultDeliveryFee : null,
                     serviceFee: config.serviceFee !== undefined && config.serviceFee !== null ? Number(config.serviceFee) : 0.10,
+                    // The platform's own Mobile Money number — shown on
+                    // the "Pay with Mobile Money" checkout flow's Step 3
+                    // reference screen and Order History's Payment
+                    // Information section.
+                    momoSendToPhone: config.momoSendToPhone || '+231880465612',
                 };
             } catch (err) {
                 console.error('Failed to load public config', err);
@@ -15244,6 +15354,12 @@
             document.getElementById('featured-settings-add-vendor-package-btn').addEventListener('click', () => {
                 addFeaturedPackageRow('featured-settings-vendor-packages', () => featuredVendorPackagesDraft, (d) => { featuredVendorPackagesDraft = d; });
             });
+            document.getElementById('marketplace-payments-pending-queue').addEventListener('click', (e) => {
+                const confirmBtn = e.target.closest('.confirm-marketplace-payment-btn');
+                if (confirmBtn) { confirmMarketplacePaymentRequest(confirmBtn.dataset.id); return; }
+                const rejectBtn = e.target.closest('.reject-marketplace-payment-btn');
+                if (rejectBtn) rejectMarketplacePaymentRequest(rejectBtn.dataset.id);
+            });
             document.getElementById('featured-pending-queue').addEventListener('click', (e) => {
                 const confirmBtn = e.target.closest('.confirm-featured-request-btn');
                 if (confirmBtn) { confirmFeaturedRequest(confirmBtn.dataset.id); return; }
@@ -16305,6 +16421,7 @@
                 renderFeaturedPackageRows('featured-settings-vendor-packages', featuredVendorPackagesDraft);
                 document.getElementById('featured-settings-product-cap-input').value = summary.platformSettings.featuredProductSlotCap;
                 document.getElementById('featured-settings-vendor-cap-input').value = summary.platformSettings.featuredVendorSlotCap;
+                loadMarketplacePaymentsPendingQueue();
                 loadFeaturedPendingQueue();
 
                 document.getElementById('premium-perk-mode-input').value = summary.platformSettings.premiumFeaturingPerk;
@@ -16525,6 +16642,63 @@
             draft.push({ id: `pkg_${Date.now()}_${draft.length}`, label: '', days: 7, price: 0 });
             setDraft(draft);
             renderFeaturedPackageRows(containerId, draft);
+        }
+
+        // Super Admin's manual Mobile Money reconciliation queue — see
+        // the marketplace-payments-details panel's comment in the HTML.
+        // Mirrors loadFeaturedPendingQueue()/confirmFeaturedRequest()/
+        // rejectFeaturedRequest() just below almost exactly, same
+        // pending-queue-with-Confirm/Reject shape, just for marketplace
+        // purchases instead of Featured Placement slots.
+        async function loadMarketplacePaymentsPendingQueue() {
+            const container = document.getElementById('marketplace-payments-pending-queue');
+            try {
+                const data = await apiFetch('/api/super-admin/marketplace-payments/pending');
+                const purchases = data.purchases || [];
+                if (purchases.length === 0) {
+                    renderEmptyState(container, 'No pending Mobile Money payments.');
+                    return;
+                }
+                container.innerHTML = `<div style="overflow-x:auto;"><table class="settings-table"><thead><tr>
+                    <th>Customer</th><th>Vendor</th><th>Provider</th><th>Reference</th><th>Amount</th><th>Requested</th><th></th>
+                </tr></thead><tbody>${purchases.map(p => `
+                    <tr>
+                        <td>${p.customerName || p.customerEmail}</td>
+                        <td>${p.vendorName}</td>
+                        <td>${MOMO_PROVIDER_LABELS[p.paymentProvider] || 'Mobile Money'}</td>
+                        <td><strong>${p.paymentReference}</strong></td>
+                        <td>$${Number(p.grandTotal).toFixed(2)}</td>
+                        <td>${new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                        <td style="display:flex; gap:0.4rem; white-space:nowrap;">
+                            <button type="button" class="btn-small btn-success confirm-marketplace-payment-btn" data-id="${p.id}">Confirm</button>
+                            <button type="button" class="btn-small btn-danger reject-marketplace-payment-btn" data-id="${p.id}">Reject</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody></table></div>`;
+            } catch (err) {
+                container.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        async function confirmMarketplacePaymentRequest(id) {
+            try {
+                await apiFetch(`/api/super-admin/marketplace-payments/${id}/confirm`, { method: 'POST' });
+                showToast('Payment confirmed — order placed', 'success');
+                await loadMarketplacePaymentsPendingQueue();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function rejectMarketplacePaymentRequest(id) {
+            if (!confirm("Reject this payment? The customer's reserved items are released back into stock.")) return;
+            try {
+                await apiFetch(`/api/super-admin/marketplace-payments/${id}/reject`, { method: 'POST' });
+                showToast('Payment rejected', 'success');
+                await loadMarketplacePaymentsPendingQueue();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
         }
 
         async function loadFeaturedPendingQueue() {
@@ -19442,7 +19616,41 @@
                 if (purchase.paymentStatus === 'failed') return '<span class="payment-status-badge failed">Payment Failed</span>';
                 return '<span class="payment-status-badge pending">Payment Pending</span>';
             }
+            if (purchase.paymentMethod === 'momo_manual') {
+                const providerLabel = MOMO_PROVIDER_LABELS[purchase.paymentProvider] || 'Mobile Money';
+                if (purchase.paymentStatus === 'successful') return `<span class="payment-status-badge paid">✓ Paid via ${providerLabel}</span>`;
+                if (purchase.paymentStatus === 'failed') return '<span class="payment-status-badge failed">Payment Not Confirmed</span>';
+                return '<span class="payment-status-badge pending">Payment Pending</span>';
+            }
             return '<span class="payment-status-badge cod">Pay on Delivery</span>';
+        }
+
+        // Step 4: the "Payment Information" section — always available
+        // on the purchase's own card in Order History (not just right
+        // after checkout), so the customer can find the reference code
+        // again at any time, not only on the one-time Step 3 screen. See
+        // the payment_reference comment in schema.sql for the full flow.
+        function paymentInfoSectionHtml(purchase) {
+            if (purchase.paymentMethod !== 'momo_manual') return '';
+            const providerLabel = MOMO_PROVIDER_LABELS[purchase.paymentProvider] || 'Mobile Money';
+            const pending = purchase.paymentStatus === 'pending';
+            return `
+                <div class="mp-purchase-payment-info">
+                    <div class="mp-purchase-payment-info-title">Payment Information</div>
+                    <div class="mp-purchase-payment-info-row"><span>Provider</span><strong>${providerLabel}</strong></div>
+                    <div class="mp-purchase-payment-info-row">
+                        <span>Reference Code</span>
+                        <span style="display:flex; align-items:center; gap:0.5rem;">
+                            <strong>${purchase.paymentReference || '—'}</strong>
+                            <button type="button" class="copy-payment-ref-btn" data-ref="${purchase.paymentReference || ''}" title="Copy reference code" style="border:none; background:none; cursor:pointer; padding:0.125rem;">📋</button>
+                        </span>
+                    </div>
+                    ${pending ? `
+                        <p class="mp-purchase-payment-info-hint">Send payment to <strong>${publicPlatformConfig.momoSendToPhone}</strong> and include this reference. We'll confirm once received.</p>
+                        <button type="button" class="btn-small btn-secondary cancel-momo-manual-btn" data-purchase-id="${purchase.id}" style="margin-top:0.625rem;">Cancel Order</button>
+                    ` : ''}
+                </div>
+            `;
         }
 
         // Marketplace "Your Orders" — deliberately NOT the Delivery-style
@@ -19483,6 +19691,7 @@
                                 <span class="status-badge ${statusClass}">${statusText}</span>
                             </div>
                             <div class="mp-purchase-items-scroll">${itemsHtml}</div>
+                            ${paymentInfoSectionHtml(purchase)}
                             <div class="mp-purchase-footer">
                                 <div class="mp-purchase-total">
                                     <span>Total</span>$${purchase.totalAmount.toFixed(2)}
@@ -19490,7 +19699,7 @@
                                 </div>
                                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                                     ${purchase.deliveryOrderId ? `<button type="button" class="btn-small btn-secondary track-purchase-delivery-btn" data-order-id="${purchase.deliveryOrderId}">Track Delivery</button>` : ''}
-                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
+                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') && purchase.paymentStatus !== 'pending' ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
                                     <button type="button" class="btn-small btn-secondary report-purchase-dispute-btn" data-purchase-id="${purchase.id}">Report a Problem</button>
                                 </div>
                             </div>
@@ -19499,6 +19708,34 @@
                 }).join('');
             } catch (err) {
                 container.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        async function copyPaymentReference(ref) {
+            if (!ref) return;
+            try {
+                await navigator.clipboard.writeText(ref);
+                showToast('Reference code copied', 'success');
+            } catch (err) {
+                showToast('Could not copy — please select and copy the code manually.', 'error');
+            }
+        }
+
+        // Lets a customer back out of a still-pending manual Mobile
+        // Money order from Order History — e.g. they picked the wrong
+        // provider or changed their mind before actually sending the
+        // transfer. Reuses the same cancel-payment endpoint the old
+        // automated-MTN waiting page used (extended to also accept
+        // momo_manual — see server.js), which restocks the reserved
+        // items exactly as a Super Admin rejecting the payment would.
+        async function cancelMomoManualPurchase(purchaseId) {
+            if (!confirm('Cancel this order? The items will be released back into stock, and this cannot be undone.')) return;
+            try {
+                await apiFetch(`/api/marketplace/purchases/${purchaseId}/cancel-payment`, { method: 'POST' });
+                showToast('Order cancelled', 'success');
+                renderMarketplacePurchases('mp-orders-grid');
+            } catch (err) {
+                showToast(err.message, 'error');
             }
         }
 
@@ -21070,9 +21307,10 @@
             `;
         }
 
-        // Dedicated entry point for the new mobile "⭐ Upgrade to Premium"
-        // quick-access button (#vendor-mobile-premium-btn, Account tab) —
-        // the Premium section itself has always lived inside the
+        // Dedicated entry point for the "⭐ Upgrade to Premium" quick-access
+        // buttons — the mobile Account tab's #vendor-mobile-premium-btn and
+        // the desktop profile dropdown's #vendor-desktop-premium-btn both
+        // call this. The Premium section itself has always lived inside the
         // Promotions tab, several sections down (Promotions list, Coupon
         // Codes, Featured Placement, then Premium), so a plain tab-switch
         // via the generic [data-vendor-tab] delegation would land a
@@ -22599,6 +22837,10 @@
             });
             document.querySelectorAll('#vendor-profile-menu [data-vendor-tab]').forEach(btn => {
                 btn.addEventListener('click', () => { setVendorTab(btn.dataset.vendorTab); vendorProfileMenu.classList.remove('open'); });
+            });
+            document.getElementById('vendor-desktop-premium-btn').addEventListener('click', () => {
+                vendorProfileMenu.classList.remove('open');
+                openVendorPremiumSection();
             });
             document.getElementById('vendor-profile-logout-btn').addEventListener('click', vendorLogoutOrExitImpersonation);
         }
@@ -24270,35 +24512,17 @@
             }
             document.getElementById('cart-modal').classList.remove('active');
             document.getElementById('checkout-error').style.display = 'none';
-            const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
-            const serviceFee = publicPlatformConfig.serviceFee || 0;
-            const total = subtotal + serviceFee;
-            document.getElementById('checkout-summary').textContent = `${cart.reduce((s, c) => s + c.quantity, 0)} item(s) — Subtotal: $${subtotal.toFixed(2)} + Service Fee: $${serviceFee.toFixed(2)} = Total: $${total.toFixed(2)}`;
 
-            // Reset to the form page (not the Mobile Money waiting page,
-            // in case a previous checkout attempt left it showing) and
-            // back to the Pay on Delivery default every time this opens.
+            // Reset to the form page (not the Mobile Money reference
+            // page, in case a previous checkout attempt left it showing)
+            // and back to the Pay on Delivery default every time this
+            // opens.
             document.getElementById('checkout-form-page').style.display = 'block';
-            document.getElementById('checkout-momo-waiting-page').style.display = 'none';
+            document.getElementById('checkout-momo-reference-page').style.display = 'none';
             document.querySelector('input[name="checkout-payment-method"][value="cod"]').checked = true;
-            document.getElementById('checkout-momo-phone-group').style.display = 'none';
-            stopMomoPolling();
-            currentMomoPurchaseId = null;
-
-            // Mobile Money availability is a live server setting (whether
-            // MTN credentials are configured — see momo.js) — check on
-            // every open rather than assuming, so this reflects reality
-            // even if it changes between visits without a page reload.
-            const momoOption = document.getElementById('checkout-momo-option');
-            const momoRadio = momoOption.querySelector('input');
-            momoRadio.disabled = true;
-            momoOption.classList.add('disabled');
-            apiFetch('/api/marketplace/payment-methods').then(data => {
-                if (data.momoAvailable) {
-                    momoRadio.disabled = false;
-                    momoOption.classList.remove('disabled');
-                }
-            }).catch(() => {}); // stays disabled on failure — safe default
+            document.getElementById('checkout-momo-provider-group').style.display = 'none';
+            document.querySelector('input[name="checkout-momo-provider"][value="orange_money"]').checked = true;
+            updateCheckoutSummary();
 
             // Real auto-populate from the vendor's own stored store
             // address (Settings → Store Physical Address). When a real
@@ -24363,6 +24587,40 @@
             document.getElementById('checkout-modal').classList.add('active');
         }
 
+        // Shared between the checkout provider picker, the Step 3
+        // reference screen, and the Order History Payment Information
+        // section — one place to change if a provider is ever renamed.
+        const MOMO_PROVIDER_LABELS = { orange_money: 'Orange Money', lonestar_mtn: 'Lonestar Cell MTN' };
+
+        // Step 2: Billing & Confirmation — a real Subtotal/Service Fee/
+        // Total breakdown (plus the selected Mobile Money provider, once
+        // chosen), and the submit button relabels itself to "Confirm &
+        // Pay $[Amount]" for Mobile Money vs. "Place Order" for Pay on
+        // Delivery. Called on modal open and on every payment-method/
+        // provider change — see the change listeners in
+        // wireStorefrontEvents() below.
+        function updateCheckoutSummary() {
+            const paymentMethod = document.querySelector('input[name="checkout-payment-method"]:checked').value;
+            const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+            const serviceFee = publicPlatformConfig.serviceFee || 0;
+            const total = subtotal + serviceFee;
+            const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
+
+            let providerRow = '';
+            if (paymentMethod === 'momo_manual') {
+                const provider = document.querySelector('input[name="checkout-momo-provider"]:checked').value;
+                providerRow = `<div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;"><span>Provider</span><strong>${MOMO_PROVIDER_LABELS[provider]}</strong></div>`;
+            }
+            document.getElementById('checkout-summary').innerHTML = `
+                <div style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.625rem;">${itemCount} item(s)</div>
+                ${providerRow}
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.375rem;"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.625rem;"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>
+                <div style="display:flex; justify-content:space-between; font-weight:700; font-size:1.0625rem; padding-top:0.625rem; border-top:1px solid var(--border);"><span>Total</span><span>$${total.toFixed(2)}</span></div>
+            `;
+            document.getElementById('checkout-submit-btn').textContent = paymentMethod === 'momo_manual' ? `Confirm & Pay $${total.toFixed(2)}` : 'Place Order';
+        }
+
         async function handleCheckoutSubmit(e) {
             e.preventDefault();
             const errorEl = document.getElementById('checkout-error');
@@ -24370,26 +24628,27 @@
             const paymentMethod = document.querySelector('input[name="checkout-payment-method"]:checked').value;
             errorEl.style.display = 'none';
             btn.disabled = true;
-            btn.textContent = paymentMethod === 'momo' ? 'Sending payment request…' : 'Placing Order…';
+            btn.textContent = 'Placing Order…';
             try {
-                if (paymentMethod === 'momo') {
-                    const phone = document.getElementById('checkout-momo-phone-input').value.trim();
-                    if (!phone) throw new Error('Enter the phone number to receive the Mobile Money prompt on.');
-                    const result = await apiFetch('/api/marketplace/checkout/momo', {
+                if (paymentMethod === 'momo_manual') {
+                    const provider = document.querySelector('input[name="checkout-momo-provider"]:checked').value;
+                    const result = await apiFetch('/api/marketplace/checkout/momo-manual', {
                         method: 'POST',
                         body: JSON.stringify({
                             vendorId: cart[0].vendorId,
                             items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, selectedColor: c.selectedColor || undefined, selectedSize: c.selectedSize || undefined })),
                             pickupAddress: document.getElementById('checkout-pickup-address').value,
                             dropoffAddress: document.getElementById('checkout-dropoff-address').value,
-                            phone,
+                            provider,
                             couponCode: appliedCoupon ? appliedCoupon.code : undefined,
                         }),
                     });
-                    // Cart isn't cleared yet — payment hasn't succeeded.
-                    // showMomoWaitingPage's polling loop clears it once
-                    // (and if) it does.
-                    showMomoWaitingPage(result.purchaseId);
+                    // Cart isn't cleared yet — payment hasn't been
+                    // confirmed by a Super Admin. showMomoReferencePage()
+                    // shows Step 3; the cart clears once the customer
+                    // moves on (there's nothing left to wait/poll for on
+                    // this screen — see its own comment).
+                    showMomoReferencePage(result);
                     return;
                 }
                 const result = await apiFetch('/api/marketplace/checkout', {
@@ -24414,84 +24673,39 @@
                 errorEl.style.display = 'block';
             } finally {
                 btn.disabled = false;
-                btn.textContent = 'Place Order';
+                updateCheckoutSummary();
             }
         }
 
-        // ---- Mobile Money waiting/polling ----
-        // Polling, not just the webhook, is what this actually depends
-        // on for correctness (see server.js's module comment on the
-        // Mobile Money routes) — every 3s for up to 3 minutes, since a
-        // customer has to physically pick up their phone and approve a
-        // prompt, which reasonably takes longer than a typical API call.
-        let momoPollTimer = null;
-        let momoPollAttempts = 0;
-        let currentMomoPurchaseId = null;
-        const MOMO_POLL_INTERVAL_MS = 3000;
-        const MOMO_POLL_MAX_ATTEMPTS = 60; // 60 * 3s = 3 minutes
-
-        function stopMomoPolling() {
-            if (momoPollTimer) clearInterval(momoPollTimer);
-            momoPollTimer = null;
-            momoPollAttempts = 0;
-        }
-
-        function showMomoWaitingPage(purchaseId) {
+        // Step 3: Post-Click Reference Screen. No polling here (unlike
+        // the old automated-MTN waiting page this replaces) — the
+        // purchase just sits pending until a Super Admin matches the
+        // reference code against a real received payment and confirms
+        // it from the Payouts panel. The cart clears now (the order
+        // itself is placed — "Pending Payment" is a real order state,
+        // not a not-yet-placed one) so re-opening Checkout doesn't
+        // re-submit the same items.
+        function showMomoReferencePage(result) {
             document.getElementById('checkout-form-page').style.display = 'none';
-            document.getElementById('checkout-momo-waiting-page').style.display = 'block';
-            document.getElementById('checkout-momo-waiting-title').textContent = 'Check your phone';
-            document.getElementById('checkout-momo-waiting-text').textContent = 'We sent a payment request to your phone. Approve it there to complete your order.';
-            document.getElementById('checkout-momo-waiting-error').style.display = 'none';
-            document.getElementById('checkout-momo-cancel-wait-btn').style.display = 'inline-flex';
-            document.getElementById('checkout-momo-cancel-wait-btn').textContent = 'Cancel';
-            currentMomoPurchaseId = purchaseId;
-            momoPollAttempts = 0;
-            stopMomoPolling();
-            momoPollTimer = setInterval(() => checkMomoPaymentOnce(purchaseId), MOMO_POLL_INTERVAL_MS);
+            document.getElementById('checkout-momo-reference-page').style.display = 'block';
+            document.getElementById('checkout-momo-reference-order-id').textContent = `Order ${result.purchaseId}`;
+            document.getElementById('checkout-momo-reference-phone').textContent = result.sendToPhone;
+            document.getElementById('checkout-momo-reference-phone-inline').textContent = result.sendToPhone;
+            document.getElementById('checkout-momo-reference-code').textContent = result.paymentReference;
+            cart = [];
+            appliedCoupon = null;
+            updateCartCount();
         }
 
-        async function checkMomoPaymentOnce(purchaseId) {
-            momoPollAttempts += 1;
+        async function copyMomoReferenceCode() {
+            const code = document.getElementById('checkout-momo-reference-code').textContent;
+            if (!code) return;
             try {
-                const data = await apiFetch(`/api/marketplace/purchases/${purchaseId}/payment-status`);
-                if (data.paymentStatus === 'successful') {
-                    stopMomoPolling();
-                    cart = [];
-                    updateCartCount();
-                    document.getElementById('checkout-modal').classList.remove('active');
-                    document.getElementById('checkout-form').reset();
-                    showToast('Payment received — order placed!', 'success');
-                    sendLocalNotification('Order Placed', { body: `Your Mobile Money payment was confirmed and your order (${purchaseId}) was placed.` });
-                    return;
-                }
-                if (data.paymentStatus === 'failed') {
-                    stopMomoPolling();
-                    document.getElementById('checkout-momo-waiting-title').textContent = 'Payment failed';
-                    document.getElementById('checkout-momo-waiting-text').textContent = 'The Mobile Money payment wasn\'t completed — nothing was charged, and your cart is still here. You can try again or use Pay on Delivery instead.';
-                    document.getElementById('checkout-momo-cancel-wait-btn').textContent = 'Back to Checkout';
-                    return;
-                }
-                if (momoPollAttempts >= MOMO_POLL_MAX_ATTEMPTS) {
-                    stopMomoPolling();
-                    document.getElementById('checkout-momo-waiting-title').textContent = 'Still waiting';
-                    document.getElementById('checkout-momo-waiting-text').textContent = 'This is taking longer than expected. Your cart is still here — you can keep waiting a bit and check back, or cancel and try Pay on Delivery instead.';
-                    document.getElementById('checkout-momo-cancel-wait-btn').textContent = 'Cancel Payment';
-                }
-                // still pending — keep polling silently
+                await navigator.clipboard.writeText(code);
+                showToast('Reference code copied', 'success');
             } catch (err) {
-                // A transient network error shouldn't abandon the wait —
-                // just skip this tick and let the next interval retry.
-                console.error('Mobile Money status check failed', err);
+                showToast('Could not copy — please select and copy the code manually.', 'error');
             }
-        }
-
-        async function cancelMomoWait(purchaseId) {
-            stopMomoPolling();
-            if (purchaseId) {
-                try { await apiFetch(`/api/marketplace/purchases/${purchaseId}/cancel-payment`, { method: 'POST' }); } catch (err) { /* best-effort — it'll also resolve itself if the customer's status check would've marked it failed anyway */ }
-            }
-            document.getElementById('checkout-form-page').style.display = 'block';
-            document.getElementById('checkout-momo-waiting-page').style.display = 'none';
         }
 
         function wireStorefrontEvents() {
@@ -24589,7 +24803,11 @@
                 const reportBtn = e.target.closest('.report-purchase-dispute-btn');
                 if (reportBtn) { openReportDisputeModal(reportBtn.dataset.purchaseId, 'purchase'); return; }
                 const returnBtn = e.target.closest('.request-return-btn');
-                if (returnBtn) openRequestReturnModal(returnBtn.dataset.purchaseId);
+                if (returnBtn) { openRequestReturnModal(returnBtn.dataset.purchaseId); return; }
+                const copyRefBtn = e.target.closest('.copy-payment-ref-btn');
+                if (copyRefBtn) { copyPaymentReference(copyRefBtn.dataset.ref); return; }
+                const cancelMomoBtn = e.target.closest('.cancel-momo-manual-btn');
+                if (cancelMomoBtn) cancelMomoManualPurchase(cancelMomoBtn.dataset.purchaseId);
             });
 
             // ---- Messages ----
@@ -24760,8 +24978,13 @@
 
             document.getElementById('open-checkout-btn').addEventListener('click', openCheckoutModal);
             document.getElementById('close-checkout-modal').addEventListener('click', () => {
+                // No poll to cancel here (see showMomoReferencePage's
+                // comment) — a momo_manual order shown on the Step 3
+                // reference screen has already been placed as "Pending
+                // Payment", so closing the modal just closes it. Backing
+                // out of a still-pending manual payment entirely is done
+                // from Order History's Cancel Order button instead.
                 document.getElementById('checkout-modal').classList.remove('active');
-                if (momoPollTimer) cancelMomoWait(currentMomoPurchaseId); // don't leave a pending payment's stock reserved if they close the modal instead of using Cancel
             });
             document.getElementById('cancel-checkout').addEventListener('click', () => {
                 document.getElementById('checkout-modal').classList.remove('active');
@@ -24774,9 +24997,20 @@
             document.getElementById('checkout-form').addEventListener('submit', handleCheckoutSubmit);
             document.getElementById('checkout-payment-method-options').addEventListener('change', (e) => {
                 if (e.target.name !== 'checkout-payment-method') return;
-                document.getElementById('checkout-momo-phone-group').style.display = e.target.value === 'momo' ? 'block' : 'none';
+                document.getElementById('checkout-momo-provider-group').style.display = e.target.value === 'momo_manual' ? 'block' : 'none';
+                updateCheckoutSummary();
             });
-            document.getElementById('checkout-momo-cancel-wait-btn').addEventListener('click', () => cancelMomoWait(currentMomoPurchaseId));
+            document.getElementById('checkout-momo-provider-options').addEventListener('change', (e) => {
+                if (e.target.name !== 'checkout-momo-provider') return;
+                updateCheckoutSummary();
+            });
+            document.getElementById('checkout-momo-copy-reference-btn').addEventListener('click', copyMomoReferenceCode);
+            document.getElementById('checkout-momo-reference-copy-btn').addEventListener('click', copyMomoReferenceCode);
+            document.getElementById('checkout-momo-reference-done-btn').addEventListener('click', () => {
+                document.getElementById('checkout-modal').classList.remove('active');
+                document.getElementById('checkout-form').reset();
+                setMarketplaceTab('orders');
+            });
 
             // ---- Product Detail Page ----
             document.getElementById('pdp-back-btn').addEventListener('click', closeProductDetail);
