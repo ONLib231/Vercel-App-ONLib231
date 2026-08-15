@@ -1099,6 +1099,7 @@
             padding: 1.25rem 1.5rem; background: white; border-bottom: 1px solid var(--border);
         }
         .chooser-header-logo img { height: 44px; }
+        .chooser-header-actions { display: flex; align-items: center; gap: 0.625rem; }
         .chooser-help-btn {
             display: flex; align-items: center; gap: 0.375rem; background: none; border: 1px solid var(--border);
             border-radius: 9999px; padding: 0.5rem 1rem; min-height: 44px; color: var(--slate-light);
@@ -1106,6 +1107,24 @@
         }
         .chooser-help-btn svg { width: 18px; height: 18px; }
         .chooser-help-btn:hover { border-color: var(--slate-lighter); color: var(--slate); }
+        /* Direct sign-in entry point on the Chooser itself — previously a
+           returning user had to pick Delivery or Marketplace first and
+           find a login option buried in that guest view (or, for Admin/
+           Super Admin, had no obvious way back in at all after the
+           Logout fix above lands them here). Filled/primary treatment
+           (vs. Help's plain outline) so it reads as the more prominent
+           of the two header actions. Opens the same shared login modal
+           every role already uses — enterApp() after a successful
+           sign-in routes each account to wherever it actually belongs. */
+        .chooser-login-btn {
+            display: flex; align-items: center; gap: 0.375rem;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border: 1px solid transparent; border-radius: 9999px; padding: 0.5rem 1.125rem; min-height: 44px;
+            color: white; font-weight: 600; font-size: 0.875rem; cursor: pointer;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .chooser-login-btn svg { width: 18px; height: 18px; }
+        .chooser-login-btn:hover { box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4); }
         .chooser-body { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2.5rem 1.5rem; }
         .chooser-shell { max-width: 460px; width: 100%; text-align: center; }
         .chooser-icon-badge {
@@ -4357,10 +4376,16 @@
             <div class="chooser-header-logo">
                 <img src="assets/logo.png" alt="ONLib Delivery">
             </div>
-            <button type="button" class="chooser-help-btn" id="chooser-help-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                <span>Help</span>
-            </button>
+            <div class="chooser-header-actions">
+                <button type="button" class="chooser-login-btn" id="chooser-login-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                    <span>Login</span>
+                </button>
+                <button type="button" class="chooser-help-btn" id="chooser-help-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                    <span>Help</span>
+                </button>
+            </div>
         </header>
 
         <div class="chooser-body">
@@ -11056,6 +11081,13 @@
             });
             document.getElementById('choose-marketplace-btn').addEventListener('click', () => chooseAppMode('marketplace'));
 
+            // Direct login entry point on the Chooser itself — same
+            // shared login modal every other "Login" button in the app
+            // opens (see delivery-guest-login-btn-2, dcust-topbar-login-btn,
+            // desktop-logout-btn's logged-out state, etc.). enterApp()
+            // after a successful sign-in already routes each role to its
+            // own experience, so no service needs to be picked first.
+            document.getElementById('chooser-login-btn').addEventListener('click', showAuthScreen);
             document.getElementById('chooser-help-btn').addEventListener('click', () => {
                 renderHelpSupport('customer');
                 document.getElementById('help-support-modal').classList.add('active');
