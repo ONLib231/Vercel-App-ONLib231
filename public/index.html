@@ -11840,9 +11840,19 @@
                 }
             });
 
+            // Was showAuthScreen() — every other role's Logout button lands
+            // on the App Chooser (see mp-topbar-logout-btn, dc-logout-btn,
+            // delivery-sender-logout-btn, etc. above, and the
+            // admin-back-to-chooser-btn comment below, which explicitly
+            // reasons that admin/Super Admin should land on the Chooser
+            // "instead of the login modal"). This button — the primary
+            // sidebar Logout for both Manage Agent and Super Admin — was
+            // the one place still dropping straight to the login modal,
+            // a jarring inconsistency reported directly: other roles go
+            // back to the service selector, Admin saw a login page.
             document.getElementById('admin-logout-btn').addEventListener('click', async () => {
                 await clearAuth();
-                showAuthScreen();
+                showAppChooser();
             });
         }
 
