@@ -41,7 +41,14 @@ const PORT = process.env.PORT || 3000;
 const FEATURE_KEYS = {
   new_order: 'Create New Order (on behalf of a customer)',
   order_actions: 'Accept, update, and cancel orders',
-  fleet: 'Fleet Directory (add/edit agents, duty status)',
+  // 'fleet' used to live here as a togglable per-account permission
+  // (Super Admin could grant/revoke Fleet Directory access for a
+  // specific Manage Agent account). Removed entirely at the Super
+  // Admin's request — Fleet Directory / Agent Contacts is no longer
+  // available to Manage Agent at all, for any account, so there's
+  // nothing left to toggle. See the four agent:* socket handlers below,
+  // which now hard-require role === 'super_admin' (or delivery_company
+  // for its own agents) instead of checking this key.
   expenses: 'Expenses',
   price_presets: 'Price Presets',
   customers: 'Customers panel',
@@ -585,12 +592,14 @@ io.on('connection', (socket) => {
     return company.id;
   }
 
+  // Fleet Directory / agent management is Super Admin + delivery_company
+  // only now — Manage Agent ('admin') lost this ability entirely (see
+  // the FEATURE_KEYS.fleet removal comment above), not just the UI for
+  // it, so the role check below is a hard exclusion rather than a
+  // togglable checkFeatureEnabled() call.
   socket.on('agent:create', async ({ name, phone, deliveryCompanyId }, ack) => {
-    if (!isAdminLike(socket.user.role) && socket.user.role !== 'delivery_company') {
-      return ack && ack({ ok: false, error: 'Only admins can add agents' });
-    }
-    if (isAdminLike(socket.user.role) && !(await checkFeatureEnabled(socket.user, 'fleet'))) {
-      return ack && ack({ ok: false, error: `This feature has been turned off for your account by a Super Admin: ${FEATURE_KEYS.fleet}` });
+    if (socket.user.role !== 'super_admin' && socket.user.role !== 'delivery_company') {
+      return ack && ack({ ok: false, error: 'Only Super Admin can add agents' });
     }
     if (!name || !name.trim() || !phone || !phone.trim()) {
       return ack && ack({ ok: false, error: 'Name and phone are required' });
@@ -613,11 +622,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('agent:update', async ({ id, name, phone, deliveryCompanyId }, ack) => {
-    if (!isAdminLike(socket.user.role) && socket.user.role !== 'delivery_company') {
-      return ack && ack({ ok: false, error: 'Only admins can edit agents' });
-    }
-    if (isAdminLike(socket.user.role) && !(await checkFeatureEnabled(socket.user, 'fleet'))) {
-      return ack && ack({ ok: false, error: `This feature has been turned off for your account by a Super Admin: ${FEATURE_KEYS.fleet}` });
+    if (socket.user.role !== 'super_admin' && socket.user.role !== 'delivery_company') {
+      return ack && ack({ ok: false, error: 'Only Super Admin can edit agents' });
     }
     if (!name || !name.trim() || !phone || !phone.trim()) {
       return ack && ack({ ok: false, error: 'Name and phone are required' });
@@ -650,17 +656,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Removing an agent — same authorization shape as agent:update: an
-  // admin/staff account can remove any agent (mirrors its unrestricted
-  // edit/reassign rights), a delivery_company can only remove its own.
-  // Hard delete is safe (see the comment on db.deleteAgent) — no
+  // Removing an agent — same authorization shape as agent:update: Super
+  // Admin can remove any agent, a delivery_company can only remove its
+  // own. Hard delete is safe (see the comment on db.deleteAgent) — no
   // historical order data references agents.id.
   socket.on('agent:remove', async ({ id }, ack) => {
-    if (!isAdminLike(socket.user.role) && socket.user.role !== 'delivery_company') {
-      return ack && ack({ ok: false, error: 'Only admins can remove agents' });
-    }
-    if (isAdminLike(socket.user.role) && !(await checkFeatureEnabled(socket.user, 'fleet'))) {
-      return ack && ack({ ok: false, error: `This feature has been turned off for your account by a Super Admin: ${FEATURE_KEYS.fleet}` });
+    if (socket.user.role !== 'super_admin' && socket.user.role !== 'delivery_company') {
+      return ack && ack({ ok: false, error: 'Only Super Admin can remove agents' });
     }
     try {
       const existing = await db.getAgentById(id);
@@ -685,11 +687,8 @@ io.on('connection', (socket) => {
   // "On Duty / Off Duty" — explicitly admin-set, not automatic presence
   // (see the duty_status comment in schema.sql for why).
   socket.on('agent:set-duty-status', async ({ id, dutyStatus }, ack) => {
-    if (!isAdminLike(socket.user.role) && socket.user.role !== 'delivery_company') {
-      return ack && ack({ ok: false, error: 'Only admins can change agent duty status' });
-    }
-    if (isAdminLike(socket.user.role) && !(await checkFeatureEnabled(socket.user, 'fleet'))) {
-      return ack && ack({ ok: false, error: `This feature has been turned off for your account by a Super Admin: ${FEATURE_KEYS.fleet}` });
+    if (socket.user.role !== 'super_admin' && socket.user.role !== 'delivery_company') {
+      return ack && ack({ ok: false, error: 'Only Super Admin can change agent duty status' });
     }
     if (dutyStatus !== 'on_duty' && dutyStatus !== 'off_duty') {
       return ack && ack({ ok: false, error: 'Invalid duty status' });

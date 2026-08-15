@@ -5658,13 +5658,14 @@
                             <div id="recent-deliveries-count" class="recent-deliveries-count"></div>
                         </section>
 
-                        <section class="orders-section" id="agent-contacts-section">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
-                                <h2 class="section-title" style="margin: 0;">Agent Contacts</h2>
-                                <button type="button" class="btn-small btn-success" id="add-agent-btn">+ Add Agent</button>
-                            </div>
-                            <div id="agent-contacts-container"></div>
-                        </section>
+                        <!-- Agent Contacts (formerly here, inline on Manage
+                             Agent's operational dashboard) was removed at
+                             the Super Admin's request — Manage Agent no
+                             longer has a way to view, add, edit, or remove
+                             delivery agents, or toggle their duty status.
+                             Super Admin's own separate Fleet Directory
+                             modal (#fleet-directory-modal) is unaffected —
+                             see the README section on this removal. -->
                     </div>
                 </div>
                 </div>
@@ -7424,10 +7425,12 @@
                     <button class="close-btn" id="close-fleet-directory-modal">&times;</button>
                 </div>
             </div>
-            <p style="color: var(--slate-light); margin-bottom: 1.5rem; font-size: 0.875rem;">
-                Delivery agents available to accept and fulfill orders. This is the same fleet Manage
-                Agent works with day to day — one shared pool, not split per staff account.
+            <p style="color: var(--slate-light); margin-bottom: 1rem; font-size: 0.875rem;">
+                Delivery agents available to accept and fulfill orders — the one pool shared across every
+                delivery company on the platform. Manage Agent no longer has access to this section (see
+                README); Fleet Directory is Super Admin only now.
             </p>
+            <input type="text" class="form-input" id="fleet-directory-search-input" placeholder="Search by agent name, phone, or delivery company…" style="margin-bottom: 1.25rem;">
             <div id="sa-agent-contacts-container"></div>
         </div>
     </div>
@@ -9525,7 +9528,9 @@
         function applyFleetAddAgentAvailability() {
             const hasCompanies = fleetDeliveryCompanies.length > 0;
             const hint = 'Add a delivery company first (Delivery Companies panel) — agents must belong to one.';
-            ['add-agent-btn', 'sa-add-agent-btn'].forEach(id => {
+            // add-agent-btn (Manage Agent's own button) is gone — see the
+            // Fleet Directory removal above. Only Super Admin's remains.
+            ['sa-add-agent-btn'].forEach(id => {
                 const btn = document.getElementById(id);
                 if (!btn) return;
                 btn.disabled = !hasCompanies;
@@ -10584,7 +10589,10 @@
             if (currentUser && currentUser.role === 'super_admin') return;
             const hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
             if (myDisabledFeatures.includes('new_order')) hide('open-admin-new-order-btn');
-            if (myDisabledFeatures.includes('fleet')) hide('scroll-to-agents-btn');
+            // 'fleet' used to gate scroll-to-agents-btn as a togglable
+            // per-account permission — Fleet Directory is now removed
+            // from Manage Agent's dashboard unconditionally (see
+            // enterApp()), so there's nothing left here to toggle.
             if (myDisabledFeatures.includes('expenses')) { hide('add-expense-btn'); hide('add-expense-btn-finance'); }
             if (myDisabledFeatures.includes('customers')) { hide('open-customers-btn'); hide('sa-quick-customers-btn'); }
             if (myDisabledFeatures.includes('reports')) { hide('open-monthly-report-btn'); hide('open-monthly-report-btn-finance'); }
@@ -12384,17 +12392,20 @@
                 // marketplace visibility to combine in the first place.
                 const platformReportNavBtn = document.getElementById('open-platform-report-btn');
                 if (platformReportNavBtn) platformReportNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
-                // Agent Contacts on the Overview page itself was showing
-                // for Super Admin too, duplicating their own dedicated
-                // Fleet Directory modal (same underlying agent list,
-                // opened via the sidebar's "Fleet Directory" item — see
-                // scroll-to-agents-btn's click handler above, which
-                // already treats these as two different things per
-                // role). Manage Agent has no such modal — this inline
-                // section is their only Fleet Directory access — so it
-                // stays for them; only Super Admin's copy is hidden.
-                const agentContactsSection = document.getElementById('agent-contacts-section');
-                if (agentContactsSection) agentContactsSection.style.display = isSuperAdmin ? 'none' : 'block';
+                // Fleet Directory / Agent Contacts was removed from
+                // Manage Agent's dashboard entirely (Super Admin's
+                // request) — Manage Agent can no longer view, add, edit,
+                // or remove delivery agents, or toggle their duty status.
+                // Super Admin keeps their own separate Fleet Directory
+                // modal (#fleet-directory-modal, opened via this same
+                // sidebar item — see scroll-to-agents-btn's click handler),
+                // so the desktop nav item, its mobile More-sheet
+                // counterpart, and the mobile bottom-bar tab all now show
+                // for Super Admin only instead of both roles.
+                const scrollToAgentsBtn = document.getElementById('scroll-to-agents-btn');
+                if (scrollToAgentsBtn) scrollToAgentsBtn.style.display = isSuperAdmin ? 'flex' : 'none';
+                const moreFleetBtn = document.getElementById('admin-more-fleet');
+                if (moreFleetBtn) moreFleetBtn.style.display = isSuperAdmin ? 'flex' : 'none';
                 // The Marketplace/Restaurant/Platform stats block is part
                 // of the one combined Overview page now (not a separate
                 // page to navigate to) — its visibility is purely a role
@@ -12405,8 +12416,14 @@
                 document.getElementById('admin-overview-nav-label').textContent = 'Overview';
                 // Mobile bottom nav — same role split as the sidebar above,
                 // just mirrored onto the mobile-only nav buttons.
+                // Fleet was Manage-Agent-only here to begin with (Super
+                // Admin's bottom bar uses this slot for Vendors instead,
+                // below) — now that Manage Agent has no Fleet Directory
+                // access at all, this tab is unconditionally hidden for
+                // both roles; Super Admin still reaches Fleet Directory
+                // from the sidebar/More sheet, just not this bottom tab.
                 const mnavFleetBtn = document.getElementById('admin-mnav-fleet');
-                if (mnavFleetBtn) mnavFleetBtn.style.display = isSuperAdmin ? 'none' : 'flex';
+                if (mnavFleetBtn) mnavFleetBtn.style.display = 'none';
                 const mnavOrderHistoryBtn = document.getElementById('admin-mnav-order-history');
                 if (mnavOrderHistoryBtn) mnavOrderHistoryBtn.style.display = isSuperAdmin ? 'none' : 'flex';
                 const mnavVendorsBtn = document.getElementById('admin-mnav-vendors');
@@ -13023,7 +13040,11 @@
             document.getElementById('cancel-delete-expense').addEventListener('click', closeDeleteExpenseModal);
             document.getElementById('delete-expense-form').addEventListener('submit', handleDeleteExpenseSubmit);
 
-            document.getElementById('add-agent-btn').addEventListener('click', () => openAgentModal(null));
+            // add-agent-btn (Manage Agent's own "+ Add Agent" button) was
+            // removed along with the rest of Agent Contacts — see the
+            // "Fleet Directory removed from Manage Agent" README section.
+            // sa-add-agent-btn (Super Admin's own Fleet Directory modal)
+            // still wires up below, unaffected.
             document.getElementById('close-agent-modal').addEventListener('click', closeAgentModal);
             document.getElementById('cancel-agent-form').addEventListener('click', closeAgentModal);
             document.getElementById('agent-form').addEventListener('submit', handleAgentFormSubmit);
@@ -13037,12 +13058,10 @@
             document.getElementById('close-add-delivery-company-modal').addEventListener('click', closeAddDeliveryCompanyModal);
             document.getElementById('cancel-add-delivery-company-form').addEventListener('click', closeAddDeliveryCompanyModal);
             document.getElementById('add-delivery-company-form').addEventListener('submit', handleAddDeliveryCompanyFormSubmit);
-            document.getElementById('agent-contacts-container').addEventListener('click', (e) => {
-                if (e.target.classList.contains('edit-agent-btn')) openAgentModal(e.target.dataset.id);
-                if (e.target.classList.contains('delete-agent-btn')) deleteAgentWithConfirm(e.target.dataset.id, e.target.dataset.name);
-                const dutyBtn = e.target.closest('.agent-duty-toggle');
-                if (dutyBtn) toggleAgentDutyStatus(dutyBtn.dataset.id, dutyBtn.dataset.current);
-            });
+            // agent-contacts-container (Manage Agent's own Edit/Delete/
+            // duty-toggle wiring) was removed the same way — see above.
+            // sa-agent-contacts-container (Super Admin's) still wires up
+            // below, unaffected.
 
             const selectAllCheckbox = document.getElementById('select-all-orders');
             selectAllCheckbox.addEventListener('change', (e) => {
@@ -13080,26 +13099,17 @@
             document.getElementById('close-order-history').addEventListener('click', closeOrderHistoryModal);
 
             document.getElementById('scroll-to-agents-btn').addEventListener('click', () => {
-                // Manage Agent's Fleet Directory is an inline section on
-                // their one operational dashboard — scrolling to it there
-                // makes sense, since that's the only view they have.
-                // Super Admin has a second, separate view (Platform
-                // Overview) as their default landing page, and rather than
-                // detour them into the Manage Agent dashboard just to see
-                // the fleet, they get their own dedicated Fleet Directory
-                // modal — same underlying agent data, opened directly from
-                // wherever they are.
-                if (currentUser && currentUser.role === 'super_admin') {
-                    openFleetDirectoryModal();
-                    return;
-                }
-                const overviewBtn = document.getElementById('admin-overview-nav-btn');
-                if (overviewBtn && !overviewBtn.classList.contains('active')) overviewBtn.click();
-                const section = document.getElementById('agent-contacts-section');
-                if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Used to branch here — Manage Agent had its own inline
+                // "Agent Contacts" section to scroll to, Super Admin got
+                // this dedicated modal instead. Manage Agent's Fleet
+                // Directory access (this button included — see enterApp())
+                // was removed entirely, so this is now Super-Admin-only
+                // and always opens the modal directly.
+                openFleetDirectoryModal();
             });
 
             document.getElementById('sa-add-agent-btn').addEventListener('click', () => openAgentModal(null));
+            document.getElementById('fleet-directory-search-input').addEventListener('input', debounce(renderAgentContacts, 200));
             document.getElementById('close-fleet-directory-modal').addEventListener('click', () => {
                 document.getElementById('fleet-directory-modal').classList.remove('active');
             });
@@ -13328,12 +13338,16 @@
         }
 
         // Super Admin's dedicated Fleet Directory — opens directly from
-        // any view (no need to switch into the Manage Agent operational
-        // dashboard first). renderAgentContacts() fills both this modal's
-        // container and Manage Agent's inline section whenever either is
-        // present in the DOM, so a fresh render here is always current.
+        // any view (no need to switch into a separate dashboard first).
+        // renderAgentContacts() fills sa-agent-contacts-container whenever
+        // it's present in the DOM, so a fresh render here is always
+        // current. The search box resets on every open, same as any
+        // other modal search field in this app — a stale filter silently
+        // hiding agents the next time this opens would be confusing.
         function openFleetDirectoryModal() {
             document.getElementById('fleet-directory-modal').classList.add('active');
+            const searchInput = document.getElementById('fleet-directory-search-input');
+            if (searchInput) searchInput.value = '';
             renderAgentContacts();
         }
 
@@ -17464,7 +17478,7 @@
         // ============================================================
         const DEFAULT_ADMIN_FAQS = [
             { q: 'How do I accept an order?', a: 'Open the order card in "Available Orders" and click Accept Order, then choose an agent, a delivery amount (or a saved price preset from Settings > Pricing), and optionally a payment method.' },
-            { q: 'How do I add or edit a delivery agent?', a: 'Go to Fleet Directory in the sidebar, then use "+ Add Agent" or the Edit button on any existing agent card.' },
+            { q: 'How do I add or edit a delivery agent?', a: 'This is a Super Admin action — go to Fleet Directory in the sidebar, then use "+ Add Agent" or the Edit button on any existing agent card. Manage Agent accounts no longer have Fleet Directory access.' },
             { q: 'What does "On Duty / Off Duty" mean for an agent?', a: 'It\'s a status you set manually — this app doesn\'t track agents\' live location or connection, so it\'s a simple flag you toggle, not automatic presence.' },
             { q: 'How do I cancel an order?', a: 'Senders can cancel their own order while it\'s still Pending (before an agent accepts it) from their dashboard. Admins can delete any order via "Select" + "Delete Selected".' },
             { q: 'How do I generate a monthly report?', a: 'Open Monthly Report in the sidebar, choose "Business (All Customers)" or a specific customer, then a month and year.' },
@@ -18076,13 +18090,11 @@
         }
 
         function renderAgentContacts() {
-            // Two containers can show this same data: Manage Agent's inline
-            // "Agent Contacts" section on the operational dashboard, and
-            // Super Admin's dedicated Fleet Directory modal. Both read from
-            // the same `agentRecords`/`orders`, so one render call keeps
-            // whichever is present (each account only ever has one of the
-            // two in its DOM) in sync — no separate render path to drift.
-            const containerIds = ['agent-contacts-container', 'sa-agent-contacts-container'];
+            // Used to fill two containers: Manage Agent's inline "Agent
+            // Contacts" section and Super Admin's dedicated Fleet
+            // Directory modal. Manage Agent's was removed entirely (see
+            // README) — only Super Admin's modal remains.
+            const containerIds = ['sa-agent-contacts-container'];
             const containers = containerIds
                 .map(id => document.getElementById(id))
                 .filter(Boolean);
@@ -18092,8 +18104,31 @@
                 containers.forEach(c => { c.innerHTML = empty; });
                 return;
             }
+            // Filters against name, phone, and owning delivery company —
+            // whatever's fastest to remember an agent by. Case-insensitive,
+            // substring match (not "starts with"), same as every other
+            // search box in this app (Customers, Order History, etc.).
+            // Read directly off the input rather than a synced variable —
+            // same established pattern as getOrderFilterState() — so
+            // there's no separate state to reset when the modal reopens.
+            const searchInput = document.getElementById('fleet-directory-search-input');
+            const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+            const visibleAgents = query
+                ? agentRecords.filter((agent) => {
+                    const ownerCompany = fleetDeliveryCompanies.find(c => c.id === agent.deliveryCompanyId);
+                    const haystack = [agent.name, agent.phone, ownerCompany ? ownerCompany.businessName : '']
+                        .join(' ')
+                        .toLowerCase();
+                    return haystack.includes(query);
+                })
+                : agentRecords;
+            if (visibleAgents.length === 0) {
+                const noMatches = `<p style="text-align: center; color: var(--slate-light);">No agents match "${escapeHtmlAttr(searchInput ? searchInput.value.trim() : '')}".</p>`;
+                containers.forEach(c => { c.innerHTML = noMatches; });
+                return;
+            }
             let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">';
-            agentRecords.forEach((agent) => {
+            visibleAgents.forEach((agent) => {
                 const onDuty = agent.dutyStatus === 'on_duty';
                 const todaysOrders = orders.filter(o => o.acceptedBy === agent.name && isToday(o.createdAt));
                 const todaysDelivered = todaysOrders.filter(o => o.status === 'delivered');
