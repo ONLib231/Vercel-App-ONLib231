@@ -616,33 +616,87 @@
         .messages-thread-form input { flex: 1; }
 
         .vendor-welcome-banner {
-            background: var(--golib-navy); color: white; border-radius: 1.125rem; padding: 1.125rem;
-            display: flex; align-items: center; gap: 0.875rem;
+            background: linear-gradient(135deg, var(--golib-navy) 0%, var(--golib-navy-light) 100%);
+            color: white; border-radius: 1.25rem; padding: 1.375rem 1.5rem;
+            display: flex; align-items: center; gap: 1rem;
+            box-shadow: 0 12px 25px -10px rgba(22, 35, 74, 0.5);
+            position: relative; overflow: hidden;
+        }
+        /* Subtle radial highlight in the top-right corner — a common
+           premium-hero-banner touch, purely decorative (non-interactive,
+           clipped by the parent's overflow:hidden) so it never affects
+           layout or hit-testing. */
+        .vendor-welcome-banner::after {
+            content: ''; position: absolute; top: -45%; right: -6%; width: 240px; height: 240px;
+            background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 70%);
+            pointer-events: none;
         }
         .vendor-welcome-icon {
-            width: 44px; height: 44px; border-radius: 0.75rem; background: rgba(255,255,255,0.15);
+            width: 48px; height: 48px; border-radius: 0.875rem; background: rgba(255,255,255,0.15);
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            position: relative; z-index: 1;
         }
-        .vendor-welcome-icon svg { width: 22px; height: 22px; }
-        .vendor-welcome-eyebrow { font-size: 0.8125rem; opacity: 0.85; }
-        .vendor-welcome-name { font-weight: 800; font-size: 1.125rem; }
+        .vendor-welcome-icon svg { width: 24px; height: 24px; }
+        .vendor-welcome-eyebrow { font-size: 0.8125rem; opacity: 0.8; position: relative; z-index: 1; }
+        .vendor-welcome-name { font-weight: 800; font-size: 1.3125rem; letter-spacing: -0.01em; margin-top: 0.125rem; position: relative; z-index: 1; }
         .vendor-online-pill {
             background: #22c55e; color: white; font-size: 0.75rem; font-weight: 700;
-            padding: 0.25rem 0.625rem; border-radius: 9999px; white-space: nowrap;
+            padding: 0.3125rem 0.75rem; border-radius: 9999px; white-space: nowrap;
+            display: inline-flex; align-items: center; gap: 0.3125rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15); position: relative; z-index: 1;
         }
-        .vendor-sales-card { background: white; border-radius: 1.125rem; padding: 1.125rem; box-shadow: var(--shadow-sm); border: 1px solid var(--border); }
-        .vendor-sales-total { font-size: 1.75rem; font-weight: 800; color: var(--slate); }
+        .vendor-sales-card { background: white; border-radius: 1.25rem; padding: 1.375rem; box-shadow: var(--shadow-md); border: 1px solid var(--border); }
+        .vendor-sales-card-title {
+            font-size: 0.75rem; font-weight: 700; color: var(--slate-light);
+            text-transform: uppercase; letter-spacing: 0.06em;
+        }
+        .vendor-sales-total { font-size: 2.25rem; font-weight: 800; color: var(--slate); letter-spacing: -0.02em; }
+        /* .stat-trend has no unscoped base styling in this app (the only
+           existing rules are scoped to #delivery-app/#delivery-customer-app/
+           #delivery-company-app), so it previously rendered as plain
+           unstyled text here — these rules are scoped to #vendor-app only,
+           zero risk to the other three apps that share the class name. */
+        #vendor-app .stat-trend {
+            display: inline-flex; align-items: center; font-size: 0.75rem; font-weight: 700;
+            padding: 0.1875rem 0.5625rem; border-radius: 9999px;
+        }
+        #vendor-app .stat-trend.up { background: #dcfce7; color: #15803d; }
+        #vendor-app .stat-trend.down { background: #fee2e2; color: #b91c1c; }
+        #vendor-app .stat-trend.flat { background: var(--bg-light); color: var(--slate-light); }
         .vendor-stat-card {
-            background: white; border-radius: 1rem; padding: 1rem; box-shadow: var(--shadow-sm); border: 1px solid var(--border);
-            display: flex; align-items: center; gap: 0.75rem;
+            background: white; border-radius: 1.125rem; padding: 1.125rem; box-shadow: var(--shadow-sm); border: 1px solid var(--border);
+            display: flex; align-items: center; gap: 0.875rem; transition: box-shadow 0.15s ease, transform 0.15s ease;
+        }
+        @media (hover: hover) {
+            .vendor-stat-card:hover, .vendor-order-row:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
         }
         .vendor-stat-icon {
-            width: 40px; height: 40px; border-radius: 0.75rem; background: #eef2ff; color: var(--golib-navy);
+            width: 44px; height: 44px; border-radius: 0.875rem; background: #eef2ff; color: var(--golib-navy);
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
-        .vendor-stat-icon svg { width: 19px; height: 19px; }
-        .vendor-stat-number { font-weight: 800; font-size: 1.25rem; color: var(--slate); line-height: 1.1; }
-        .vendor-stat-label { font-size: 0.75rem; color: var(--slate-light); }
+        .vendor-stat-icon svg { width: 20px; height: 20px; }
+        .vendor-stat-number { font-weight: 800; font-size: 1.625rem; color: var(--slate); line-height: 1.1; letter-spacing: -0.01em; }
+        .vendor-stat-label { font-size: 0.75rem; color: var(--slate-light); margin-top: 0.125rem; }
+
+        /* Sidebar "Store Snapshot" — real counts from data already loaded
+           by loadVendorDashboard (active listings, orders placed today),
+           never fabricated. Rendered as a sibling right after
+           .desktop-sidebar-nav (which is flex:1 and consumes all leftover
+           vertical space), so it naturally lands pinned just above the
+           footer without any extra layout work — filling what would
+           otherwise be a large empty gap on a sidebar with a short-ish nav
+           list on a tall viewport. */
+        .vendor-sidebar-snapshot {
+            background: var(--bg-light); border-radius: 0.875rem; padding: 0.875rem;
+            margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.625rem;
+        }
+        .vendor-sidebar-snapshot-title {
+            font-size: 0.6875rem; font-weight: 800; color: var(--slate-light);
+            text-transform: uppercase; letter-spacing: 0.06em;
+        }
+        .vendor-sidebar-snapshot-row { display: flex; align-items: center; justify-content: space-between; font-size: 0.8125rem; }
+        .vendor-sidebar-snapshot-label { color: var(--slate-light); }
+        .vendor-sidebar-snapshot-value { font-weight: 800; color: var(--slate); }
 
         .vendor-quick-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
         .vendor-quick-action {
@@ -657,22 +711,24 @@
         .vendor-quick-action-icon svg { width: 18px; height: 18px; }
 
         .vendor-order-row {
-            display: flex; align-items: center; gap: 0.75rem; background: white; border-radius: 1rem;
-            padding: 0.875rem; margin-bottom: 0.625rem; box-shadow: var(--shadow-sm); border: 1px solid var(--border); cursor: pointer;
+            display: flex; align-items: center; gap: 0.875rem; background: white; border-radius: 1.125rem;
+            padding: 1rem; margin-bottom: 0.625rem; box-shadow: var(--shadow-sm); border: 1px solid var(--border); cursor: pointer;
+            transition: box-shadow 0.15s ease, transform 0.15s ease;
         }
         .vendor-order-icon {
-            width: 38px; height: 38px; border-radius: 0.75rem; background: #fee2e2; color: var(--golib-red);
+            width: 42px; height: 42px; border-radius: 0.875rem; background: #fee2e2; color: var(--golib-red);
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
-        .vendor-order-icon svg { width: 17px; height: 17px; }
+        .vendor-order-icon svg { width: 18px; height: 18px; }
         .vendor-order-main { flex: 1; min-width: 0; }
         .vendor-order-id { font-weight: 700; font-size: 0.875rem; color: var(--slate); }
-        .vendor-order-buyer { font-size: 0.75rem; color: var(--slate-light); }
+        .vendor-order-buyer { font-size: 0.8125rem; color: var(--slate-light); margin-top: 0.125rem; }
         .vendor-order-right { text-align: right; }
         .vendor-order-status-pill {
-            display: inline-block; font-size: 0.6875rem; font-weight: 700; padding: 0.125rem 0.5rem;
-            border-radius: 9999px; margin-bottom: 0.25rem;
+            display: inline-flex; align-items: center; gap: 0.3125rem; font-size: 0.6875rem; font-weight: 700; padding: 0.1875rem 0.5625rem;
+            border-radius: 9999px; margin-bottom: 0.3125rem;
         }
+        .vendor-order-status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
         .vendor-order-status-pill.fulfilled { background: #dcfce7; color: #15803d; }
         .vendor-order-status-pill.processing { background: #dbeafe; color: #1e40af; }
         .vendor-order-status-pill.cancelled { background: #fee2e2; color: #b91c1c; }
@@ -2229,6 +2285,33 @@
         }
         #delivery-app .sa-lob-row:first-of-type { border-top: none; padding-top: 0; }
         #delivery-app .sa-lob-row strong { color: var(--admin-text); font-weight: 700; font-size: 0.9375rem; }
+
+        /* Platform Administration card — deliberately NOT styled like the
+           colored-dot .sa-lob-card language above (that visual vocabulary
+           means "a line of business"); this reuses .sa-lob-row for the two
+           role counts (so the numbers read consistently) but wraps them in
+           its own icon-badge header + footer-CTA layout so it's legible at
+           a glance as a different kind of thing: ONLib's own control
+           accounts, not a service. */
+        #delivery-app .sa-admin-card {
+            background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: var(--admin-radius-lg);
+            padding: 1.375rem; box-shadow: var(--admin-shadow-xs); margin-bottom: 1.5rem;
+        }
+        #delivery-app .sa-admin-card-top { display: flex; align-items: flex-start; gap: 0.875rem; margin-bottom: 1rem; }
+        #delivery-app .sa-admin-card-icon {
+            width: 44px; height: 44px; border-radius: 0.875rem; background: #ede9fe; color: #5b21b6;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        #delivery-app .sa-admin-card-icon svg { width: 22px; height: 22px; }
+        #delivery-app .sa-admin-card-title { font-weight: 700; font-size: 0.9375rem; color: var(--admin-text); }
+        #delivery-app .sa-admin-card-desc { font-size: 0.8125rem; color: var(--admin-text-secondary); margin-top: 0.1875rem; }
+        #delivery-app .sa-admin-card-rows { margin-bottom: 1.125rem; }
+        #delivery-app .sa-admin-card-footer {
+            display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
+            padding-top: 1rem; border-top: 1px solid var(--admin-border);
+        }
+        #delivery-app .sa-admin-card-hint { font-size: 0.8125rem; color: var(--admin-text-secondary); max-width: 480px; }
+        #delivery-app .sa-admin-role-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle; }
 
         #delivery-app .sa-pending-badge {
             display: inline-flex; align-items: center; font-size: 0.75rem; font-weight: 700;
@@ -5350,12 +5433,17 @@
                     <!-- Lines of business — compact, scannable cards (colored
                          dot + 3 real metric rows each) instead of the old
                          full-size stat-card bands. Marketplace/Restaurant
-                         numbers are unchanged real ids; Delivery's three
-                         numbers are new real fields added to
-                         GET /api/super-admin/overview's `delivery` object
-                         (todayOrders/companyCount/staffCount) — see db.js
-                         getDeliveryCompanies/getStaffAccounts and the
-                         today-orders filter in server.js. -->
+                         numbers are unchanged real ids; Delivery's numbers
+                         come from GET /api/super-admin/overview's `delivery`
+                         object (todayOrders/companyCount/totalRevenue — see
+                         db.js getDeliveryCompanies, the today-orders filter,
+                         and the delivered-orders revenue sum, all in
+                         server.js). Staff/admin accounts are deliberately
+                         NOT one of these cards — see the standalone
+                         "PLATFORM ADMINISTRATION" section right below this
+                         grid: Super Admin oversees the whole platform, not
+                         just Delivery, so it doesn't belong to any one line
+                         of business. -->
                     <div class="admin-section-label">LINES OF BUSINESS</div>
                     <div class="sa-lob-grid">
                         <div class="sa-lob-card sa-lob-marketplace">
@@ -5374,9 +5462,43 @@
                             <div class="sa-lob-header"><span class="sa-lob-dot"></span> Delivery</div>
                             <div class="sa-lob-row"><span>Delivery companies</span><strong id="ov-delivery-companies">0</strong></div>
                             <div class="sa-lob-row"><span>Orders today</span><strong id="ov-delivery-today-orders">0</strong></div>
-                            <div class="sa-lob-row"><span>Staff accounts</span><strong id="ov-delivery-staff">0</strong></div>
+                            <div class="sa-lob-row"><span>Revenue</span><strong id="ov-delivery-revenue">$0.00</strong></div>
                         </div>
                     </div>
+
+                    <!-- Platform Administration — ONLib's own internal
+                         control accounts (Super Admin + Manage Agent),
+                         standing on its own as a peer section to Lines of
+                         Business rather than a line item under any one
+                         service card. These roles aren't a service vendors
+                         or customers use — they're who runs the platform,
+                         and Super Admin's reach spans every line of
+                         business above, not just one. Counts come from the
+                         new `staff` object on GET /api/super-admin/overview
+                         (db.getStaffAccounts, split by role — real, not
+                         fabricated). Role colors (purple for Super Admin,
+                         blue for Manage Agent) match the existing Manage
+                         Staff modal's role pills for consistency. -->
+                    <div class="admin-section-label">PLATFORM ADMINISTRATION</div>
+                    <section class="sa-admin-card">
+                        <div class="sa-admin-card-top">
+                            <div class="sa-admin-card-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                            </div>
+                            <div>
+                                <div class="sa-admin-card-title">ONLib Staff</div>
+                                <div class="sa-admin-card-desc">Internal accounts that control the platform itself — owned by ONLib, not one of the services above.</div>
+                            </div>
+                        </div>
+                        <div class="sa-admin-card-rows">
+                            <div class="sa-lob-row"><span><span class="sa-admin-role-dot" style="background:#5b21b6;"></span>Super Admin</span><strong id="ov-staff-super-admin">0</strong></div>
+                            <div class="sa-lob-row"><span><span class="sa-admin-role-dot" style="background:#0369a1;"></span>Manage Agent</span><strong id="ov-staff-manage-agent">0</strong></div>
+                        </div>
+                        <div class="sa-admin-card-footer">
+                            <span class="sa-admin-card-hint">Create, edit, and permission as many staff accounts as your team needs — each with its own login and its own set of permissions.</span>
+                            <button type="button" class="btn-small btn-secondary" id="sa-manage-staff-btn">Manage Staff</button>
+                        </div>
+                    </section>
 
                     <!-- Premium subscription spotlight — every figure here is
                          real: subscriber count and admin-comp count come
@@ -5417,17 +5539,6 @@
                                 <div class="sa-premium-metric-value" id="sa-premium-commission-rate">0%</div>
                                 <div class="sa-premium-metric-label">Premium Commission Rate</div>
                             </div>
-                        </div>
-                    </section>
-
-                    <section class="orders-section" style="margin-bottom: 1.5rem;">
-                        <h2 class="section-title">Staff Accounts</h2>
-                        <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
-                            <div>
-                                <div style="font-weight:700; color:var(--slate);">Manage Agent logins</div>
-                                <div style="font-size:0.875rem; color:var(--slate-light);">Create, edit, and permission as many staff accounts as your team needs — each with its own login and its own set of permissions.</div>
-                            </div>
-                            <button type="button" class="btn-small btn-secondary" id="sa-manage-staff-btn">Manage Staff</button>
                         </div>
                     </section>
 
@@ -5566,6 +5677,17 @@
                     Settings
                 </button>
             </nav>
+            <div class="vendor-sidebar-snapshot" id="vendor-sidebar-snapshot">
+                <div class="vendor-sidebar-snapshot-title">Store Snapshot</div>
+                <div class="vendor-sidebar-snapshot-row">
+                    <span class="vendor-sidebar-snapshot-label">Active listings</span>
+                    <span class="vendor-sidebar-snapshot-value" id="vendor-snapshot-active-listings">—</span>
+                </div>
+                <div class="vendor-sidebar-snapshot-row">
+                    <span class="vendor-sidebar-snapshot-label">Orders today</span>
+                    <span class="vendor-sidebar-snapshot-value" id="vendor-snapshot-orders-today">—</span>
+                </div>
+            </div>
             <div class="desktop-sidebar-footer">
                 <button type="button" class="desktop-sidebar-item" id="vendor-desktop-help-btn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
@@ -5647,8 +5769,8 @@
 
                 <div class="mobile-section" style="margin-top:1.25rem;">
                     <div class="vendor-sales-card">
-                        <div class="mobile-section-header" style="margin-bottom:0.375rem;">
-                            <div class="mobile-section-title" style="font-size:0.9375rem;">Sales Overview (Last 30 Days)</div>
+                        <div class="mobile-section-header" style="margin-bottom:0.5rem;">
+                            <div class="vendor-sales-card-title">Sales Overview · Last 30 Days</div>
                         </div>
                         <div style="display:flex; align-items:baseline; gap:0.625rem;">
                             <span class="vendor-sales-total" id="vendor-total-sales">$0.00</span>
@@ -5660,11 +5782,11 @@
 
                 <div class="mobile-section" style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem;">
                     <div class="vendor-stat-card">
-                        <div class="vendor-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9m9 5h-9m9 5h-9M4 7h1m-1 5h1m-1 5h1"></path><rect x="3" y="4" width="4" height="16" rx="1"></rect></svg></div>
+                        <div class="vendor-stat-icon" style="background:#dbeafe; color:#1d4ed8;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9m9 5h-9m9 5h-9M4 7h1m-1 5h1m-1 5h1"></path><rect x="3" y="4" width="4" height="16" rx="1"></rect></svg></div>
                         <div><div class="vendor-stat-number" id="vendor-total-orders">0</div><div class="vendor-stat-label">Total Orders</div></div>
                     </div>
                     <div class="vendor-stat-card">
-                        <div class="vendor-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
+                        <div class="vendor-stat-icon" style="background:#dcfce7; color:#15803d;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg></div>
                         <div><div class="vendor-stat-number" id="vendor-unique-customers">0</div><div class="vendor-stat-label">Customers</div></div>
                     </div>
                 </div>
@@ -5720,7 +5842,12 @@
             <div id="vendor-view-products" style="display:none;">
                 <div class="mobile-section-header" style="margin-top:0;">
                     <div class="mobile-section-title">Your Products</div>
-                    <button type="button" class="btn-small btn-success" id="vendor-add-product-btn-2">+ Add</button>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <button type="button" class="btn-small btn-secondary" id="vendor-export-products-btn">Export CSV</button>
+                        <button type="button" class="btn-small btn-secondary" id="vendor-import-products-btn">Import CSV</button>
+                        <input type="file" accept=".csv,text/csv" id="vendor-import-products-input" style="display:none;">
+                        <button type="button" class="btn-small btn-success" id="vendor-add-product-btn-2">+ Add</button>
+                    </div>
                 </div>
                 <div id="vendor-products-container"></div>
             </div>
@@ -5786,8 +5913,8 @@
             <div id="vendor-view-reports" style="display:none;">
                 <div class="mobile-section" style="margin-top:0;">
                     <div class="vendor-sales-card">
-                        <div class="mobile-section-header" style="margin-bottom:0.375rem;">
-                            <div class="mobile-section-title" style="font-size:0.9375rem;">Sales Overview (Last 30 Days)</div>
+                        <div class="mobile-section-header" style="margin-bottom:0.5rem;">
+                            <div class="vendor-sales-card-title">Sales Overview · Last 30 Days</div>
                         </div>
                         <div style="display:flex; align-items:baseline; gap:0.625rem;">
                             <span class="vendor-sales-total" id="vendor-reports-total-sales">$0.00</span>
@@ -5845,6 +5972,64 @@
                         <div style="display:flex; gap:0.75rem;">
                             <button type="button" class="btn-small btn-secondary" id="promotion-form-cancel-btn" style="flex:1;">Cancel</button>
                             <button type="submit" class="btn-primary" id="promotion-form-save-btn" style="flex:1;">Start Promotion</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Coupon codes — cart-level, vendor-scoped discount codes a
+                     customer types in at checkout. Real, transactionally-applied
+                     discount (see db.checkout()); this section is just management. -->
+                <div class="mobile-section" id="vendor-coupons-section">
+                    <div class="mobile-section-header">
+                        <div class="mobile-section-title">🎟️ Coupon Codes</div>
+                        <button type="button" class="mobile-view-all" id="add-coupon-btn">+ Create</button>
+                    </div>
+                    <p style="margin:0 0 0.75rem; color:var(--slate-light); font-size:0.8125rem;">Give customers a code to type in at checkout for a discount on their order from your store.</p>
+                    <div id="vendor-coupons-list"></div>
+                </div>
+
+                <div class="mobile-section" id="coupon-form-section" style="display:none;">
+                    <form id="coupon-form" style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm);">
+                        <div class="form-group">
+                            <label class="form-label">Code</label>
+                            <input type="text" class="form-input" id="coupon-form-code" placeholder="e.g. SAVE10" maxlength="20" style="text-transform:uppercase;" required>
+                            <p class="settings-hint">3–20 letters, numbers, hyphens, or underscores. Not case-sensitive.</p>
+                        </div>
+                        <div style="display:flex; gap:1rem;">
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Discount Type</label>
+                                <select class="form-input" id="coupon-form-type">
+                                    <option value="percent">Percent off</option>
+                                    <option value="fixed">Fixed amount off</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label" id="coupon-form-value-label">Percent (1–90%)</label>
+                                <input type="number" class="form-input" id="coupon-form-value" min="0.01" step="0.01" placeholder="e.g. 10" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Minimum Order Amount <span style="font-weight:400; color:var(--slate-light); font-size:0.8125rem;">(optional)</span></label>
+                            <input type="number" class="form-input" id="coupon-form-min-order" min="0" step="0.01" placeholder="e.g. 25">
+                        </div>
+                        <div style="display:flex; gap:1rem;">
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Total Use Limit <span style="font-weight:400; color:var(--slate-light); font-size:0.8125rem;">(optional)</span></label>
+                                <input type="number" class="form-input" id="coupon-form-max-uses" min="1" step="1" placeholder="Unlimited">
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Per-Customer Limit <span style="font-weight:400; color:var(--slate-light); font-size:0.8125rem;">(optional)</span></label>
+                                <input type="number" class="form-input" id="coupon-form-per-customer" min="1" step="1" placeholder="Unlimited">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Expires <span style="font-weight:400; color:var(--slate-light); font-size:0.8125rem;">(optional)</span></label>
+                            <input type="date" class="form-input" id="coupon-form-ends">
+                        </div>
+                        <div class="auth-error" id="coupon-form-error"></div>
+                        <div style="display:flex; gap:0.75rem;">
+                            <button type="button" class="btn-small btn-secondary" id="coupon-form-cancel-btn" style="flex:1;">Cancel</button>
+                            <button type="submit" class="btn-primary" id="coupon-form-save-btn" style="flex:1;">Create Coupon</button>
                         </div>
                     </form>
                 </div>
@@ -6136,7 +6321,7 @@
                         <label class="form-label">Price ($)</label>
                         <input type="number" class="form-input" id="product-price-input" min="0" step="0.01" required>
                     </div>
-                    <div class="form-group" style="flex: 1;">
+                    <div class="form-group" style="flex: 1;" id="product-stock-group">
                         <label class="form-label">Stock Quantity</label>
                         <input type="number" class="form-input" id="product-stock-input" min="0" step="1" required>
                     </div>
@@ -6182,6 +6367,11 @@
                     </div>
                     <p class="settings-hint">Shown as a picker on the product page. Leave empty if this product doesn't come in different sizes. Up to 8.</p>
                 </div>
+                <div class="form-group" id="product-variant-stock-group" style="display:none;">
+                    <label class="form-label">Stock per Option</label>
+                    <div id="product-variant-stock-table"></div>
+                    <p class="settings-hint">Each color/size combination has its own real stock count instead of one pooled number.</p>
+                </div>
                 <div class="form-group" id="product-size-chart-group">
                     <label class="form-label">Size Chart <span style="font-weight:400; color:var(--slate-light); font-size:0.8125rem;">(optional)</span></label>
                     <div id="product-size-chart-table"></div>
@@ -6198,6 +6388,25 @@
                     <button type="submit" class="btn-small btn-success" id="product-form-submit-btn">Save Product</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Bulk CSV import results — a per-row created/updated/error
+         breakdown so a vendor can see exactly what happened rather than
+         a single opaque success/fail toast for a whole file. -->
+    <div class="modal-overlay" id="csv-import-results-modal">
+        <div class="modal" style="max-width: 560px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Import Results</h3>
+                <button class="close-btn" id="close-csv-import-results-modal">&times;</button>
+            </div>
+            <div style="padding:1.25rem;">
+                <div id="csv-import-summary" style="font-weight:700; margin-bottom:1rem;"></div>
+                <div id="csv-import-results-list"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-small btn-success" id="close-csv-import-results-btn">Done</button>
+            </div>
         </div>
     </div>
 
@@ -7890,6 +8099,42 @@
         </div>
     </div>
 
+    <!-- Set Premium Dates (Super Admin) — replaces the old plain Grant/
+         Revoke Free buttons in the Payouts & Commission "Vendors —
+         Standing" table's Premium column. Opened both to grant free
+         Premium in the first place and to edit an already-active
+         grant's dates; End Date is optional (blank = indefinite, no
+         expiry) — setting an end date in the past is how a Super Admin
+         now ends a vendor's free Premium early, there's no separate
+         revoke button anymore. See grantPremiumComp/openSetPremiumDatesModal
+         and PUT .../subscription/comp-dates, POST .../grant-comp. -->
+    <div class="modal-overlay" id="set-premium-dates-modal">
+        <div class="modal" style="max-width: 460px;">
+            <div class="modal-header">
+                <h3 id="set-premium-dates-title">Set Premium Dates</h3>
+                <button class="close-btn" id="close-set-premium-dates-modal">&times;</button>
+            </div>
+            <form id="set-premium-dates-form">
+                <input type="hidden" id="spd-vendor-id">
+                <input type="hidden" id="spd-mode">
+                <p class="settings-hint" id="spd-vendor-label" style="margin-top:0;"></p>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                    <div class="form-group">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" class="form-input" id="spd-start-date" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">End Date</label>
+                        <input type="date" class="form-input" id="spd-end-date">
+                    </div>
+                </div>
+                <p class="settings-hint">Leave End Date blank for indefinite Premium — no expiry until you come back and set one. To end Premium now, set End Date to today (or any past date).</p>
+                <div class="auth-error" id="set-premium-dates-error" style="display:none;"></div>
+                <button type="submit" class="btn-primary" id="set-premium-dates-submit-btn" style="width:100%;">Save Dates</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Commission Statement (Super Admin) — opened from a row in
          payouts-modal. Picks a period, then fetches the real computed
          numbers from GET /api/super-admin/commission-statement and
@@ -8543,6 +8788,13 @@
         let pendingProductSizes = [];
         let pendingProductSizeChart = null; // {headers:[string], rows:[[string]]} or null
         let pendingColorSwatchDataUrl = null; // staged swatch photo for the next "+ Add Color" click
+        // Real per-variant stock — one row per color/size combination,
+        // only meaningful (and only shown/sent) once the product has at
+        // least one color or size. Rebuilt to match the current
+        // colors/sizes chip lists on every change (see
+        // renderProductVariantStockGrid), preserving already-entered
+        // quantities for combinations that still exist.
+        let pendingProductVariantStock = []; // [{color, size, stockQuantity}]
         const MAX_PRODUCT_COLORS_CLIENT = 8;
         const MAX_PRODUCT_SIZES_CLIENT = 8;
         const MAX_SIZE_CHART_COLUMNS_CLIENT = 6;
@@ -8558,6 +8810,13 @@
             (products || []).forEach(p => { productCache[p.id] = p; });
         }
         let cart = []; // client-side only until checkout: [{ productId, name, price, vendorId, vendorName, quantity }]
+        // Cart-level coupon — a preview only (real, transactional
+        // application happens server-side inside db.checkout(); see
+        // /api/marketplace/coupons/preview). Cleared whenever cart
+        // contents change, since a stale discount amount/eligibility
+        // would be a real UX bug even though checkout itself always
+        // re-validates fresh and can never overcharge/undercharge.
+        let appliedCoupon = null; // { code, discountType, discountValue, discountAmount } or null
 
         function setAgents(records) {
             agentRecords = records;
@@ -12778,12 +13037,19 @@
                 document.getElementById('sa-total-customers').textContent = overviewData.totalCustomers;
                 document.getElementById('sa-new-customers-7d').textContent = overviewData.newCustomersLast7Days;
                 // New real fields on GET /api/super-admin/overview's `delivery`
-                // object (see server.js) — company/staff counts and today's
-                // order count, no fabricated numbers.
+                // object (see server.js) — company count and today's order
+                // count, no fabricated numbers.
                 const deliveryStats = overviewData.delivery || {};
                 document.getElementById('ov-delivery-companies').textContent = deliveryStats.companyCount ?? 0;
                 document.getElementById('ov-delivery-today-orders').textContent = deliveryStats.todayOrders ?? 0;
-                document.getElementById('ov-delivery-staff').textContent = deliveryStats.staffCount ?? 0;
+                document.getElementById('ov-delivery-revenue').textContent = `$${Number(deliveryStats.totalRevenue || 0).toFixed(2)}`;
+                // Platform administration — Super Admin / Manage Agent accounts
+                // stand on their own now (they're ONLib's own internal control
+                // accounts, not part of any Line of Business), sourced from the
+                // new `staff` object on GET /api/super-admin/overview.
+                const staffStats = overviewData.staff || {};
+                document.getElementById('ov-staff-super-admin').textContent = staffStats.superAdminCount ?? 0;
+                document.getElementById('ov-staff-manage-agent').textContent = staffStats.manageAgentCount ?? 0;
                 // isPremium comes straight off GET /api/super-admin/vendors
                 // (see db.getVendors' left-join onto vendor_subscriptions) —
                 // no separate call needed just for this count.
@@ -13432,9 +13698,9 @@
                     return;
                 }
                 const grantBtn = e.target.closest('.grant-premium-comp-btn');
-                if (grantBtn) { grantPremiumComp(grantBtn.dataset.id); return; }
-                const revokeBtn = e.target.closest('.revoke-premium-comp-btn');
-                if (revokeBtn) revokePremiumComp(revokeBtn.dataset.id);
+                if (grantBtn) { openSetPremiumDatesModal('grant', grantBtn.dataset.id, grantBtn.dataset.name, null, null); return; }
+                const editDatesBtn = e.target.closest('.edit-premium-comp-dates-btn');
+                if (editDatesBtn) openSetPremiumDatesModal('edit', editDatesBtn.dataset.id, editDatesBtn.dataset.name, editDatesBtn.dataset.start, editDatesBtn.dataset.end);
             };
             document.getElementById('payouts-vendors-table').addEventListener('click', payoutsRowClickHandler);
             document.getElementById('payouts-companies-table').addEventListener('click', payoutsRowClickHandler);
@@ -13460,6 +13726,10 @@
                 document.getElementById('commission-statement-modal').classList.remove('active');
             });
             document.getElementById('commission-statement-form').addEventListener('submit', handleCommissionStatementSubmit);
+            document.getElementById('close-set-premium-dates-modal').addEventListener('click', () => {
+                document.getElementById('set-premium-dates-modal').classList.remove('active');
+            });
+            document.getElementById('set-premium-dates-form').addEventListener('submit', handleSetPremiumDatesSubmit);
 
             // ---- Disputes (Super Admin only) ----
             document.getElementById('open-disputes-btn').addEventListener('click', () => {
@@ -14422,6 +14692,17 @@
             }
         }
 
+        // Short "Aug 15, 2026 → Sep 30, 2026" / "Aug 15, 2026 → Indefinite"
+        // display for a Premium row's real start/end dates — shared by the
+        // Vendors — Standing table's clickable date-range button (admin_comp)
+        // and its read-only equivalent (paid subscriptions).
+        function formatPremiumDateRange(start, end) {
+            const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const startText = start ? fmt(start) : '—';
+            const endText = end ? fmt(end) : 'Indefinite';
+            return `${startText} → ${endText}`;
+        }
+
         function renderPayoutStandingTable(containerId, rows, recipientType, commissionEnabled) {
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -14447,8 +14728,20 @@
                     <td>$${r.totalPaidOut.toFixed(2)}</td>
                     <td style="font-weight:700; color:${r.outstandingBalance > 0 ? '#b45309' : 'var(--slate)'};">$${r.outstandingBalance.toFixed(2)}</td>
                     ${showPremiumCol ? `<td style="white-space:nowrap;">
-                        ${r.isPremium ? '<span class="address-card-default-pill" style="margin-right:0.4rem;">⭐ Premium</span>' : ''}
-                        <button type="button" class="btn-small btn-secondary ${r.isPremium ? 'revoke-premium-comp-btn' : 'grant-premium-comp-btn'}" data-id="${r.id}">${r.isPremium ? 'Revoke Free' : 'Grant Free'}</button>
+                        ${r.isPremium ? `
+                            <div style="display:flex; align-items:center; gap:0.4rem; margin-bottom:0.25rem;">
+                                <span class="address-card-default-pill">⭐ Premium</span>
+                            </div>
+                            ${r.premiumSource === 'admin_comp' ? `
+                                <button type="button" class="btn-small btn-secondary edit-premium-comp-dates-btn" data-id="${r.id}" data-name="${r.businessName.replace(/"/g, '&quot;')}" data-start="${r.premiumStart || ''}" data-end="${r.premiumEnd || ''}" title="Click to edit the start/end dates">
+                                    ${formatPremiumDateRange(r.premiumStart, r.premiumEnd)}
+                                </button>
+                            ` : `
+                                <div style="font-size:0.75rem; color:var(--slate-light);">${formatPremiumDateRange(r.premiumStart, r.premiumEnd)} <span style="display:block; font-size:0.6875rem;">(paid subscription)</span></div>
+                            `}
+                        ` : `
+                            <button type="button" class="btn-small btn-secondary grant-premium-comp-btn" data-id="${r.id}" data-name="${r.businessName.replace(/"/g, '&quot;')}">Set Dates</button>
+                        `}
                     </td>` : ''}
                     <td style="display:flex; gap:0.4rem; flex-wrap:wrap;">
                         <button type="button" class="btn-small btn-secondary record-payout-btn" data-id="${r.id}" data-type="${recipientType}" data-name="${r.businessName.replace(/"/g, '&quot;')}" data-outstanding="${r.outstandingBalance}" data-rate="${r.effectiveRate}">Record Payout</button>
@@ -14822,28 +15115,65 @@
             }
         }
 
-        // "Super Admin chooses what to give out for free, on his own
-        // time" — indefinite, no billing cycle, revocable any time. See
-        // db.adminGrantPremiumComp/adminRevokePremiumComp.
-        async function grantPremiumComp(id) {
-            if (!confirm('Grant this vendor free Premium, indefinitely, until you revoke it?')) return;
-            try {
-                await apiFetch(`/api/super-admin/vendors/${id}/subscription/grant-comp`, { method: 'POST' });
-                showToast('Free Premium granted', 'success');
-                await loadPayoutsPanel();
-            } catch (err) {
-                showToast(err.message, 'error');
-            }
+        // "Super Admin chooses what to give out for free, on their own
+        // schedule" — a real start/end date range they set directly,
+        // instead of a plain indefinite on/off toggle. Opened both to
+        // grant free Premium in the first place (mode: 'grant', no
+        // existing dates) and to edit an already-active grant's dates
+        // (mode: 'edit', prefilled) — the same form does both, since
+        // "end this vendor's Premium" is now just "set the end date to
+        // today", not a separate revoke action. See
+        // db.adminGrantPremiumComp/adminSetPremiumCompDates.
+        function toDateInputValue(d) {
+            if (!d) return '';
+            const dt = new Date(d);
+            if (isNaN(dt.getTime())) return '';
+            return dt.toISOString().slice(0, 10);
         }
 
-        async function revokePremiumComp(id) {
-            if (!confirm('Revoke this vendor\'s free Premium?')) return;
+        function openSetPremiumDatesModal(mode, vendorId, vendorName, start, end) {
+            document.getElementById('spd-vendor-id').value = vendorId;
+            document.getElementById('spd-mode').value = mode;
+            document.getElementById('spd-vendor-label').textContent = vendorName || '';
+            document.getElementById('set-premium-dates-title').textContent = mode === 'grant' ? 'Grant Free Premium' : 'Edit Premium Dates';
+            document.getElementById('set-premium-dates-submit-btn').textContent = mode === 'grant' ? 'Grant Premium' : 'Save Dates';
+            document.getElementById('spd-start-date').value = start ? toDateInputValue(start) : toDateInputValue(new Date());
+            document.getElementById('spd-end-date').value = end ? toDateInputValue(end) : '';
+            document.getElementById('set-premium-dates-error').style.display = 'none';
+            document.getElementById('set-premium-dates-modal').classList.add('active');
+        }
+
+        async function handleSetPremiumDatesSubmit(e) {
+            e.preventDefault();
+            const vendorId = document.getElementById('spd-vendor-id').value;
+            const mode = document.getElementById('spd-mode').value;
+            const startDate = document.getElementById('spd-start-date').value;
+            const endDate = document.getElementById('spd-end-date').value;
+            const errorEl = document.getElementById('set-premium-dates-error');
+            errorEl.style.display = 'none';
+            if (endDate && endDate <= startDate) {
+                errorEl.textContent = 'End Date must be after Start Date.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            const submitBtn = document.getElementById('set-premium-dates-submit-btn');
+            submitBtn.disabled = true;
             try {
-                await apiFetch(`/api/super-admin/vendors/${id}/subscription/revoke-comp`, { method: 'POST' });
-                showToast('Premium revoked', 'success');
+                const path = mode === 'grant'
+                    ? `/api/super-admin/vendors/${vendorId}/subscription/grant-comp`
+                    : `/api/super-admin/vendors/${vendorId}/subscription/comp-dates`;
+                await apiFetch(path, {
+                    method: mode === 'grant' ? 'POST' : 'PUT',
+                    body: JSON.stringify({ startDate, endDate: endDate || null }),
+                });
+                showToast(mode === 'grant' ? 'Free Premium granted' : 'Premium dates updated', 'success');
+                document.getElementById('set-premium-dates-modal').classList.remove('active');
                 await loadPayoutsPanel();
             } catch (err) {
-                showToast(err.message, 'error');
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
             }
         }
 
@@ -18011,6 +18341,22 @@
                 renderVendorProducts();
                 renderVendorOrders(purchases);
 
+                // Sidebar "Store Snapshot" — real counts from the same
+                // products/purchases just loaded above, no separate
+                // request and nothing fabricated. "Orders today" reads
+                // from this same capped recent-purchases list (same cap
+                // Recent Orders itself already uses), so an extremely
+                // high-volume store could undercount past the cap — an
+                // acceptable approximation for a small sidebar figure,
+                // not a claim of exact totals.
+                const activeListingCount = vendorProducts.filter(p => p.isActive).length;
+                const todayStr = new Date().toDateString();
+                const ordersTodayCount = purchases.filter(p => new Date(p.createdAt).toDateString() === todayStr).length;
+                const snapshotListingsEl = document.getElementById('vendor-snapshot-active-listings');
+                const snapshotOrdersEl = document.getElementById('vendor-snapshot-orders-today');
+                if (snapshotListingsEl) snapshotListingsEl.textContent = activeListingCount;
+                if (snapshotOrdersEl) snapshotOrdersEl.textContent = ordersTodayCount;
+
                 // Low-stock Home banner — real count from the products
                 // just loaded, no fabricated numbers. Only shown when
                 // there's actually something to flag.
@@ -18062,13 +18408,23 @@
             }
 
             if (vendorChartInstances[canvasId]) vendorChartInstances[canvasId].destroy();
+            // Every point stays invisible (radius 0) except the very last
+            // one — a single accent end-dot marking "today", with a
+            // surface-color ring so it stays legible against the line/
+            // area fill underneath (same anchoring-the-current-value idea
+            // as the sales-trend badge above it).
+            const lastIdx = totals.length - 1;
+            const pointRadii = totals.map((_, i) => (i === lastIdx ? 5 : 0));
+            const pointHoverRadii = totals.map(() => 5);
             vendorChartInstances[canvasId] = new Chart(canvas.getContext('2d'), {
                 type: 'line',
                 data: {
                     labels,
                     datasets: [{
                         data: totals, borderColor: '#16234a', backgroundColor: 'rgba(22,35,74,0.08)',
-                        fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2,
+                        fill: true, tension: 0.35, borderWidth: 2,
+                        pointRadius: pointRadii, pointHoverRadius: pointHoverRadii,
+                        pointBackgroundColor: '#16234a', pointBorderColor: '#fff', pointBorderWidth: 2,
                     }],
                 },
                 options: {
@@ -18252,6 +18608,95 @@
                 await apiFetch(`/api/vendor/promotions/${promotionId}`, { method: 'DELETE' });
                 showToast('Promotion cancelled', 'success');
                 await loadVendorPromotions();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // ==== Coupon codes (vendor side) ====
+        // Cart-level, vendor-scoped discount codes — see schema.sql's
+        // comment on the coupons table and db.checkout()'s coupon
+        // handling for the real, transactional discount logic. This
+        // section is management only (create/toggle/delete).
+        let vendorCouponsCache = [];
+
+        async function loadVendorCoupons() {
+            const container = document.getElementById('vendor-coupons-list');
+            container.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
+            try {
+                const data = await apiFetch('/api/vendor/coupons');
+                vendorCouponsCache = data.coupons || [];
+                renderVendorCouponsList();
+            } catch (err) {
+                container.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderVendorCouponsList() {
+            const container = document.getElementById('vendor-coupons-list');
+            if (vendorCouponsCache.length === 0) {
+                renderEmptyState(container, 'No coupon codes yet — create one to give customers a discount at checkout.');
+                return;
+            }
+            container.innerHTML = vendorCouponsCache.map(c => {
+                const expired = c.endsAt && new Date(c.endsAt) <= new Date();
+                const usedUp = c.maxUses !== null && c.usesCount >= c.maxUses;
+                const statusLabel = !c.isActive ? 'Off' : expired ? 'Expired' : usedUp ? 'Used up' : 'Active';
+                const statusOn = c.isActive && !expired && !usedUp;
+                const discountText = c.discountType === 'percent' ? `${c.discountValue}% off` : `$${c.discountValue.toFixed(2)} off`;
+                return `
+                <div class="address-card">
+                    <div class="address-card-body">
+                        <div class="address-card-label-row">
+                            <span class="address-card-label" style="font-family:monospace; letter-spacing:0.03em;">${c.code}</span>
+                            <span class="address-card-default-pill" style="${statusOn ? '' : 'background:#f1f5f9; color:var(--slate-light);'}">${statusLabel}</span>
+                        </div>
+                        <div class="address-card-text">
+                            ${discountText}${c.minOrderAmount ? ` · min. $${c.minOrderAmount.toFixed(2)} order` : ''}
+                            · used ${c.usesCount}${c.maxUses ? `/${c.maxUses}` : ''} time${c.usesCount === 1 ? '' : 's'}
+                            ${c.endsAt ? ` · ends ${new Date(c.endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                        </div>
+                    </div>
+                    <div class="address-card-actions" style="display:flex; flex-direction:column; gap:0.375rem;">
+                        <button type="button" class="delete-promotion-btn toggle-coupon-btn" data-id="${c.id}" data-active="${c.isActive}">${c.isActive ? 'Turn Off' : 'Turn On'}</button>
+                        ${c.usesCount === 0 ? `<button type="button" class="delete-promotion-btn delete-coupon-btn" data-id="${c.id}">Delete</button>` : ''}
+                    </div>
+                </div>
+            `;
+            }).join('');
+        }
+
+        function openCouponForm() {
+            document.getElementById('coupon-form').reset();
+            document.getElementById('coupon-form-value-label').textContent = 'Percent (1–90%)';
+            document.getElementById('coupon-form-error').style.display = 'none';
+            document.getElementById('coupon-form-section').style.display = 'block';
+            document.getElementById('coupon-form-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function closeCouponForm() {
+            document.getElementById('coupon-form-section').style.display = 'none';
+        }
+
+        async function toggleCouponActive(couponId, currentlyActive) {
+            try {
+                await apiFetch(`/api/vendor/coupons/${couponId}/active`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ isActive: !currentlyActive }),
+                });
+                showToast(currentlyActive ? 'Coupon turned off' : 'Coupon turned on', 'success');
+                await loadVendorCoupons();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function deleteCoupon(couponId) {
+            if (!confirm('Delete this coupon code? This cannot be undone.')) return;
+            try {
+                await apiFetch(`/api/vendor/coupons/${couponId}`, { method: 'DELETE' });
+                showToast('Coupon deleted', 'success');
+                await loadVendorCoupons();
             } catch (err) {
                 showToast(err.message, 'error');
             }
@@ -18825,7 +19270,7 @@
 
         const MAX_EXTRA_PRODUCT_IMAGES = 4; // mirrors the server-side cap in server.js
 
-        function openProductModal(productId) {
+        async function openProductModal(productId) {
             editingProductId = productId || null;
             pendingProductImageDataUrl = null;
             pendingColorSwatchDataUrl = null;
@@ -18864,6 +19309,19 @@
             renderProductColorChips();
             renderProductSizeChips();
             renderProductSizeChartTable();
+            // Real per-variant stock — fetch this product's existing rows
+            // (edit mode only; a brand-new product has none yet) so the
+            // grid opens pre-filled with real counts instead of zeros.
+            pendingProductVariantStock = [];
+            if (productId && p && (p.colors.length || p.sizes.length)) {
+                try {
+                    const result = await apiFetch(`/api/vendor/products/${productId}/variants`);
+                    pendingProductVariantStock = (result.variants || []).map(v => ({ color: v.color, size: v.size, stockQuantity: v.stockQuantity }));
+                } catch (err) {
+                    showToast('Could not load per-option stock — starting from 0', 'error');
+                }
+            }
+            renderProductVariantStockGrid();
             document.getElementById('product-modal').classList.add('active');
         }
         function closeProductModal() {
@@ -18902,6 +19360,7 @@
             pendingColorSwatchDataUrl = null;
             nameInput.value = '';
             renderProductColorChips();
+            renderProductVariantStockGrid();
         }
 
         function renderProductSizeChips() {
@@ -18924,6 +19383,70 @@
             pendingProductSizes.push(size);
             input.value = '';
             renderProductSizeChips();
+            renderProductVariantStockGrid();
+        }
+
+        // ---- Vendor product form: real per-variant stock -----------------
+        // Only rendered/used once the product has at least one color or
+        // size — a product with neither keeps the plain pooled "Stock
+        // Quantity" field above exactly as before (no behavior change for
+        // the majority of listings, per the app's variant-stock scope).
+        function variantStockKey(color, size) { return `${color}||${size}`; }
+
+        function renderProductVariantStockGrid() {
+            const group = document.getElementById('product-variant-stock-group');
+            const stockGroup = document.getElementById('product-stock-group');
+            const stockInput = document.getElementById('product-stock-input');
+            const hasColors = pendingProductColors.length > 0;
+            const hasSizes = pendingProductSizes.length > 0;
+            if (!hasColors && !hasSizes) {
+                group.style.display = 'none';
+                pendingProductVariantStock = [];
+                stockGroup.style.display = '';
+                stockInput.disabled = false;
+                return;
+            }
+            // Cross product of colors × sizes (or just one dimension when
+            // only colors or only sizes are set) — the unused dimension
+            // uses the same '' sentinel the server/DB use.
+            const colorList = hasColors ? pendingProductColors.map(c => c.name) : [''];
+            const sizeList = hasSizes ? pendingProductSizes : [''];
+            const prior = new Map(pendingProductVariantStock.map(v => [variantStockKey(v.color, v.size), v.stockQuantity]));
+            const combos = [];
+            colorList.forEach(color => {
+                sizeList.forEach(size => {
+                    combos.push({ color, size, stockQuantity: prior.get(variantStockKey(color, size)) || 0 });
+                });
+            });
+            pendingProductVariantStock = combos;
+            // The pooled field becomes derived (server recomputes it as the
+            // SUM of these rows) — hide it and disable it so its `required`
+            // attribute doesn't block a submit where it's not the source of
+            // truth anymore.
+            stockGroup.style.display = 'none';
+            stockInput.disabled = true;
+            group.style.display = 'block';
+            const esc = (s) => String(s).replace(/"/g, '&quot;');
+            document.getElementById('product-variant-stock-table').innerHTML = `
+                <div style="overflow-x:auto;">
+                <table style="border-collapse:collapse; width:100%;">
+                    <thead><tr>
+                        ${hasColors ? '<th style="padding:0.25rem; text-align:left; font-size:0.8125rem;">Color</th>' : ''}
+                        ${hasSizes ? '<th style="padding:0.25rem; text-align:left; font-size:0.8125rem;">Size</th>' : ''}
+                        <th style="padding:0.25rem; text-align:left; font-size:0.8125rem;">Stock</th>
+                    </tr></thead>
+                    <tbody>
+                        ${combos.map(v => `
+                            <tr>
+                                ${hasColors ? `<td style="padding:0.25rem; font-size:0.8125rem; font-weight:600;">${esc(v.color)}</td>` : ''}
+                                ${hasSizes ? `<td style="padding:0.25rem; font-size:0.8125rem; font-weight:600;">${esc(v.size)}</td>` : ''}
+                                <td style="padding:0.25rem;"><input type="number" class="form-input variant-stock-qty-input" data-color="${esc(v.color)}" data-size="${esc(v.size)}" min="0" step="1" value="${v.stockQuantity}" style="padding:0.375rem 0.5rem; font-size:0.8125rem; width:90px;"></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                </div>
+            `;
         }
 
         function renderProductSizeChartTable() {
@@ -19050,7 +19573,6 @@
                 description: document.getElementById('product-description-input').value.trim(),
                 category: document.getElementById('product-category-input').value.trim(),
                 price: parseFloat(document.getElementById('product-price-input').value),
-                stockQuantity: parseInt(document.getElementById('product-stock-input').value, 10),
             };
             const lowStockRaw = document.getElementById('product-low-stock-threshold-input').value;
             payload.lowStockThreshold = lowStockRaw === '' ? null : parseInt(lowStockRaw, 10);
@@ -19058,6 +19580,16 @@
             payload.colors = pendingProductColors;
             payload.sizes = pendingProductSizes;
             payload.sizeChart = pendingProductSizeChart;
+            // Real per-variant stock takes over from the pooled field once
+            // the product has any color or size — the pooled number is
+            // then server-derived (SUM of these rows), so it's never sent
+            // as a separate, possibly-stale value.
+            const hasVariantOptions = pendingProductColors.length > 0 || pendingProductSizes.length > 0;
+            if (hasVariantOptions) {
+                payload.variantStock = pendingProductVariantStock.map(v => ({ color: v.color, size: v.size, stockQuantity: v.stockQuantity }));
+            } else {
+                payload.stockQuantity = parseInt(document.getElementById('product-stock-input').value, 10);
+            }
             btn.disabled = true;
             btn.textContent = 'Saving…';
             try {
@@ -19089,6 +19621,74 @@
             }
         }
 
+        // ---- Bulk CSV export/import ---------------------------------------
+        // Export streams a plain-text CSV response (not JSON), so this
+        // fetches directly rather than through apiFetch (which always
+        // parses the body as JSON) — same pattern as exportDatabase's
+        // Super Admin data export above.
+        async function exportVendorProductsCsv() {
+            const btn = document.getElementById('vendor-export-products-btn');
+            btn.disabled = true;
+            btn.textContent = 'Exporting…';
+            try {
+                const res = await fetch('/api/vendor/products/export.csv', { headers: { Authorization: `Bearer ${authToken}` } });
+                if (!res.ok) throw new Error('Export failed');
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `products-${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                showToast('Failed to export products', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Export CSV';
+            }
+        }
+
+        // Import reads the file as plain text client-side (FileReader),
+        // same "stage as a data URL/text before sending" approach this
+        // form already uses for photos, then posts it as ordinary JSON —
+        // avoids a separate multipart/form-data upload path just for
+        // this one feature. Real validation (id ownership, price/stock
+        // shape) all happens server-side; this is just transport.
+        async function importVendorProductsCsv(file) {
+            const btn = document.getElementById('vendor-import-products-btn');
+            btn.disabled = true;
+            btn.textContent = 'Importing…';
+            try {
+                const csvText = await file.text();
+                const result = await apiFetch('/api/vendor/products/import', {
+                    method: 'POST',
+                    body: JSON.stringify({ csv: csvText }),
+                });
+                renderCsvImportResults(result);
+                document.getElementById('csv-import-results-modal').classList.add('active');
+                await loadVendorDashboard();
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Import CSV';
+            }
+        }
+
+        function renderCsvImportResults(result) {
+            const { results, summary } = result;
+            document.getElementById('csv-import-summary').textContent =
+                `${summary.created} created, ${summary.updated} updated, ${summary.errored} failed (of ${summary.total} rows)`;
+            document.getElementById('csv-import-results-list').innerHTML = results.map(r => `
+                <div style="display:flex; justify-content:space-between; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border); font-size:0.8125rem;">
+                    <span>Row ${r.row}${r.name ? `: ${r.name}` : ''}</span>
+                    <span style="font-weight:700; color:${r.status === 'error' ? '#dc2626' : '#15803d'};">${r.status === 'error' ? (r.error || 'Error') : r.status}</span>
+                </div>
+            `).join('') || '<p style="color:var(--slate-light);">No rows processed.</p>';
+        }
+
         const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'disputes', 'settings', 'account'];
         function setVendorTab(tab) {
             document.querySelectorAll('#vendor-app .mobile-nav-item, #vendor-app .desktop-sidebar-item[data-vendor-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.vendorTab === tab));
@@ -19109,11 +19709,13 @@
                 loadConversations('vendor');
             } else if (tab === 'promotions') {
                 closePromotionForm();
+                closeCouponForm();
                 closeFeaturedPurchaseForm();
                 document.getElementById('featured-momo-waiting-page').style.display = 'none';
                 closePremiumSubscribeForm();
                 document.getElementById('premium-momo-waiting-page').style.display = 'none';
                 loadVendorPromotions();
+                loadVendorCoupons();
                 loadVendorFeaturedPanel();
                 loadVendorPremiumPanel();
             } else if (tab === 'leads') {
@@ -19168,6 +19770,50 @@
             document.getElementById('vendor-promotions-list').addEventListener('click', (e) => {
                 const btn = e.target.closest('.delete-promotion-btn');
                 if (btn) cancelPromotion(btn.dataset.id);
+            });
+
+            // ---- Coupon codes ----
+            document.getElementById('add-coupon-btn').addEventListener('click', openCouponForm);
+            document.getElementById('coupon-form-cancel-btn').addEventListener('click', closeCouponForm);
+            document.getElementById('coupon-form-type').addEventListener('change', (e) => {
+                document.getElementById('coupon-form-value-label').textContent = e.target.value === 'percent' ? 'Percent (1–90%)' : 'Amount ($)';
+            });
+            document.getElementById('vendor-coupons-list').addEventListener('click', (e) => {
+                const toggleBtn = e.target.closest('.toggle-coupon-btn');
+                if (toggleBtn) { toggleCouponActive(toggleBtn.dataset.id, toggleBtn.dataset.active === 'true'); return; }
+                const deleteBtn = e.target.closest('.delete-coupon-btn');
+                if (deleteBtn) deleteCoupon(deleteBtn.dataset.id);
+            });
+            document.getElementById('coupon-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const errorEl = document.getElementById('coupon-form-error');
+                const btn = document.getElementById('coupon-form-save-btn');
+                errorEl.style.display = 'none';
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+                try {
+                    await apiFetch('/api/vendor/coupons', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            code: document.getElementById('coupon-form-code').value.trim(),
+                            discountType: document.getElementById('coupon-form-type').value,
+                            discountValue: Number(document.getElementById('coupon-form-value').value),
+                            minOrderAmount: document.getElementById('coupon-form-min-order').value || null,
+                            maxUses: document.getElementById('coupon-form-max-uses').value || null,
+                            perCustomerLimit: document.getElementById('coupon-form-per-customer').value || null,
+                            endsAt: document.getElementById('coupon-form-ends').value || null,
+                        }),
+                    });
+                    showToast('Coupon created', 'success');
+                    closeCouponForm();
+                    await loadVendorCoupons();
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Create Coupon';
+                }
             });
 
             // ---- Featured Placements ----
@@ -19343,6 +19989,22 @@
             document.getElementById('cancel-product-form').addEventListener('click', closeProductModal);
             document.getElementById('product-form').addEventListener('submit', handleProductFormSubmit);
 
+            document.getElementById('vendor-export-products-btn').addEventListener('click', exportVendorProductsCsv);
+            document.getElementById('vendor-import-products-btn').addEventListener('click', () => {
+                document.getElementById('vendor-import-products-input').click();
+            });
+            document.getElementById('vendor-import-products-input').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                e.target.value = '';
+                if (file) importVendorProductsCsv(file);
+            });
+            document.getElementById('close-csv-import-results-modal').addEventListener('click', () => {
+                document.getElementById('csv-import-results-modal').classList.remove('active');
+            });
+            document.getElementById('close-csv-import-results-btn').addEventListener('click', () => {
+                document.getElementById('csv-import-results-modal').classList.remove('active');
+            });
+
             document.getElementById('product-image-upload-btn').addEventListener('click', () => {
                 document.getElementById('product-image-input').click();
             });
@@ -19408,6 +20070,7 @@
                 if (!btn) return;
                 pendingProductColors.splice(Number(btn.dataset.idx), 1);
                 renderProductColorChips();
+                renderProductVariantStockGrid();
             });
 
             // ---- Sizes ----
@@ -19420,6 +20083,7 @@
                 if (!btn) return;
                 pendingProductSizes.splice(Number(btn.dataset.idx), 1);
                 renderProductSizeChips();
+                renderProductVariantStockGrid();
             });
 
             // ---- Size chart ----
@@ -19453,6 +20117,14 @@
                     pendingProductSizeChart.rows.splice(Number(rowBtn.dataset.row), 1);
                     renderProductSizeChartTable();
                 }
+            });
+
+            // ---- Per-variant stock ----
+            document.getElementById('product-variant-stock-table').addEventListener('input', (e) => {
+                if (!e.target.classList.contains('variant-stock-qty-input')) return;
+                const { color, size } = e.target.dataset;
+                const row = pendingProductVariantStock.find(v => v.color === color && v.size === size);
+                if (row) row.stockQuantity = Math.max(0, Math.floor(Number(e.target.value) || 0));
             });
 
             // Bottom nav + "View All" / quick-action shortcuts that jump tabs
@@ -20540,6 +21212,12 @@
         let pdpSelectedColor = null;
         let pdpSelectedSize = null;
         let pdpQuantity = 1;
+        // Real per-variant stock rows for the open product — null until
+        // loaded (or if the product has no colors/sizes at all, in which
+        // case it's never fetched and stays null; product.stockQuantity,
+        // the pooled total, is authoritative for those). See
+        // loadPdpVariantStock/getPdpAvailableStock below.
+        let pdpVariantStock = null;
         let pdpReviews = [];
         let pdpQuestions = [];
 
@@ -20555,6 +21233,7 @@
             pdpSelectedColor = null;
             pdpSelectedSize = null;
             pdpQuantity = 1;
+            pdpVariantStock = null;
 
             const galleryImages = (product.images || []).map(img => img.imageDataUrl).filter(Boolean);
             const images = [product.imageDataUrl, ...galleryImages].filter(Boolean);
@@ -20611,6 +21290,50 @@
             loadPdpQuestions(productId);
             loadPdpRecommended(product);
             loadPdpCoPurchased(product);
+            loadPdpVariantStock(product);
+        }
+
+        // Real per-variant stock — fetched once per PDP open, only for a
+        // product that actually declares colors/sizes (a plain product
+        // just keeps using its pooled stockQuantity everywhere, no extra
+        // request). Re-renders the CTA/quantity state once it arrives,
+        // same "arrives after the rest of the page" pattern as reviews/
+        // Q&A/recommended above — the picker itself is already usable
+        // from product.colors/sizes alone, this just tightens the stock
+        // guard once the real numbers are in.
+        async function loadPdpVariantStock(product) {
+            const hasVariants = (product.colors || []).length > 0 || (product.sizes || []).length > 0;
+            if (!hasVariants) return;
+            try {
+                const data = await apiFetch(`/api/marketplace/products/${product.id}/variant-stock`);
+                if (currentPdpProductId !== product.id) return;
+                pdpVariantStock = data.variants || [];
+                updatePdpCtaState();
+            } catch (err) {
+                console.error('Failed to load variant stock', err);
+            }
+        }
+
+        // Resolves how much stock is actually available for Add to
+        // Cart/Buy Now/the quantity stepper right now — the specific
+        // variant's real stock once the customer has made a full
+        // selection and it's loaded, otherwise the pooled total (a safe,
+        // slightly-optimistic fallback before the real numbers arrive or
+        // before a required selection is made; checkout() always
+        // re-validates the real variant stock server-side regardless, so
+        // this can never actually oversell).
+        function getPdpAvailableStock() {
+            if (!currentPdpProduct) return 0;
+            const hasColors = (currentPdpProduct.colors || []).length > 0;
+            const hasSizes = (currentPdpProduct.sizes || []).length > 0;
+            const selectionComplete = (!hasColors || pdpSelectedColor) && (!hasSizes || pdpSelectedSize);
+            if ((hasColors || hasSizes) && pdpVariantStock && selectionComplete) {
+                const row = pdpVariantStock.find(v =>
+                    v.color === (hasColors ? pdpSelectedColor : '') && v.size === (hasSizes ? pdpSelectedSize : '')
+                );
+                return row ? row.stockQuantity : 0;
+            }
+            return currentPdpProduct.stockQuantity || 0;
         }
 
         function closeProductDetail() {
@@ -20668,7 +21391,7 @@
 
         function changePdpQuantity(delta) {
             if (!currentPdpProduct) return;
-            const max = currentPdpProduct.stockQuantity || 1;
+            const max = getPdpAvailableStock() || 1;
             pdpQuantity = Math.max(1, Math.min(max, pdpQuantity + delta));
             document.getElementById('pdp-qty-value').textContent = String(pdpQuantity);
             updatePdpCtaState();
@@ -20681,14 +21404,28 @@
         // app surfaces validation errors on click rather than on paint.
         function updatePdpCtaState() {
             if (!currentPdpProduct) return;
-            const outOfStock = (currentPdpProduct.stockQuantity || 0) <= 0;
+            const availableStock = getPdpAvailableStock();
+            // Reflects the specific color/size combo's real stock once one
+            // is fully selected and loaded; the pooled total (the sum
+            // across every variant) otherwise, same fallback as
+            // getPdpAvailableStock itself.
+            document.getElementById('pdp-stock-text').textContent = availableStock > 0 ? `${availableStock} in stock` : 'Out of stock';
+            const outOfStock = availableStock <= 0;
             const pdpAddBtn = document.getElementById('pdp-add-to-cart-btn');
             const pdpBuyBtn = document.getElementById('pdp-buy-now-btn');
             pdpAddBtn.disabled = outOfStock;
             pdpAddBtn.title = outOfStock ? 'Out of stock' : 'Add to Cart';
             pdpBuyBtn.disabled = outOfStock;
             pdpBuyBtn.textContent = outOfStock ? 'Out of Stock' : 'Buy Now';
-            const max = currentPdpProduct.stockQuantity || 1;
+            const max = availableStock || 1;
+            // A selection change (or the real variant stock arriving after
+            // load) can drop the max below whatever quantity was already
+            // dialed in — clamp it down rather than leaving a stale,
+            // now-invalid quantity displayed.
+            if (pdpQuantity > max) {
+                pdpQuantity = Math.max(1, max);
+                document.getElementById('pdp-qty-value').textContent = String(pdpQuantity);
+            }
             document.getElementById('pdp-qty-dec-btn').disabled = pdpQuantity <= 1;
             document.getElementById('pdp-qty-inc-btn').disabled = pdpQuantity >= max;
         }
@@ -20728,7 +21465,15 @@
                 openProductDetail(productId);
                 return;
             }
-            const availableStock = product.stockQuantity || 0;
+            // Real per-variant stock when the caller already knows it (the
+            // PDP, which fetches this product's variant rows before
+            // enabling checkout) — falls back to the pooled total for a
+            // plain product (the vast majority, no variants at all) or
+            // when the caller couldn't supply a variant-specific number.
+            // db.checkout() always re-validates the real number server-side
+            // regardless, so this is a UX guard, never the source of truth.
+            const isVariantStock = opts.availableStock != null;
+            const availableStock = isVariantStock ? opts.availableStock : (product.stockQuantity || 0);
             if (availableStock <= 0) {
                 showToast('Sorry, this product is out of stock.', 'error');
                 return;
@@ -20741,10 +21486,15 @@
             const quantity = opts.quantity || 1;
             const color = opts.color || null;
             const size = opts.size || null;
-            // Stock is pooled per PRODUCT, not per variant — the guard
-            // below has to sum quantity across every variant line of this
-            // product already in the cart, not just the matching line.
-            const currentTotalQty = cart.filter(c => c.productId === productId).reduce((sum, c) => sum + c.quantity, 0);
+            // Once stock is tracked per variant, each color/size
+            // combination draws from its own separate pool — sum only the
+            // matching variant's cart line(s). A plain product (no
+            // variants) sums every line of the product instead, matching
+            // its pooled stock (there's only ever one line in that case
+            // anyway, since it has no color/size to differ by).
+            const currentTotalQty = cart
+                .filter(c => c.productId === productId && (!isVariantStock || (c.selectedColor === color && c.selectedSize === size)))
+                .reduce((sum, c) => sum + c.quantity, 0);
             if (currentTotalQty + quantity > availableStock) {
                 showToast(`Only ${availableStock} in stock — you already have the max in your cart.`, 'error');
                 return;
@@ -20756,6 +21506,7 @@
                 vendorName: product.vendorName, vendorStoreAddress: product.vendorStoreAddress, quantity,
                 stockQuantity: availableStock, selectedColor: color, selectedSize: size,
             });
+            clearCouponIfCartChanged();
             updateCartCount();
             updateDcustCartCount();
             const variantSuffix = [color, size].filter(Boolean).join(', ');
@@ -20768,7 +21519,12 @@
             const requiresSize = (currentPdpProduct.sizes || []).length > 0;
             if (requiresColor && !pdpSelectedColor) { showToast('Please select a color', 'error'); return false; }
             if (requiresSize && !pdpSelectedSize) { showToast('Please select a size', 'error'); return false; }
-            addToCart(currentPdpProductId, { color: pdpSelectedColor, size: pdpSelectedSize, quantity: pdpQuantity });
+            const opts = { color: pdpSelectedColor, size: pdpSelectedSize, quantity: pdpQuantity };
+            // Pass along the real per-variant stock once it's loaded, so
+            // addToCart's guard checks the exact color/size combo instead
+            // of the pooled total across every variant.
+            if ((requiresColor || requiresSize) && pdpVariantStock) opts.availableStock = getPdpAvailableStock();
+            addToCart(currentPdpProductId, opts);
             return true;
         }
 
@@ -20791,7 +21547,8 @@
             }
             const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
             const serviceFee = publicPlatformConfig.serviceFee || 0;
-            const total = subtotal + serviceFee;
+            const discount = appliedCoupon ? appliedCoupon.discountAmount : 0;
+            const total = subtotal - discount + serviceFee;
             container.innerHTML = cart.map(c => {
                 const variantLine = [c.selectedColor ? `Color: ${c.selectedColor}` : '', c.selectedSize ? `Size: ${c.selectedSize}` : ''].filter(Boolean).join(' · ');
                 return `
@@ -20809,11 +21566,78 @@
                     </div>
                 </div>
             `; }).join('') + `
-                <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border); font-size: 0.9375rem;">
+                <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border);">
+                    ${appliedCoupon ? `
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:0.625rem; padding:0.625rem 0.875rem; margin-bottom:0.75rem;">
+                            <span style="font-size:0.875rem; color:#15803d; font-weight:700; font-family:monospace;">🎟️ ${appliedCoupon.code} applied</span>
+                            <button type="button" id="cart-remove-coupon-btn" style="background:none; border:none; color:#15803d; font-size:0.8125rem; text-decoration:underline; cursor:pointer; padding:0;">Remove</button>
+                        </div>
+                    ` : `
+                        <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem;">
+                            <input type="text" class="form-input" id="cart-coupon-input" placeholder="Coupon code" style="flex:1; text-transform:uppercase;" maxlength="20">
+                            <button type="button" class="btn-small btn-secondary" id="cart-apply-coupon-btn">Apply</button>
+                        </div>
+                        <div class="auth-error" id="cart-coupon-error" style="display:none; margin-bottom:0.5rem;"></div>
+                    `}
+                </div>
+                <div style="padding-top: 0.5rem; font-size: 0.9375rem;">
                     <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>
+                    ${discount > 0 ? `<div style="display:flex; justify-content:space-between; color:#15803d;"><span>Discount (${appliedCoupon.code})</span><span>−$${discount.toFixed(2)}</span></div>` : ''}
                     <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>
                     <div style="display:flex; justify-content:space-between; font-weight: 800; font-size: 1.125rem; margin-top: 0.375rem;"><span>Total</span><span>$${total.toFixed(2)}</span></div>
                 </div>`;
+        }
+
+        async function applyCartCoupon() {
+            const input = document.getElementById('cart-coupon-input');
+            const errorEl = document.getElementById('cart-coupon-error');
+            const code = input.value.trim();
+            errorEl.style.display = 'none';
+            if (!code) { errorEl.textContent = 'Enter a coupon code first.'; errorEl.style.display = 'block'; return; }
+            if (cart.length === 0) return;
+            const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+            const btn = document.getElementById('cart-apply-coupon-btn');
+            btn.disabled = true;
+            btn.textContent = 'Checking…';
+            try {
+                const result = await apiFetch('/api/marketplace/coupons/preview', {
+                    method: 'POST',
+                    body: JSON.stringify({ vendorId: cart[0].vendorId, code, subtotal }),
+                });
+                if (!result.valid) {
+                    errorEl.textContent = result.error || 'That coupon code is not valid.';
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                appliedCoupon = { code: result.code, discountType: result.discountType, discountValue: result.discountValue, discountAmount: result.discountAmount };
+                showToast('Coupon applied', 'success');
+                renderCartModal();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Apply';
+            }
+        }
+
+        function removeCartCoupon() {
+            appliedCoupon = null;
+            renderCartModal();
+        }
+
+        // Cart contents changed (quantity +/-, remove, a fresh add) — a
+        // previously-applied coupon's discount amount or eligibility
+        // (e.g. a minimum-order requirement) can no longer be trusted
+        // against the new subtotal, so it's cleared rather than silently
+        // shown stale. Real checkout was always going to re-validate
+        // fresh regardless (see db.checkout()) — this is purely about
+        // not showing the customer a wrong total in the meantime.
+        function clearCouponIfCartChanged() {
+            if (appliedCoupon) {
+                appliedCoupon = null;
+                showToast('Your cart changed — re-apply your coupon code if it still qualifies.', 'info');
+            }
         }
 
         // ---- Reviews --------------------------------------------------------
@@ -21119,6 +21943,7 @@
                             pickupAddress: document.getElementById('checkout-pickup-address').value,
                             dropoffAddress: document.getElementById('checkout-dropoff-address').value,
                             phone,
+                            couponCode: appliedCoupon ? appliedCoupon.code : undefined,
                         }),
                     });
                     // Cart isn't cleared yet — payment hasn't succeeded.
@@ -21131,12 +21956,14 @@
                     method: 'POST',
                     body: JSON.stringify({
                         vendorId: cart[0].vendorId,
-                        items: cart.map(c => ({ productId: c.productId, quantity: c.quantity })),
+                        items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, selectedColor: c.selectedColor || undefined, selectedSize: c.selectedSize || undefined })),
                         pickupAddress: document.getElementById('checkout-pickup-address').value,
                         dropoffAddress: document.getElementById('checkout-dropoff-address').value,
+                        couponCode: appliedCoupon ? appliedCoupon.code : undefined,
                     }),
                 });
                 cart = [];
+                appliedCoupon = null;
                 updateCartCount();
                 document.getElementById('checkout-modal').classList.remove('active');
                 document.getElementById('checkout-form').reset();
@@ -21451,24 +22278,38 @@
             document.getElementById('close-cart-modal').addEventListener('click', () => document.getElementById('cart-modal').classList.remove('active'));
             document.getElementById('close-cart-modal-btn').addEventListener('click', () => document.getElementById('cart-modal').classList.remove('active'));
             document.getElementById('cart-modal-content').addEventListener('click', (e) => {
+                if (e.target.closest('#cart-apply-coupon-btn')) { applyCartCoupon(); return; }
+                if (e.target.closest('#cart-remove-coupon-btn')) { removeCartCoupon(); return; }
                 const btn = e.target.closest('.cart-qty-btn');
                 if (!btn) return;
                 const key = btn.dataset.id;
                 const item = cart.find(c => cartLineKey(c) === key);
                 if (!item) return;
                 if (btn.dataset.action === 'inc') {
-                    // Stock is pooled per product, not per variant — sum
-                    // every variant line of this product already in the
-                    // cart, not just this one, before allowing +1.
-                    const totalQty = cart.filter(c => c.productId === item.productId).reduce((sum, c) => sum + c.quantity, 0);
+                    // Real per-variant stock once a product has color/size
+                    // options — sum only this SAME variant's cart line(s),
+                    // since each combination now draws from its own
+                    // separate pool. A plain product (no variants, both
+                    // fields null) sums every line of the product instead,
+                    // matching its pooled stock — there's only ever one
+                    // line in that case anyway.
+                    const isVariantLine = item.selectedColor !== null || item.selectedSize !== null;
+                    const totalQty = cart
+                        .filter(c => c.productId === item.productId && (!isVariantLine || (c.selectedColor === item.selectedColor && c.selectedSize === item.selectedSize)))
+                        .reduce((sum, c) => sum + c.quantity, 0);
                     if (item.stockQuantity != null && totalQty + 1 > item.stockQuantity) {
                         showToast(`Only ${item.stockQuantity} in stock.`, 'error');
                     } else {
                         item.quantity += 1;
+                        clearCouponIfCartChanged();
                     }
                 }
-                else if (btn.dataset.action === 'dec') item.quantity = Math.max(1, item.quantity - 1);
-                else if (btn.dataset.action === 'remove') cart = cart.filter(c => cartLineKey(c) !== key);
+                else if (btn.dataset.action === 'dec') {
+                    const before = item.quantity;
+                    item.quantity = Math.max(1, item.quantity - 1);
+                    if (item.quantity !== before) clearCouponIfCartChanged();
+                }
+                else if (btn.dataset.action === 'remove') { cart = cart.filter(c => cartLineKey(c) !== key); clearCouponIfCartChanged(); }
                 updateCartCount();
                 renderCartModal();
             });

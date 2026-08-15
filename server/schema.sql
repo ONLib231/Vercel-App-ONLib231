@@ -891,11 +891,23 @@ CREATE TABLE IF NOT EXISTS vendor_subscriptions (
     granted_by                     TEXT REFERENCES users(id) ON DELETE SET NULL,
     created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK (source = 'paid' OR current_period_end IS NULL),
     CHECK (source = 'admin_comp' OR plan_id IS NOT NULL)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_subscriptions_one_active_per_vendor
     ON vendor_subscriptions (vendor_id) WHERE status = 'active';
+
+-- Was: CHECK (source = 'paid' OR current_period_end IS NULL) — an
+-- admin-comp (free) grant used to be indefinite by definition, with no
+-- end date allowed at all. Super Admin can now set a real start/end
+-- date range on a free grant too (an optional end date — NULL still
+-- means indefinite, same as before), so that restriction no longer
+-- holds. CREATE TABLE IF NOT EXISTS above won't touch an
+-- already-existing table's constraints, so this drops it explicitly
+-- for databases created before this change (the Postgres-assigned
+-- default name for the first unnamed table-level CHECK is
+-- `<table>_check` — confirmed against a real Postgres instance, not
+-- guessed).
+ALTER TABLE vendor_subscriptions DROP CONSTRAINT IF EXISTS vendor_subscriptions_check;
 
 -- Payment audit trail per subscribe/renew attempt, same pending/
 -- successful/failed vocabulary and momo/direct split as featured_slots
@@ -949,3 +961,86 @@ ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS premium_featuring_perk TE
     CHECK (premium_featuring_perk IN ('credit', 'discount'));
 ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS premium_featuring_discount_percent NUMERIC(5,2) NOT NULL DEFAULT 20
     CHECK (premium_featuring_discount_percent >= 0 AND premium_featuring_discount_percent <= 100);
+
+-- ============================================================
+-- Coupon codes (cart-level, vendor-scoped) — each vendor creates their
+-- own discount codes for their own store, the same self-service pattern
+-- as their existing per-product Promotions feature above. Checkout in
+-- this app is always single-vendor (see the purchases.vendor_id comment
+-- above), so a code only ever needs to be scoped to one vendor, never a
+-- platform-wide/cross-vendor concept.
+-- code is stored uppercase and unique PER VENDOR (not globally unique) —
+-- two different vendors can both run a "SAVE10" code without collision.
+-- discount_type/discount_value together express either a percent off
+-- (capped 90%, same sanity rail as promotions.discount_percent) or a
+-- flat dollar amount off. max_uses/uses_count is a total redemption cap
+-- across all customers (NULL max_uses = unlimited); per_customer_limit
+-- caps how many times one customer can reuse the same code (NULL =
+-- unlimited). uses_count is only ever incremented inside the same
+-- checkout transaction that actually applies the discount (see
+-- db.checkout()), never client-side, so it can't be inflated by a
+-- validate-only call.
+CREATE TABLE IF NOT EXISTS coupons (
+    id                  TEXT PRIMARY KEY,
+    vendor_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code                TEXT NOT NULL,
+    discount_type       TEXT NOT NULL CHECK (discount_type IN ('percent', 'fixed')),
+    discount_value      NUMERIC(10, 2) NOT NULL CHECK (discount_value > 0),
+    min_order_amount    NUMERIC(10, 2),
+    max_uses            INTEGER,
+    per_customer_limit  INTEGER,
+    uses_count          INTEGER NOT NULL DEFAULT 0,
+    starts_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ends_at             TIMESTAMPTZ,
+    is_active           BOOLEAN NOT NULL DEFAULT true,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (discount_type != 'percent' OR discount_value <= 90),
+    UNIQUE (vendor_id, code)
+);
+CREATE INDEX IF NOT EXISTS idx_coupons_vendor_id ON coupons (vendor_id);
+
+-- One row per (coupon, customer) redemption — how per_customer_limit is
+-- actually enforced (COUNT of rows here, not a guess), and gives a
+-- vendor a real redemption history per code rather than just the
+-- aggregate uses_count.
+CREATE TABLE IF NOT EXISTS coupon_redemptions (
+    id          TEXT PRIMARY KEY,
+    coupon_id   TEXT NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+    customer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_coupon_id ON coupon_redemptions (coupon_id);
+CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_customer_id ON coupon_redemptions (customer_id, coupon_id);
+
+-- Real applied-discount tracking on the purchase itself — coupon_id is
+-- nullable (ON DELETE SET NULL) so a purchase record survives a vendor
+-- later deleting the code; discount_amount is a real dollar snapshot
+-- (never recomputed from the coupon's current value later, same
+-- snapshot reasoning as purchase_items.product_name).
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS coupon_id TEXT REFERENCES coupons(id) ON DELETE SET NULL;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS coupon_code TEXT;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10, 2) NOT NULL DEFAULT 0;
+
+-- Real per-variant stock, additive to the existing pooled products.stock_quantity
+-- model — only created/populated for products that actually declare colors/sizes
+-- (see products.colors/products.sizes above). Empty-string sentinels ('' via
+-- NOT NULL DEFAULT '') are used instead of NULL for the unused dimension
+-- (e.g. a color-only product has size='' on every row) specifically so the
+-- UNIQUE constraint below actually enforces uniqueness at the DB level —
+-- Postgres treats NULL as distinct-from-everything in unique indexes, so a
+-- NULL-based version of this constraint would silently allow duplicate rows.
+-- products.stock_quantity is kept as a transactionally-synced SUM of a
+-- product's variant rows whenever variants exist, so every other stock-reading
+-- code path in the app (storefront filters, low-stock alerts, PDP badges,
+-- related-product queries) continues to work unchanged.
+CREATE TABLE IF NOT EXISTS product_variants (
+    id              TEXT PRIMARY KEY,
+    product_id      TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    color           TEXT NOT NULL DEFAULT '',
+    size            TEXT NOT NULL DEFAULT '',
+    stock_quantity  INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (product_id, color, size)
+);
+CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants (product_id);

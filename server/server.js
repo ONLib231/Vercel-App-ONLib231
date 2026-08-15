@@ -1493,7 +1493,18 @@ app.get('/api/super-admin/overview', requireAuth, requireSuperAdmin, async (req,
         totalRevenue: deliveryRevenue,
         todayOrders,
         companyCount: deliveryCompanies.length,
-        staffCount: staffAccounts.length,
+      },
+      // Platform administration — Super Admin and Manage Agent accounts,
+      // broken out by role. Deliberately a top-level sibling of
+      // marketplace/delivery, not nested under either one: these are
+      // ONLib's own internal control accounts, not a line of business —
+      // Super Admin oversees the whole platform (Marketplace, Restaurants,
+      // AND Delivery), so counting it as a "Delivery" metric (the old
+      // placement) mischaracterized it as delivery-specific staff.
+      staff: {
+        total: staffAccounts.length,
+        superAdminCount: staffAccounts.filter(s => s.role === 'super_admin').length,
+        manageAgentCount: staffAccounts.filter(s => s.role === 'admin').length,
       },
       // Real, current-state Premium figures for the Overview's spotlight
       // panel — no invented trends. premiumEstMonthlyValue and the pending
@@ -2585,6 +2596,107 @@ app.delete('/api/vendor/promotions/:id', requireAuth, requireVendor, async (req,
   }
 });
 
+// ============================================================
+// Coupon codes — cart-level, vendor-scoped self-service discount codes.
+// See schema.sql's comment on the coupons table for the full design
+// (why vendor-scoped rather than platform-wide, percent vs fixed,
+// usage caps). The actual discount is only ever applied inside
+// db.checkout()'s own transaction (see POST /api/marketplace/checkout
+// and its momo counterpart below) — everything here is management
+// (create/list/toggle/delete) plus a read-only preview for the cart.
+// ============================================================
+
+function validateCouponFields({ code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, endsAt }) {
+  if (!code || !code.trim()) return 'A coupon code is required';
+  if (!/^[A-Za-z0-9_-]{3,20}$/.test(code.trim())) return 'Coupon codes must be 3-20 letters, numbers, hyphens, or underscores';
+  if (!['percent', 'fixed'].includes(discountType)) return 'Discount type must be "percent" or "fixed"';
+  const value = Number(discountValue);
+  if (!Number.isFinite(value) || value <= 0) return 'Discount value must be a positive number';
+  if (discountType === 'percent' && value > 90) return 'Percent discounts are capped at 90%';
+  if (minOrderAmount !== undefined && minOrderAmount !== null && minOrderAmount !== '') {
+    if (!Number.isFinite(Number(minOrderAmount)) || Number(minOrderAmount) < 0) return 'Minimum order amount must be a non-negative number';
+  }
+  if (maxUses !== undefined && maxUses !== null && maxUses !== '') {
+    if (!Number.isInteger(Number(maxUses)) || Number(maxUses) <= 0) return 'Max uses must be a positive whole number';
+  }
+  if (perCustomerLimit !== undefined && perCustomerLimit !== null && perCustomerLimit !== '') {
+    if (!Number.isInteger(Number(perCustomerLimit)) || Number(perCustomerLimit) <= 0) return 'Per-customer limit must be a positive whole number';
+  }
+  if (endsAt && new Date(endsAt) <= new Date()) return 'End date must be in the future';
+  return null;
+}
+
+app.get('/api/vendor/coupons', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const coupons = await db.getVendorCoupons(req.user.id);
+    res.json({ coupons });
+  } catch (err) {
+    console.error('GET /api/vendor/coupons failed', err);
+    res.status(500).json({ error: 'Failed to load coupons' });
+  }
+});
+
+app.post('/api/vendor/coupons', requireAuth, requireVendor, async (req, res) => {
+  const { code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, startsAt, endsAt } = req.body || {};
+  const validationError = validateCouponFields({ code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, endsAt });
+  if (validationError) return res.status(400).json({ error: validationError });
+  try {
+    const coupon = await db.createCoupon({
+      id: crypto.randomUUID(), vendorId: req.user.id, code, discountType, discountValue: Number(discountValue),
+      minOrderAmount: minOrderAmount ? Number(minOrderAmount) : null,
+      maxUses: maxUses ? Number(maxUses) : null,
+      perCustomerLimit: perCustomerLimit ? Number(perCustomerLimit) : null,
+      startsAt: startsAt ? new Date(startsAt) : new Date(),
+      endsAt: endsAt ? new Date(endsAt) : null,
+    });
+    res.json({ coupon });
+  } catch (err) {
+    console.error('POST /api/vendor/coupons failed', err);
+    res.status(400).json({ error: err.message || 'Failed to create coupon' });
+  }
+});
+
+app.patch('/api/vendor/coupons/:id/active', requireAuth, requireVendor, async (req, res) => {
+  const { isActive } = req.body || {};
+  if (typeof isActive !== 'boolean') return res.status(400).json({ error: 'isActive must be true or false' });
+  try {
+    const coupon = await db.setCouponActive(req.params.id, req.user.id, isActive);
+    if (!coupon) return res.status(404).json({ error: 'Coupon not found' });
+    res.json({ coupon });
+  } catch (err) {
+    console.error('PATCH /api/vendor/coupons/:id/active failed', err);
+    res.status(500).json({ error: 'Failed to update coupon' });
+  }
+});
+
+app.delete('/api/vendor/coupons/:id', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const deleted = await db.deleteCoupon(req.params.id, req.user.id);
+    if (!deleted) return res.status(400).json({ error: 'Coupon not found, or already redeemed at least once (deactivate it instead)' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/vendor/coupons/:id failed', err);
+    res.status(500).json({ error: 'Failed to delete coupon' });
+  }
+});
+
+// Public-ish (requireAuth only, any role) preview — lets the cart's
+// "Apply" button show the real discount before the customer commits to
+// checkout, without ever mutating usage counters (see
+// db.previewCoupon's comment).
+app.post('/api/marketplace/coupons/preview', requireAuth, async (req, res) => {
+  const { vendorId, code, subtotal } = req.body || {};
+  if (!vendorId || !code) return res.status(400).json({ error: 'vendorId and code are required' });
+  const sub = Number(subtotal) || 0;
+  try {
+    const result = await db.previewCoupon(vendorId, code, sub, req.user.id);
+    res.json(result);
+  } catch (err) {
+    console.error('POST /api/marketplace/coupons/preview failed', err);
+    res.status(500).json({ error: 'Failed to check coupon' });
+  }
+});
+
 const MAX_PRODUCT_IMAGE_BYTES = 700 * 1024; // same limit/reasoning as the business logo upload
 const MAX_PRODUCT_COLORS = 8;
 const MAX_PRODUCT_SIZES = 8;
@@ -2635,8 +2747,59 @@ function validateProductVariantFields({ colors, sizes, sizeChart, lowStockThresh
   return null;
 }
 
+// Real per-variant stock (task: "Only for products with variants") — a
+// vendor submits one row per color/size combination they're stocking;
+// this validates each row's color/size against the product's OWN
+// colors/sizes lists (never trusts the client's claimed option names,
+// same posture as db.checkout()'s variant validation) and rejects
+// duplicate combinations. Returns an error string, or null if
+// variantStock is absent/valid. A product with neither colors nor
+// sizes declared has nothing to validate against — callers below treat
+// that case as "ignore variantStock, this product uses plain pooled
+// stock" rather than an error, since a vendor's product-form payload
+// may still include a leftover empty variantStock array from earlier UI
+// state.
+function validateVariantStockPayload(variantStock, colors, sizes) {
+  if (variantStock === undefined || variantStock === null) return null;
+  if (!Array.isArray(variantStock)) return 'Variant stock must be a list';
+  const colorNames = (colors || []).map(c => c.name);
+  const hasColors = colorNames.length > 0;
+  const hasSizes = (sizes || []).length > 0;
+  if (!hasColors && !hasSizes) return null; // nothing to validate against — ignored by the route handlers
+  const seen = new Set();
+  for (const v of variantStock) {
+    if (!v || typeof v !== 'object') return 'Malformed variant stock row';
+    const color = hasColors ? String(v.color || '') : '';
+    const size = hasSizes ? String(v.size || '') : '';
+    if (hasColors && !colorNames.includes(color)) return `Unknown color "${v.color}" in variant stock`;
+    if (hasSizes && !sizes.includes(size)) return `Unknown size "${v.size}" in variant stock`;
+    const qty = Number(v.stockQuantity);
+    if (!Number.isFinite(qty) || qty < 0 || !Number.isInteger(qty)) {
+      return 'Variant stock quantity must be a whole number of 0 or more';
+    }
+    const key = `${color}::${size}`;
+    if (seen.has(key)) return 'Duplicate color/size combination in variant stock';
+    seen.add(key);
+  }
+  return null;
+}
+
+// Normalizes a validated variantStock payload into the {color, size,
+// stockQuantity} shape db.setProductVariantStock expects, applying the
+// empty-string sentinel to whichever dimension the product doesn't use
+// (mirrors db.checkout()'s own sentinel handling).
+function normalizeVariantStock(variantStock, colors, sizes) {
+  const hasColors = (colors || []).length > 0;
+  const hasSizes = (sizes || []).length > 0;
+  return variantStock.map(v => ({
+    color: hasColors ? String(v.color || '') : '',
+    size: hasSizes ? String(v.size || '') : '',
+    stockQuantity: Math.max(0, Math.floor(Number(v.stockQuantity) || 0)),
+  }));
+}
+
 app.post('/api/vendor/products', requireAuth, requireVendor, async (req, res) => {
-  const { name, description, price, category, imageDataUrl, stockQuantity, colors, sizes, sizeChart, lowStockThreshold } = req.body || {};
+  const { name, description, price, category, imageDataUrl, stockQuantity, colors, sizes, sizeChart, lowStockThreshold, variantStock } = req.body || {};
   if (!name || !name.trim() || price === undefined || isNaN(Number(price)) || Number(price) < 0) {
     return res.status(400).json({ error: 'A name and a valid non-negative price are required' });
   }
@@ -2645,8 +2808,10 @@ app.post('/api/vendor/products', requireAuth, requireVendor, async (req, res) =>
   }
   const variantError = validateProductVariantFields({ colors, sizes, sizeChart, lowStockThreshold });
   if (variantError) return res.status(400).json({ error: variantError });
+  const variantStockError = validateVariantStockPayload(variantStock, colors, sizes);
+  if (variantStockError) return res.status(400).json({ error: variantStockError });
   try {
-    const product = await db.createProduct({
+    let product = await db.createProduct({
       id: crypto.randomUUID(),
       vendorId: req.user.id,
       name: name.trim(),
@@ -2660,6 +2825,10 @@ app.post('/api/vendor/products', requireAuth, requireVendor, async (req, res) =>
       sizeChart,
       lowStockThreshold,
     });
+    const hasVariants = (product.colors.length || product.sizes.length) && Array.isArray(variantStock);
+    if (hasVariants) {
+      product = await db.setProductVariantStock(product.id, normalizeVariantStock(variantStock, product.colors, product.sizes));
+    }
     res.json({ ok: true, product });
   } catch (err) {
     console.error('POST /api/vendor/products failed', err);
@@ -2677,11 +2846,43 @@ app.put('/api/vendor/products/:id', requireAuth, requireVendor, async (req, res)
     }
     const variantError = validateProductVariantFields(req.body || {});
     if (variantError) return res.status(400).json({ error: variantError });
-    const product = await db.updateProduct(req.params.id, req.body || {});
+    // Validate variantStock against whichever colors/sizes this update
+    // will end up with — the submitted colors/sizes if present, else
+    // the product's existing ones (a vendor updating only stock counts
+    // without touching colors/sizes on this particular request).
+    const effectiveColors = Object.prototype.hasOwnProperty.call(req.body, 'colors') ? req.body.colors : existing.colors;
+    const effectiveSizes = Object.prototype.hasOwnProperty.call(req.body, 'sizes') ? req.body.sizes : existing.sizes;
+    const variantStockError = validateVariantStockPayload(req.body.variantStock, effectiveColors, effectiveSizes);
+    if (variantStockError) return res.status(400).json({ error: variantStockError });
+    let product = await db.updateProduct(req.params.id, req.body || {});
+    const hasVariants = (product.colors.length || product.sizes.length);
+    if (hasVariants && Array.isArray(req.body.variantStock)) {
+      product = await db.setProductVariantStock(product.id, normalizeVariantStock(req.body.variantStock, product.colors, product.sizes));
+    } else if (!hasVariants) {
+      // Vendor cleared colors/sizes entirely on this update (or the
+      // product never had them) — drop any now-orphaned variant rows.
+      // Cheap no-op when there weren't any.
+      await db.deleteProductVariants(product.id);
+    }
     res.json({ ok: true, product });
   } catch (err) {
     console.error('PUT /api/vendor/products failed', err);
     res.status(500).json({ error: 'Failed to update product' });
+  }
+});
+
+// Used by the vendor product form (edit mode) to pre-fill the
+// per-combination stock grid when opening a product that has variants.
+app.get('/api/vendor/products/:id/variants', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const existing = await db.getProductById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Product not found' });
+    if (existing.vendorId !== req.user.id) return res.status(403).json({ error: 'Not your product' });
+    const variants = await db.getProductVariants(req.params.id);
+    res.json({ variants });
+  } catch (err) {
+    console.error('GET /api/vendor/products/:id/variants failed', err);
+    res.status(500).json({ error: 'Failed to load variant stock' });
   }
 });
 
@@ -2696,6 +2897,185 @@ app.delete('/api/vendor/products/:id', requireAuth, requireVendor, async (req, r
     console.error('DELETE /api/vendor/products failed', err);
     res.status(500).json({ error: 'Failed to delete product' });
   }
+});
+
+// ============================================================
+// Bulk CSV import/export — a vendor's own product catalog only, core
+// catalog fields (name/description/category/price/stock/threshold/
+// active) round-trip through CSV; colors/sizes/size chart/photos and
+// real per-variant stock deliberately stay UI-only (task scope: "bulk
+// CSV product import/export tools", not a full variant-matrix CSV
+// format — colors have swatch photos and per-combo stock is a 2D grid,
+// neither of which serializes cleanly to one row per product). Blank ID
+// column creates a new product; a filled ID updates that product by id
+// (ownership-checked, same as every other product route).
+// ============================================================
+
+const PRODUCT_CSV_COLUMNS = ['id', 'name', 'description', 'category', 'price', 'stockQuantity', 'lowStockThreshold', 'isActive'];
+const MAX_CSV_IMPORT_ROWS = 500; // never trust an unbounded upload — same "don't trust the client" posture as every cap elsewhere in this file
+
+// Minimal RFC4180-ish CSV field escaper — wraps in quotes and doubles
+// any embedded quotes whenever the value contains a comma, quote, or
+// newline; passes plain values through untouched for readability.
+function csvEscapeField(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function productsToCsv(products) {
+  const lines = [PRODUCT_CSV_COLUMNS.join(',')];
+  for (const p of products) {
+    lines.push(PRODUCT_CSV_COLUMNS.map(col => csvEscapeField(
+      col === 'isActive' ? (p.isActive ? 'true' : 'false') : p[col]
+    )).join(','));
+  }
+  return lines.join('\r\n');
+}
+
+// Minimal RFC4180-ish CSV parser — handles quoted fields (including
+// embedded commas/newlines/escaped "" quotes) without pulling in a
+// dependency for what's a small, fully-controlled format (we wrote the
+// exporter above too, so the shapes are known). Returns an array of
+// row-arrays; the caller maps the header row to column names itself.
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const pushField = () => { row.push(field); field = ''; };
+  const pushRow = () => { pushField(); rows.push(row); row = []; };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      pushField();
+    } else if (ch === '\n') {
+      pushRow();
+    } else if (ch === '\r') {
+      // swallow — paired \n (if any) handles the row break
+    } else {
+      field += ch;
+    }
+  }
+  // Trailing field/row with no final newline.
+  if (field.length > 0 || row.length > 0) pushRow();
+  return rows.filter(r => !(r.length === 1 && r[0] === ''));
+}
+
+app.get('/api/vendor/products/export.csv', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const products = await db.getProductsByVendor(req.user.id);
+    const csv = productsToCsv(products);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="products.csv"');
+    res.send(csv);
+  } catch (err) {
+    console.error('GET /api/vendor/products/export.csv failed', err);
+    res.status(500).json({ error: 'Failed to export products' });
+  }
+});
+
+app.post('/api/vendor/products/import', requireAuth, requireVendor, async (req, res) => {
+  const { csv } = req.body || {};
+  if (!csv || typeof csv !== 'string' || !csv.trim()) {
+    return res.status(400).json({ error: 'No CSV content received' });
+  }
+  let rows;
+  try {
+    rows = parseCsv(csv);
+  } catch (err) {
+    return res.status(400).json({ error: 'Could not parse that CSV file' });
+  }
+  if (rows.length === 0) return res.status(400).json({ error: 'CSV file is empty' });
+  const header = rows[0].map(h => h.trim());
+  const dataRows = rows.slice(1);
+  if (dataRows.length === 0) return res.status(400).json({ error: 'CSV file has no data rows' });
+  if (dataRows.length > MAX_CSV_IMPORT_ROWS) {
+    return res.status(400).json({ error: `A single import is capped at ${MAX_CSV_IMPORT_ROWS} rows — please split this file.` });
+  }
+  const colIndex = {};
+  header.forEach((h, i) => { colIndex[h] = i; });
+  if (colIndex.name === undefined || colIndex.price === undefined) {
+    return res.status(400).json({ error: 'CSV must have at least "name" and "price" columns (see the exported file for the expected format)' });
+  }
+
+  const results = [];
+  let created = 0, updated = 0, errored = 0;
+  for (let i = 0; i < dataRows.length; i++) {
+    const cells = dataRows[i];
+    const get = (col) => (colIndex[col] !== undefined && cells[colIndex[col]] !== undefined) ? cells[colIndex[col]].trim() : '';
+    const rowNum = i + 2; // +1 for 0-index, +1 for the header row — matches what a vendor sees opening the file in a spreadsheet app
+    try {
+      const id = get('id');
+      const name = get('name');
+      const priceRaw = get('price');
+      if (!name) throw new Error('Missing name');
+      const price = Number(priceRaw);
+      if (!priceRaw || isNaN(price) || price < 0) throw new Error('Invalid price');
+      const stockRaw = get('stockQuantity');
+      const lowStockRaw = get('lowStockThreshold');
+      const isActiveRaw = get('isActive').toLowerCase();
+
+      if (id) {
+        const existing = await db.getProductById(id);
+        if (!existing) throw new Error(`Product ${id} not found`);
+        if (existing.vendorId !== req.user.id) throw new Error('Not your product');
+        const fields = {
+          name, price,
+          description: get('description'),
+          category: get('category'),
+        };
+        // Stock is derived (SUM of real per-variant rows) for a product
+        // that already has colors/sizes — never let a stale CSV number
+        // clobber that invariant. A plain product's stock updates
+        // normally, same as the product-form edit path.
+        if (!(existing.colors.length || existing.sizes.length) && stockRaw !== '') {
+          const stockQuantity = parseInt(stockRaw, 10);
+          if (isNaN(stockQuantity) || stockQuantity < 0) throw new Error('Invalid stockQuantity');
+          fields.stockQuantity = stockQuantity;
+        }
+        if (lowStockRaw !== '') {
+          const lowStockThreshold = parseInt(lowStockRaw, 10);
+          if (isNaN(lowStockThreshold) || lowStockThreshold < 0) throw new Error('Invalid lowStockThreshold');
+          fields.lowStockThreshold = lowStockThreshold;
+        } else if (colIndex.lowStockThreshold !== undefined) {
+          fields.lowStockThreshold = null;
+        }
+        if (isActiveRaw) fields.isActive = ['true', '1', 'yes'].includes(isActiveRaw);
+        const product = await db.updateProduct(id, fields);
+        results.push({ row: rowNum, id: product.id, name: product.name, status: 'updated' });
+        updated++;
+      } else {
+        const stockQuantity = stockRaw !== '' ? parseInt(stockRaw, 10) : 0;
+        if (stockRaw !== '' && (isNaN(stockQuantity) || stockQuantity < 0)) throw new Error('Invalid stockQuantity');
+        let lowStockThreshold = null;
+        if (lowStockRaw !== '') {
+          lowStockThreshold = parseInt(lowStockRaw, 10);
+          if (isNaN(lowStockThreshold) || lowStockThreshold < 0) throw new Error('Invalid lowStockThreshold');
+        }
+        const product = await db.createProduct({
+          id: crypto.randomUUID(), vendorId: req.user.id, name,
+          description: get('description'), category: get('category'),
+          price, stockQuantity, lowStockThreshold,
+        });
+        results.push({ row: rowNum, id: product.id, name: product.name, status: 'created' });
+        created++;
+      }
+    } catch (err) {
+      results.push({ row: rowNum, id: cells[colIndex.id] || null, name: cells[colIndex.name] || null, status: 'error', error: err.message });
+      errored++;
+    }
+  }
+  res.json({ results, summary: { created, updated, errored, total: dataRows.length } });
 });
 
 // Follower broadcast — a vendor announces one product (a new listing or
@@ -3429,6 +3809,23 @@ app.get('/api/marketplace/products/:id/co-purchased', async (req, res) => {
   }
 });
 
+// Real per-variant stock counts, public (same reasoning as /related and
+// /co-purchased above — the PDP itself is public, and stock numbers are
+// already shown to anyone viewing a product). The PDP fetches this once,
+// on open, for any product that declares colors/sizes, so it can enforce
+// the correct per-combination stock instead of the pooled total once a
+// customer actually picks a color/size. Empty array for a product with
+// no variant rows (a plain pooled-stock product).
+app.get('/api/marketplace/products/:id/variant-stock', async (req, res) => {
+  try {
+    const variants = await db.getProductVariants(req.params.id);
+    res.json({ variants });
+  } catch (err) {
+    console.error('GET /api/marketplace/products/:id/variant-stock failed', err);
+    res.status(500).json({ error: 'Failed to load stock' });
+  }
+});
+
 // ============================================================
 // Wishlist — real, customer-only (senders). Vendors previewing the
 // marketplace "as customer" don't get a wishlist of their own here,
@@ -3777,7 +4174,7 @@ app.post('/api/marketplace/checkout', requireAuth, async (req, res) => {
   if (platformSettings.maintenanceMode) {
     return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
   }
-  const { vendorId, items, pickupAddress, dropoffAddress } = req.body || {};
+  const { vendorId, items, pickupAddress, dropoffAddress, couponCode } = req.body || {};
   if (!vendorId || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'A vendor and at least one item are required' });
   }
@@ -3793,6 +4190,7 @@ app.post('/api/marketplace/checkout', requireAuth, async (req, res) => {
       pickupAddress,
       dropoffAddress,
       createDeliveryOrder: true,
+      couponCode,
     });
     io.to(`vendor:${vendorId}`).emit('purchase:created', result);
     if (result.deliveryOrderId) {
@@ -3842,7 +4240,7 @@ app.post('/api/marketplace/checkout/momo', requireAuth, async (req, res) => {
   if (platformSettings.maintenanceMode) {
     return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
   }
-  const { vendorId, items, pickupAddress, dropoffAddress, phone } = req.body || {};
+  const { vendorId, items, pickupAddress, dropoffAddress, phone, couponCode } = req.body || {};
   if (!vendorId || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'A vendor and at least one item are required' });
   }
@@ -3858,7 +4256,9 @@ app.post('/api/marketplace/checkout/momo', requireAuth, async (req, res) => {
   try {
     // Reserves stock and creates the purchase as 'pending' — see
     // checkout()'s own comment on why createDeliveryOrder is false
-    // here specifically.
+    // here specifically. A coupon (if any) is redeemed optimistically
+    // right here too, same as stock — voidFailedMomoPayment() below
+    // gives both back if the payment never actually completes.
     const result = await db.checkout({
       customerId: req.user.id,
       customerName: req.user.businessName,
@@ -3871,6 +4271,7 @@ app.post('/api/marketplace/checkout/momo', requireAuth, async (req, res) => {
       paymentStatus: 'pending',
       momoReferenceId: crypto.randomUUID(),
       momoPhone: cleanPhone,
+      couponCode,
     });
     purchaseId = result.purchaseId;
 
@@ -4494,15 +4895,44 @@ app.post('/api/super-admin/subscriptions/charges/:id/reject', requireAuth, requi
   }
 });
 
-// Manual comp — "Super Admin chooses what to give out for free, on his
-// own time": indefinite, no billing cycle, active until revoked. See
-// db.adminGrantPremiumComp/adminRevokePremiumComp for the full reasoning.
+// Parses an optional {startDate, endDate} pair the same way the existing
+// Commission Statement route above does (isNaN + endDate > startDate),
+// but both are optional here (a blank endDate means indefinite) — if
+// endDate is given, startDate must be too, so there's always a real pair
+// to compare rather than guessing against "now". Returns { error } on
+// bad input, or { startDate, endDate } as Date objects (either may be
+// null) on success.
+function parseOptionalCompDateRange(body) {
+  const { startDate: rawStart, endDate: rawEnd } = body || {};
+  let startDate = null;
+  let endDate = null;
+  if (rawStart) {
+    startDate = new Date(rawStart);
+    if (isNaN(startDate.getTime())) return { error: 'startDate is not a valid date' };
+  }
+  if (rawEnd) {
+    if (!rawStart) return { error: 'startDate is required when setting an endDate' };
+    endDate = new Date(rawEnd);
+    if (isNaN(endDate.getTime())) return { error: 'endDate is not a valid date' };
+    if (endDate <= startDate) return { error: 'endDate must be after startDate' };
+  }
+  return { startDate, endDate };
+}
+
+// Manual comp — "Super Admin chooses what to give out for free, on
+// their own schedule": a start/end date range they set directly (end
+// left blank means indefinite, no expiry). See
+// db.adminGrantPremiumComp/adminSetPremiumCompDates for the full
+// reasoning, including why a null end means something different for an
+// admin_comp row than for a paid one.
 app.post('/api/super-admin/vendors/:id/subscription/grant-comp', requireAuth, requireSuperAdmin, async (req, res) => {
+  const parsed = parseOptionalCompDateRange(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
   try {
     const vendor = await db.getUserById(req.params.id);
     if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
-    const subscription = await db.adminGrantPremiumComp(vendor.id, req.user.id);
-    await logAudit(req, 'subscription.grant_comp', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: {} });
+    const subscription = await db.adminGrantPremiumComp(vendor.id, req.user.id, parsed.startDate, parsed.endDate);
+    await logAudit(req, 'subscription.grant_comp', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: { startDate: parsed.startDate, endDate: parsed.endDate } });
     res.json({ ok: true, subscription });
   } catch (err) {
     if (err.message && err.message.includes('already has an active subscription')) {
@@ -4513,6 +4943,36 @@ app.post('/api/super-admin/vendors/:id/subscription/grant-comp', requireAuth, re
   }
 });
 
+// Edits the date range on a vendor's already-active free comp grant —
+// this is now also how a Super Admin ends Premium early (set endDate to
+// today or any past moment) rather than a separate revoke action. See
+// db.adminSetPremiumCompDates.
+app.put('/api/super-admin/vendors/:id/subscription/comp-dates', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { startDate: rawStart } = req.body || {};
+  if (!rawStart) return res.status(400).json({ error: 'startDate is required' });
+  const startDate = new Date(rawStart);
+  if (isNaN(startDate.getTime())) return res.status(400).json({ error: 'startDate is not a valid date' });
+  let endDate = null;
+  if (req.body && req.body.endDate) {
+    endDate = new Date(req.body.endDate);
+    if (isNaN(endDate.getTime())) return res.status(400).json({ error: 'endDate is not a valid date' });
+    if (endDate <= startDate) return res.status(400).json({ error: 'endDate must be after startDate' });
+  }
+  try {
+    const vendor = await db.getUserById(req.params.id);
+    if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
+    const subscription = await db.adminSetPremiumCompDates(vendor.id, startDate, endDate);
+    if (!subscription) return res.status(409).json({ error: 'This vendor does not have an active free Premium comp to edit — grant one first.' });
+    await logAudit(req, 'subscription.set_comp_dates', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: { startDate, endDate } });
+    res.json({ ok: true, subscription });
+  } catch (err) {
+    console.error('PUT /api/super-admin/vendors/:id/subscription/comp-dates failed', err);
+    res.status(500).json({ error: 'Failed to update Premium dates' });
+  }
+});
+
+// Kept for API completeness — see db.adminRevokePremiumComp's comment;
+// the Payouts & Commission UI now edits dates instead of calling this.
 app.post('/api/super-admin/vendors/:id/subscription/revoke-comp', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
     const vendor = await db.getUserById(req.params.id);

@@ -156,7 +156,13 @@ function rowToPurchase(r) {
     // the vendor's gross revenue (see getPayoutSummary) — grandTotal
     // is what the customer actually paid/owes.
     serviceFee: r.service_fee !== null && r.service_fee !== undefined ? Number(r.service_fee) : 0,
-    grandTotal: Number(r.total_amount) + (r.service_fee !== null && r.service_fee !== undefined ? Number(r.service_fee) : 0),
+    // Real coupon discount, snapshotted at checkout (see db.checkout())
+    // — never recomputed from the coupon's current settings later.
+    discountAmount: r.discount_amount !== null && r.discount_amount !== undefined ? Number(r.discount_amount) : 0,
+    couponCode: r.coupon_code || null,
+    grandTotal: Number(r.total_amount)
+      - (r.discount_amount !== null && r.discount_amount !== undefined ? Number(r.discount_amount) : 0)
+      + (r.service_fee !== null && r.service_fee !== undefined ? Number(r.service_fee) : 0),
     deliveryOrderId: r.delivery_order_id,
     createdAt: r.created_at,
     paymentMethod: r.payment_method,
@@ -314,13 +320,21 @@ function rowToSubscriptionCharge(r) {
 // deliberately NOT just "current_period_end is null or future", since a
 // 'paid' subscription with a null current_period_end means its first
 // charge hasn't been confirmed yet (still pending), not "indefinite".
-// Only an admin_comp row is ever indefinite; a paid row must have a
-// real future end date. See the CHECK constraint on vendor_subscriptions
-// in schema.sql for how the two sources are kept from colliding.
+// An admin_comp row's current_period_end is only ever NULL when a
+// Super Admin deliberately leaves the end date blank (indefinite, no
+// expiry) — see adminGrantPremiumComp/adminSetPremiumCompDates; a paid
+// row must always have a real future end date to count as active. Both
+// sources are also gated on current_period_start, since a Super Admin
+// can schedule a comp grant to begin in the future — it isn't Premium
+// yet just because the row exists.
 function isSubscriptionCurrentlyActive(sub) {
   if (!sub || sub.status !== 'active') return false;
-  if (sub.source === 'admin_comp') return true;
-  return !!sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > Date.now();
+  const now = Date.now();
+  if (sub.currentPeriodStart && new Date(sub.currentPeriodStart).getTime() > now) return false;
+  if (sub.source === 'admin_comp') {
+    return !sub.currentPeriodEnd || new Date(sub.currentPeriodEnd).getTime() > now;
+  }
+  return !!sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > now;
 }
 
 // Base row only — no joins. getDisputes()/getDisputeById() below build
@@ -426,10 +440,22 @@ function rowToUser(r) {
 // caller is doing.
 async function restockPurchaseItemsInTx(client, purchaseId) {
   const { rows: items } = await client.query(
-    'SELECT product_id, quantity FROM purchase_items WHERE purchase_id = $1', [purchaseId]
+    'SELECT product_id, quantity, selected_color, selected_size FROM purchase_items WHERE purchase_id = $1', [purchaseId]
   );
   for (const item of items) {
     await client.query('UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2', [item.quantity, item.product_id]);
+    // Also restock the specific variant row this item was decremented
+    // from, mirroring checkout()'s variant-aware decrement above — a
+    // purchase_items row only has selected_color/selected_size set when
+    // it was decremented from a variant row in the first place, and this
+    // is a no-op (0 rows matched) if the vendor has since deleted that
+    // variant or removed the product's colors/sizes entirely.
+    if (item.selected_color !== null || item.selected_size !== null) {
+      await client.query(
+        'UPDATE product_variants SET stock_quantity = stock_quantity + $1 WHERE product_id = $2 AND color = $3 AND size = $4',
+        [item.quantity, item.product_id, item.selected_color || '', item.selected_size || '']
+      );
+    }
   }
 }
 
@@ -861,6 +887,17 @@ const db = {
         return null;
       }
       await restockPurchaseItemsInTx(client, purchaseId);
+      // A coupon (if any) was redeemed optimistically at initiation,
+      // same reasoning as the stock reservation above — since the
+      // payment never actually went through, give the redemption back:
+      // decrement the aggregate counter and remove the per-customer
+      // redemption row, so the customer can genuinely reuse the code
+      // (their failed attempt shouldn't count against a usage cap) and
+      // max_uses isn't silently eaten by payments that never completed.
+      if (purchaseRows[0].coupon_id) {
+        await client.query('UPDATE coupons SET uses_count = GREATEST(uses_count - 1, 0) WHERE id = $1', [purchaseRows[0].coupon_id]);
+        await client.query('DELETE FROM coupon_redemptions WHERE purchase_id = $1', [purchaseId]);
+      }
       if (purchaseRows[0].delivery_order_id) {
         await client.query(
           `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending'`,
@@ -1723,7 +1760,71 @@ const db = {
   },
 
   async deleteProduct(id) {
-    await pool.query('DELETE FROM products WHERE id = $1', [id]);
+    await pool.query('DELETE FROM products WHERE id = $1', [id]); // product_variants rows cascade-delete with it
+  },
+
+  // ---- Marketplace: per-variant stock (color/size combinations) --------
+
+  // Replaces this product's whole set of per-variant stock rows and
+  // recomputes products.stock_quantity as their SUM in the same
+  // transaction, so the cached pooled total (read by every other
+  // stock-aware code path in the app) never drifts out of sync with the
+  // real per-variant numbers. Simplest correct way to handle a vendor
+  // adding/removing a color or size combo is to just delete-and-reinsert
+  // the whole set rather than diffing against what was there before.
+  // Must be called AFTER colors/sizes are already saved on the product
+  // (createProduct/updateProduct) — server.js validates each entry's
+  // color/size against the product's own declared lists before calling
+  // this, so this function trusts its input.
+  async setProductVariantStock(productId, variantStock) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM product_variants WHERE product_id = $1', [productId]);
+      let total = 0;
+      if (variantStock && variantStock.length) {
+        for (const v of variantStock) {
+          const qty = Math.max(0, Math.floor(Number(v.stockQuantity) || 0));
+          total += qty;
+          await client.query(
+            'INSERT INTO product_variants (id, product_id, color, size, stock_quantity) VALUES ($1, $2, $3, $4, $5)',
+            [crypto.randomUUID(), productId, v.color || '', v.size || '', qty]
+          );
+        }
+      }
+      // Same re-fire-guard reasoning as updateProduct's stockQuantity
+      // branch above — a vendor setting per-variant stock counts as
+      // "changing the stock", so any previously-sent low-stock alert is
+      // cleared for re-evaluation on the next scan.
+      await client.query('UPDATE products SET stock_quantity = $1, low_stock_alert_sent_at = NULL WHERE id = $2', [total, productId]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return this.getProductById(productId);
+  },
+
+  // Used by the vendor product form (edit mode) to pre-fill the
+  // per-combination stock grid — [] for a product with no variant rows
+  // (a plain pooled-stock product, the majority case).
+  async getProductVariants(productId) {
+    const { rows } = await pool.query(
+      'SELECT * FROM product_variants WHERE product_id = $1 ORDER BY color, size', [productId]
+    );
+    return rows.map(r => ({ id: r.id, color: r.color, size: r.size, stockQuantity: r.stock_quantity }));
+  },
+
+  // Cleanup-only path (no products.stock_quantity touch) for when a
+  // vendor removes a product's colors/sizes entirely and goes back to
+  // plain pooled stock — the pooled number in that case comes from
+  // whatever stockQuantity value the same update request submitted
+  // (handled by updateProduct's ordinary column set), so this just
+  // clears any now-orphaned variant rows. A no-op if there were none.
+  async deleteProductVariants(productId) {
+    await pool.query('DELETE FROM product_variants WHERE product_id = $1', [productId]);
   },
 
   // ---- Marketplace: additional product photos (gallery) ----------------
@@ -1845,6 +1946,7 @@ const db = {
   async checkout({
     customerId, customerName, vendorId, items, pickupAddress, dropoffAddress, createDeliveryOrder,
     paymentMethod = 'cod', paymentStatus = 'not_applicable', momoReferenceId = null, momoPhone = null,
+    couponCode = null,
   }) {
     const client = await pool.connect();
     try {
@@ -1857,16 +1959,14 @@ const db = {
         const product = productRes.rows[0];
         if (!product) throw new Error(`Product not found: ${item.productId}`);
         if (product.vendor_id !== vendorId) throw new Error('All items in a checkout must be from the same vendor');
-        if (product.stock_quantity < item.quantity) throw new Error(`Not enough stock for ${product.name}`);
-        await client.query('UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2', [item.quantity, product.id]);
 
         // Never trust the client's claimed color/size — re-check against
         // this product's CURRENT option lists, fetched fresh inside the
         // same transaction, same "don't trust the client" posture as the
-        // price/stock checks right above. A product with a colors/sizes
-        // list defined requires a valid matching pick; a product with no
-        // list defined ignores whatever the client sent (there's nothing
-        // to validate against, and nothing to snapshot).
+        // price/stock checks below. A product with a colors/sizes list
+        // defined requires a valid matching pick; a product with no list
+        // defined ignores whatever the client sent (there's nothing to
+        // validate against, and nothing to snapshot).
         const productColors = product.colors || [];
         const productSizes = product.sizes || [];
         let selectedColor = null;
@@ -1882,6 +1982,27 @@ const db = {
             throw new Error(`Please choose a size for ${product.name}`);
           }
           selectedSize = item.selectedSize;
+        }
+
+        // Real per-variant stock for products that declare colors/sizes;
+        // pooled products.stock_quantity for everything else (the majority
+        // of listings — no behavior change for them at all). When a variant
+        // row is decremented, products.stock_quantity is decremented by the
+        // same amount in the same transaction so it stays a correct cached
+        // SUM for every other stock-reading code path in the app.
+        if (productColors.length || productSizes.length) {
+          const variantRes = await client.query(
+            'SELECT * FROM product_variants WHERE product_id = $1 AND color = $2 AND size = $3 FOR UPDATE',
+            [product.id, selectedColor || '', selectedSize || '']
+          );
+          const variant = variantRes.rows[0];
+          if (!variant) throw new Error(`That option is no longer available for ${product.name}`);
+          if (variant.stock_quantity < item.quantity) throw new Error(`Not enough stock for ${product.name}`);
+          await client.query('UPDATE product_variants SET stock_quantity = stock_quantity - $1 WHERE id = $2', [item.quantity, variant.id]);
+          await client.query('UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2', [item.quantity, product.id]);
+        } else {
+          if (product.stock_quantity < item.quantity) throw new Error(`Not enough stock for ${product.name}`);
+          await client.query('UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2', [item.quantity, product.id]);
         }
 
         // Real price, looked up fresh in the same transaction — never
@@ -1902,6 +2023,46 @@ const db = {
           productId: product.id, productName: product.name, unitPrice, quantity: item.quantity,
           selectedColor, selectedSize,
         });
+      }
+
+      // Real coupon validation and application — looked up fresh inside
+      // this same transaction (never trusts a client-supplied discount
+      // amount), same "don't trust the client" posture as the price/
+      // stock/variant checks above. Every rejection reason throws, which
+      // rolls back the whole checkout — a coupon either fully applies or
+      // the checkout fails with a clear reason, never a silent partial
+      // apply. FOR UPDATE on the coupon row prevents a max_uses race
+      // between two simultaneous checkouts both using the last redemption.
+      let coupon = null;
+      let discountAmount = 0;
+      if (couponCode && couponCode.trim()) {
+        const couponRes = await client.query(
+          'SELECT * FROM coupons WHERE vendor_id = $1 AND code = $2 FOR UPDATE',
+          [vendorId, couponCode.trim().toUpperCase()]
+        );
+        coupon = couponRes.rows[0];
+        if (!coupon) throw new Error('That coupon code is not valid for this store');
+        if (!coupon.is_active) throw new Error('That coupon code is no longer active');
+        if (new Date(coupon.starts_at) > new Date()) throw new Error('That coupon code is not active yet');
+        if (coupon.ends_at && new Date(coupon.ends_at) <= new Date()) throw new Error('That coupon code has expired');
+        if (coupon.max_uses !== null && coupon.uses_count >= coupon.max_uses) {
+          throw new Error('That coupon code has reached its usage limit');
+        }
+        if (coupon.min_order_amount !== null && totalAmount < Number(coupon.min_order_amount)) {
+          throw new Error(`That coupon requires an order of at least $${Number(coupon.min_order_amount).toFixed(2)}`);
+        }
+        if (coupon.per_customer_limit !== null) {
+          const usedRes = await client.query(
+            'SELECT COUNT(*)::int AS count FROM coupon_redemptions WHERE coupon_id = $1 AND customer_id = $2',
+            [coupon.id, customerId]
+          );
+          if (usedRes.rows[0].count >= coupon.per_customer_limit) {
+            throw new Error("You've already used that coupon code the maximum number of times");
+          }
+        }
+        discountAmount = coupon.discount_type === 'percent'
+          ? Number((totalAmount * Number(coupon.discount_value) / 100).toFixed(2))
+          : Math.min(Number(coupon.discount_value), totalAmount); // never discount below $0
       }
 
       const purchaseId = `PUR-${Date.now().toString(36).toUpperCase()}`;
@@ -1941,9 +2102,9 @@ const db = {
       const serviceFee = feeRes.rows[0] ? Number(feeRes.rows[0].service_fee) : 0;
 
       await client.query(
-        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, pending_pickup_address, pending_dropoff_address)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, pendingPickupAddress, pendingDropoffAddress]
+        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, pending_pickup_address, pending_dropoff_address, coupon_id, coupon_code, discount_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, pendingPickupAddress, pendingDropoffAddress, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount]
       );
       for (const li of lineItems) {
         await client.query(
@@ -1952,9 +2113,22 @@ const db = {
         );
       }
 
+      // Redeem the coupon — bump the aggregate counter and record a real
+      // per-customer redemption row (what per_customer_limit above
+      // actually counts against next time), both inside this same
+      // transaction so a checkout that fails after this point can never
+      // consume a redemption without a matching purchase existing.
+      if (coupon) {
+        await client.query('UPDATE coupons SET uses_count = uses_count + 1 WHERE id = $1', [coupon.id]);
+        await client.query(
+          'INSERT INTO coupon_redemptions (id, coupon_id, customer_id, purchase_id) VALUES ($1, $2, $3, $4)',
+          [crypto.randomUUID(), coupon.id, customerId, purchaseId]
+        );
+      }
+
       await client.query('COMMIT');
-      const grandTotal = Math.round((totalAmount + serviceFee) * 100) / 100;
-      return { purchaseId, deliveryOrderId, totalAmount, serviceFee, grandTotal, paymentMethod, paymentStatus };
+      const grandTotal = Math.round((totalAmount - discountAmount + serviceFee) * 100) / 100;
+      return { purchaseId, deliveryOrderId, totalAmount, serviceFee, discountAmount, couponCode: coupon ? coupon.code : null, grandTotal, paymentMethod, paymentStatus };
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -2683,13 +2857,26 @@ const db = {
   },
 
   // Used by getPayoutSummary to batch-resolve which vendors get the
-  // Premium commission rate, without an N+1 query per vendor row.
+  // Premium commission rate, without an N+1 query per vendor row. Keyed
+  // by vendor_id -> { start, end }, so callers get both "is this vendor
+  // Premium" (map.has) and the real start/end date range (map.get) from
+  // one query — the latter is what the Payouts & Commission table's
+  // Premium column shows and lets a Super Admin edit, straight off the
+  // subscription row rather than a fabricated date. Mirrors
+  // isSubscriptionCurrentlyActive's rule exactly: gated on
+  // current_period_start having arrived, and — for admin_comp — a null
+  // current_period_end means indefinite (still counts as active) while
+  // for paid it never does (a null end there means pending, not active).
   async getActivePremiumVendorIds() {
     const { rows } = await pool.query(
-      `SELECT vendor_id FROM vendor_subscriptions WHERE status = 'active'
-         AND (source = 'admin_comp' OR (current_period_end IS NOT NULL AND current_period_end > now()))`
+      `SELECT vendor_id, source, current_period_start, current_period_end FROM vendor_subscriptions WHERE status = 'active'
+         AND current_period_start <= now()
+         AND (
+           (source = 'admin_comp' AND (current_period_end IS NULL OR current_period_end > now()))
+           OR (source = 'paid' AND current_period_end IS NOT NULL AND current_period_end > now())
+         )`
     );
-    return new Set(rows.map(r => r.vendor_id));
+    return new Map(rows.map(r => [r.vendor_id, { source: r.source, start: r.current_period_start, end: r.current_period_end || null }]));
   },
 
   async getSubscriptionChargesForVendor(vendorId) {
@@ -2878,12 +3065,16 @@ const db = {
     return rowToSubscriptionCharge(rows[0]);
   },
 
-  // Super Admin manually granting free Premium — indefinite, no billing
-  // cycle, active until explicitly revoked (see schema.sql's comment on
-  // why current_period_end stays NULL here). Blocked if the vendor
-  // already has any active subscription (paid or comped) so this never
-  // silently clobbers one — an admin revokes/waits first.
-  async adminGrantPremiumComp(vendorId, adminId) {
+  // Super Admin manually granting free Premium, on a start/end date
+  // range they choose — startDate defaults to now() and endDate
+  // defaults to NULL (indefinite, no expiry) when not given, so a
+  // plain "Grant Free" with no dates behaves exactly as it always has.
+  // Blocked if the vendor already has any active subscription (paid or
+  // comped) so this never silently clobbers one — an admin edits/waits
+  // first. Date validation (end must be after start) happens in
+  // server.js before this is called, same as every other input-
+  // validated route in this file.
+  async adminGrantPremiumComp(vendorId, adminId, startDate, endDate) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -2897,8 +3088,8 @@ const db = {
       const id = crypto.randomUUID();
       const { rows } = await client.query(
         `INSERT INTO vendor_subscriptions (id, vendor_id, plan_id, status, source, current_period_start, current_period_end, granted_by)
-         VALUES ($1, $2, NULL, 'active', 'admin_comp', now(), NULL, $3) RETURNING *`,
-        [id, vendorId, adminId]
+         VALUES ($1, $2, NULL, 'active', 'admin_comp', COALESCE($3, now()), $4, $5) RETURNING *`,
+        [id, vendorId, startDate || null, endDate || null, adminId]
       );
       await client.query('COMMIT');
       return rowToVendorSubscription(rows[0]);
@@ -2910,6 +3101,29 @@ const db = {
     }
   },
 
+  // Edits the start/end date range on a vendor's already-active
+  // admin_comp grant — this is now also how Premium gets ended early
+  // (set the end date to today or any past moment; isSubscriptionCurrentlyActive
+  // stops counting it as active the moment that date passes, no status
+  // change needed) or extended/rescheduled. Deliberately scoped to
+  // source = 'admin_comp' only — a 'paid' subscription's dates are
+  // billing-cycle-driven and not Super-Admin-editable here. Returns
+  // null (not an error) if the vendor has no active admin_comp row to
+  // edit, so the route can 404 cleanly.
+  async adminSetPremiumCompDates(vendorId, startDate, endDate) {
+    const { rows } = await pool.query(
+      `UPDATE vendor_subscriptions SET current_period_start = $2, current_period_end = $3, updated_at = now()
+       WHERE vendor_id = $1 AND status = 'active' AND source = 'admin_comp' RETURNING *`,
+      [vendorId, startDate, endDate || null]
+    );
+    return rowToVendorSubscription(rows[0]);
+  },
+
+  // Kept for API completeness / any external callers — the Payouts &
+  // Commission UI no longer has a dedicated Revoke button (editing the
+  // end date via adminSetPremiumCompDates above is how a Super Admin
+  // ends Premium now), but immediate cancellation is still a one-call
+  // operation if something needs it directly.
   async adminRevokePremiumComp(vendorId) {
     const { rows } = await pool.query(
       `UPDATE vendor_subscriptions SET status = 'canceled', updated_at = now()
@@ -3252,6 +3466,112 @@ const db = {
     return rows.length > 0;
   },
 
+  // ---- Coupon codes (cart-level, vendor-scoped) ----------------------
+  // Same self-service pattern as promotions above, just a customer-typed
+  // code applied at checkout instead of an automatic per-product
+  // discount. See schema.sql's comment on the coupons table for the
+  // full design reasoning (vendor-scoped uniqueness, percent vs fixed,
+  // usage caps).
+
+  rowToCoupon(r) {
+    if (!r) return null;
+    return {
+      id: r.id,
+      vendorId: r.vendor_id,
+      code: r.code,
+      discountType: r.discount_type,
+      discountValue: Number(r.discount_value),
+      minOrderAmount: r.min_order_amount !== null ? Number(r.min_order_amount) : null,
+      maxUses: r.max_uses,
+      perCustomerLimit: r.per_customer_limit,
+      usesCount: r.uses_count,
+      startsAt: r.starts_at,
+      endsAt: r.ends_at,
+      isActive: r.is_active,
+      createdAt: r.created_at,
+    };
+  },
+
+  async createCoupon({ id, vendorId, code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, startsAt, endsAt }) {
+    const normalizedCode = code.trim().toUpperCase();
+    const existing = await pool.query('SELECT id FROM coupons WHERE vendor_id = $1 AND code = $2', [vendorId, normalizedCode]);
+    if (existing.rows.length > 0) throw new Error('You already have a coupon with that code');
+    const { rows } = await pool.query(
+      `INSERT INTO coupons (id, vendor_id, code, discount_type, discount_value, min_order_amount, max_uses, per_customer_limit, starts_at, ends_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [id, vendorId, normalizedCode, discountType, discountValue, minOrderAmount || null, maxUses || null, perCustomerLimit || null, startsAt || new Date(), endsAt || null]
+    );
+    return this.rowToCoupon(rows[0]);
+  },
+
+  async getVendorCoupons(vendorId) {
+    const { rows } = await pool.query('SELECT * FROM coupons WHERE vendor_id = $1 ORDER BY created_at DESC', [vendorId]);
+    return rows.map(r => this.rowToCoupon(r));
+  },
+
+  async getCouponById(id, vendorId) {
+    const { rows } = await pool.query('SELECT * FROM coupons WHERE id = $1 AND vendor_id = $2', [id, vendorId]);
+    return this.rowToCoupon(rows[0]);
+  },
+
+  // Toggle active/inactive rather than a hard delete by default — a
+  // coupon already referenced by real purchases (purchases.coupon_id)
+  // should stay around for order-history/audit purposes. A vendor can
+  // still hard-delete one that's never been used (see deleteCoupon).
+  async setCouponActive(id, vendorId, isActive) {
+    const { rows } = await pool.query(
+      'UPDATE coupons SET is_active = $1 WHERE id = $2 AND vendor_id = $3 RETURNING *',
+      [isActive, id, vendorId]
+    );
+    return this.rowToCoupon(rows[0]);
+  },
+
+  async deleteCoupon(id, vendorId) {
+    const { rows } = await pool.query(
+      'DELETE FROM coupons WHERE id = $1 AND vendor_id = $2 AND uses_count = 0 RETURNING id',
+      [id, vendorId]
+    );
+    return rows.length > 0;
+  },
+
+  // Read-only preview for the cart's "Apply" button, so a customer sees
+  // the real discount before submitting — NEVER mutates uses_count or
+  // writes a redemption row (that only happens transactionally inside
+  // checkout() above, the moment the discount is actually charged).
+  // Mirrors checkout()'s own validation exactly so a coupon that
+  // previews as valid never unexpectedly fails at actual checkout
+  // (short of a genuine race on the last few uses).
+  async previewCoupon(vendorId, code, subtotal, customerId) {
+    const { rows } = await pool.query(
+      'SELECT * FROM coupons WHERE vendor_id = $1 AND code = $2',
+      [vendorId, (code || '').trim().toUpperCase()]
+    );
+    const coupon = rows[0];
+    if (!coupon) return { valid: false, error: 'That coupon code is not valid for this store' };
+    if (!coupon.is_active) return { valid: false, error: 'That coupon code is no longer active' };
+    if (new Date(coupon.starts_at) > new Date()) return { valid: false, error: 'That coupon code is not active yet' };
+    if (coupon.ends_at && new Date(coupon.ends_at) <= new Date()) return { valid: false, error: 'That coupon code has expired' };
+    if (coupon.max_uses !== null && coupon.uses_count >= coupon.max_uses) {
+      return { valid: false, error: 'That coupon code has reached its usage limit' };
+    }
+    if (coupon.min_order_amount !== null && subtotal < Number(coupon.min_order_amount)) {
+      return { valid: false, error: `That coupon requires an order of at least $${Number(coupon.min_order_amount).toFixed(2)}` };
+    }
+    if (coupon.per_customer_limit !== null && customerId) {
+      const usedRes = await pool.query(
+        'SELECT COUNT(*)::int AS count FROM coupon_redemptions WHERE coupon_id = $1 AND customer_id = $2',
+        [coupon.id, customerId]
+      );
+      if (usedRes.rows[0].count >= coupon.per_customer_limit) {
+        return { valid: false, error: "You've already used that coupon code the maximum number of times" };
+      }
+    }
+    const discountAmount = coupon.discount_type === 'percent'
+      ? Number((subtotal * Number(coupon.discount_value) / 100).toFixed(2))
+      : Math.min(Number(coupon.discount_value), subtotal);
+    return { valid: true, code: coupon.code, discountType: coupon.discount_type, discountValue: Number(coupon.discount_value), discountAmount };
+  },
+
   // ---- Leads -------------------------------------------------------
 
   async createLead({ id, vendorId, buyerId, productId, type }) {
@@ -3592,16 +3912,16 @@ const db = {
     const deliveryRefundMap = new Map(deliveryRefunds.rows.map(r => [r.delivery_company_id, Number(r.refunded)]));
     const paidMap = new Map(paidOut.rows.map(r => [r.recipient_id, Number(r.paid)]));
 
-    // premiumRate/premiumSet are only ever passed for recipientType =
+    // premiumRate/premiumMap are only ever passed for recipientType =
     // 'vendor' — Premium is a vendor-only tier, delivery companies
     // always use their plain default/override rate.
-    const build = (rows, revMap, refundMap, recipientType, defaultRate, commissionEnabled, premiumRate, premiumSet) => rows.map(r => {
+    const build = (rows, revMap, refundMap, recipientType, defaultRate, commissionEnabled, premiumRate, premiumMap) => rows.map(r => {
       // Clamped at 0 rather than allowed to go negative — refunds can
       // never exceed what was actually sold, but this guards against
       // it visually even if it somehow did.
       const gross = Math.max(0, (revMap.get(r.id) || 0) - (refundMap.get(r.id) || 0));
       const override = r.commission_rate_override !== null && r.commission_rate_override !== undefined ? Number(r.commission_rate_override) : null;
-      const isPremium = !!(premiumSet && premiumSet.has(r.id));
+      const isPremium = !!(premiumMap && premiumMap.has(r.id));
       // Precedence: the master on/off switch always wins (off means 0%
       // for everyone of that type); then a per-account override (most
       // specific — a manual Super Admin decision for this one account);
@@ -3618,6 +3938,16 @@ const db = {
         recipientType,
         commissionRateOverride: override,
         isPremium,
+        // Real start/end date range straight off the active
+        // vendor_subscriptions row — what the Payouts & Commission
+        // table's Premium column shows and, for an admin_comp grant,
+        // lets a Super Admin edit directly (editing the end date is
+        // how Premium is ended now — there's no separate revoke
+        // action). A 'paid' subscription's dates are billing-driven
+        // and shown read-only. All null for non-Premium vendors.
+        premiumSource: isPremium ? premiumMap.get(r.id).source : null,
+        premiumStart: isPremium ? premiumMap.get(r.id).start : null,
+        premiumEnd: isPremium ? premiumMap.get(r.id).end : null,
         effectiveRate,
         grossRevenue: gross,
         commissionAmount,
