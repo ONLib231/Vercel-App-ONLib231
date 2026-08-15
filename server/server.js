@@ -5570,97 +5570,14 @@ app.post('/api/super-admin/subscriptions/charges/:id/reject', requireAuth, requi
   }
 });
 
-// Parses an optional {startDate, endDate} pair the same way the existing
-// Commission Statement route above does (isNaN + endDate > startDate),
-// but both are optional here (a blank endDate means indefinite) — if
-// endDate is given, startDate must be too, so there's always a real pair
-// to compare rather than guessing against "now". Returns { error } on
-// bad input, or { startDate, endDate } as Date objects (either may be
-// null) on success.
-function parseOptionalCompDateRange(body) {
-  const { startDate: rawStart, endDate: rawEnd } = body || {};
-  let startDate = null;
-  let endDate = null;
-  if (rawStart) {
-    startDate = new Date(rawStart);
-    if (isNaN(startDate.getTime())) return { error: 'startDate is not a valid date' };
-  }
-  if (rawEnd) {
-    if (!rawStart) return { error: 'startDate is required when setting an endDate' };
-    endDate = new Date(rawEnd);
-    if (isNaN(endDate.getTime())) return { error: 'endDate is not a valid date' };
-    if (endDate <= startDate) return { error: 'endDate must be after startDate' };
-  }
-  return { startDate, endDate };
-}
-
-// Manual comp — "Super Admin chooses what to give out for free, on
-// their own schedule": a start/end date range they set directly (end
-// left blank means indefinite, no expiry). See
-// db.adminGrantPremiumComp/adminSetPremiumCompDates for the full
-// reasoning, including why a null end means something different for an
-// admin_comp row than for a paid one.
-app.post('/api/super-admin/vendors/:id/subscription/grant-comp', requireAuth, requireSuperAdmin, async (req, res) => {
-  const parsed = parseOptionalCompDateRange(req.body);
-  if (parsed.error) return res.status(400).json({ error: parsed.error });
-  try {
-    const vendor = await db.getUserById(req.params.id);
-    if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
-    const subscription = await db.adminGrantPremiumComp(vendor.id, req.user.id, parsed.startDate, parsed.endDate);
-    await logAudit(req, 'subscription.grant_comp', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: { startDate: parsed.startDate, endDate: parsed.endDate } });
-    res.json({ ok: true, subscription });
-  } catch (err) {
-    if (err.message && err.message.includes('already has an active subscription')) {
-      return res.status(409).json({ error: err.message });
-    }
-    console.error('POST /api/super-admin/vendors/:id/subscription/grant-comp failed', err);
-    res.status(500).json({ error: 'Failed to grant free Premium' });
-  }
-});
-
-// Edits the date range on a vendor's already-active free comp grant —
-// this is now also how a Super Admin ends Premium early (set endDate to
-// today or any past moment) rather than a separate revoke action. See
-// db.adminSetPremiumCompDates.
-app.put('/api/super-admin/vendors/:id/subscription/comp-dates', requireAuth, requireSuperAdmin, async (req, res) => {
-  const { startDate: rawStart } = req.body || {};
-  if (!rawStart) return res.status(400).json({ error: 'startDate is required' });
-  const startDate = new Date(rawStart);
-  if (isNaN(startDate.getTime())) return res.status(400).json({ error: 'startDate is not a valid date' });
-  let endDate = null;
-  if (req.body && req.body.endDate) {
-    endDate = new Date(req.body.endDate);
-    if (isNaN(endDate.getTime())) return res.status(400).json({ error: 'endDate is not a valid date' });
-    if (endDate <= startDate) return res.status(400).json({ error: 'endDate must be after startDate' });
-  }
-  try {
-    const vendor = await db.getUserById(req.params.id);
-    if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
-    const subscription = await db.adminSetPremiumCompDates(vendor.id, startDate, endDate);
-    if (!subscription) return res.status(409).json({ error: 'This vendor does not have an active free Premium comp to edit — grant one first.' });
-    await logAudit(req, 'subscription.set_comp_dates', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: { startDate, endDate } });
-    res.json({ ok: true, subscription });
-  } catch (err) {
-    console.error('PUT /api/super-admin/vendors/:id/subscription/comp-dates failed', err);
-    res.status(500).json({ error: 'Failed to update Premium dates' });
-  }
-});
-
-// Kept for API completeness — see db.adminRevokePremiumComp's comment;
-// the Payouts & Commission UI now edits dates instead of calling this.
-app.post('/api/super-admin/vendors/:id/subscription/revoke-comp', requireAuth, requireSuperAdmin, async (req, res) => {
-  try {
-    const vendor = await db.getUserById(req.params.id);
-    if (!vendor || vendor.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
-    const subscription = await db.adminRevokePremiumComp(vendor.id);
-    if (!subscription) return res.status(409).json({ error: 'This vendor does not have an active Super-Admin-granted Premium comp to revoke' });
-    await logAudit(req, 'subscription.revoke_comp', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName, details: {} });
-    res.json({ ok: true, subscription });
-  } catch (err) {
-    console.error('POST /api/super-admin/vendors/:id/subscription/revoke-comp failed', err);
-    res.status(500).json({ error: 'Failed to revoke free Premium' });
-  }
-});
+// Free/comp Premium grants (formerly grant-comp / comp-dates / revoke-comp
+// here) were removed platform-wide — see the "Free Premium removed
+// entirely" README section for why (the vendor-facing status card could
+// get permanently stuck reading "Free — granted by ONLib" even after a
+// grant's end date had passed, since ending it only changed dates, not
+// status). Premium is now paid-subscription-only; any pre-existing
+// admin_comp grant is force-canceled by a one-time migration in
+// schema.sql. See db.js's comment above isSubscriptionCurrentlyActive.
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 

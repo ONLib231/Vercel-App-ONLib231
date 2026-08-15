@@ -371,20 +371,18 @@ function rowToSubscriptionCharge(r) {
 // deliberately NOT just "current_period_end is null or future", since a
 // 'paid' subscription with a null current_period_end means its first
 // charge hasn't been confirmed yet (still pending), not "indefinite".
-// An admin_comp row's current_period_end is only ever NULL when a
-// Super Admin deliberately leaves the end date blank (indefinite, no
-// expiry) — see adminGrantPremiumComp/adminSetPremiumCompDates; a paid
-// row must always have a real future end date to count as active. Both
-// sources are also gated on current_period_start, since a Super Admin
-// can schedule a comp grant to begin in the future — it isn't Premium
-// yet just because the row exists.
+// Premium was previously also grantable for free by a Super Admin
+// (source = 'admin_comp', with its own indefinite-when-null-end rule) —
+// that capability was removed platform-wide (see the "Free Premium
+// removed entirely" README section: the vendor-facing status card could
+// get stuck reading "granted by ONLib" forever, since ending a grant only
+// changed dates, never the row's own status). Only 'paid' rows exist
+// going forward; a stray legacy 'admin_comp' row is force-canceled by a
+// one-time schema.sql migration, so this only needs the paid rule now.
 function isSubscriptionCurrentlyActive(sub) {
   if (!sub || sub.status !== 'active') return false;
   const now = Date.now();
   if (sub.currentPeriodStart && new Date(sub.currentPeriodStart).getTime() > now) return false;
-  if (sub.source === 'admin_comp') {
-    return !sub.currentPeriodEnd || new Date(sub.currentPeriodEnd).getTime() > now;
-  }
   return !!sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > now;
 }
 
@@ -1518,15 +1516,14 @@ const db = {
   async getVendors() {
     // is_premium is computed with the same left-join-and-check pattern
     // used everywhere else in this file (rather than a stored flag) —
-    // see isSubscriptionCurrentlyActive's comment on why a 'paid' row
-    // needs a real future current_period_end but an 'admin_comp' row
-    // doesn't.
+    // see isSubscriptionCurrentlyActive's comment (Premium is
+    // paid-subscription-only now, free/admin_comp grants were removed).
     const { rows } = await pool.query(
       `SELECT u.id, u.business_name, u.email, u.phone, u.approval_status, u.rejection_reason, u.applied_at, u.created_at, u.is_disabled, u.commission_rate_override, u.vendor_type,
-         (vs.id IS NOT NULL) AS is_premium, vs.source AS premium_source
+         (vs.id IS NOT NULL) AS is_premium
        FROM users u
        LEFT JOIN vendor_subscriptions vs ON vs.vendor_id = u.id AND vs.status = 'active'
-         AND (vs.source = 'admin_comp' OR (vs.current_period_end IS NOT NULL AND vs.current_period_end > now()))
+         AND vs.current_period_end IS NOT NULL AND vs.current_period_end > now()
        WHERE u.role = 'vendor' ORDER BY u.created_at DESC`
     );
     return rows.map(r => ({
@@ -1542,7 +1539,6 @@ const db = {
       commissionRateOverride: r.commission_rate_override !== null && r.commission_rate_override !== undefined ? Number(r.commission_rate_override) : null,
       vendorType: r.vendor_type || 'store',
       isPremium: !!r.is_premium,
-      premiumSource: r.premium_source || null,
     }));
   },
 
@@ -3300,22 +3296,21 @@ const db = {
   // by vendor_id -> { start, end }, so callers get both "is this vendor
   // Premium" (map.has) and the real start/end date range (map.get) from
   // one query — the latter is what the Payouts & Commission table's
-  // Premium column shows and lets a Super Admin edit, straight off the
-  // subscription row rather than a fabricated date. Mirrors
-  // isSubscriptionCurrentlyActive's rule exactly: gated on
-  // current_period_start having arrived, and — for admin_comp — a null
-  // current_period_end means indefinite (still counts as active) while
-  // for paid it never does (a null end there means pending, not active).
+  // Premium column shows, straight off the subscription row rather than
+  // a fabricated date. Mirrors isSubscriptionCurrentlyActive's rule
+  // exactly: gated on current_period_start having arrived, and a null
+  // current_period_end never counts as active (a null end means the
+  // first charge hasn't been confirmed yet, not "indefinite"). Premium
+  // was previously also grantable for free (source = 'admin_comp',
+  // indefinite when its end was left blank) — that was removed
+  // platform-wide, see isSubscriptionCurrentlyActive's comment.
   async getActivePremiumVendorIds() {
     const { rows } = await pool.query(
-      `SELECT vendor_id, source, current_period_start, current_period_end FROM vendor_subscriptions WHERE status = 'active'
+      `SELECT vendor_id, current_period_start, current_period_end FROM vendor_subscriptions WHERE status = 'active'
          AND current_period_start <= now()
-         AND (
-           (source = 'admin_comp' AND (current_period_end IS NULL OR current_period_end > now()))
-           OR (source = 'paid' AND current_period_end IS NOT NULL AND current_period_end > now())
-         )`
+         AND current_period_end IS NOT NULL AND current_period_end > now()`
     );
-    return new Map(rows.map(r => [r.vendor_id, { source: r.source, start: r.current_period_start, end: r.current_period_end || null }]));
+    return new Map(rows.map(r => [r.vendor_id, { start: r.current_period_start, end: r.current_period_end || null }]));
   },
 
   async getSubscriptionChargesForVendor(vendorId) {
@@ -3375,10 +3370,12 @@ const db = {
       }
 
       let subscriptionId;
-      if (existing && existing.status === 'active' && existing.source === 'admin_comp') {
-        await client.query('ROLLBACK');
-        throw new Error('This account already has a Super-Admin-granted Premium subscription active.');
-      } else if (existing && existing.status === 'active' && existing.source === 'paid') {
+      // Free/admin_comp grants were removed platform-wide (see
+      // isSubscriptionCurrentlyActive's comment) — a vendor's row can
+      // only ever be 'paid' now, or a legacy admin_comp row already
+      // force-canceled by the schema.sql migration, so there's no longer
+      // a "blocked by an active free grant" case to guard against here.
+      if (existing && existing.status === 'active' && existing.source === 'paid') {
         subscriptionId = existing.id;
         await client.query('UPDATE vendor_subscriptions SET plan_id = $1, updated_at = now() WHERE id = $2', [planRow.id, subscriptionId]);
       } else {
@@ -3504,73 +3501,12 @@ const db = {
     return rowToSubscriptionCharge(rows[0]);
   },
 
-  // Super Admin manually granting free Premium, on a start/end date
-  // range they choose — startDate defaults to now() and endDate
-  // defaults to NULL (indefinite, no expiry) when not given, so a
-  // plain "Grant Free" with no dates behaves exactly as it always has.
-  // Blocked if the vendor already has any active subscription (paid or
-  // comped) so this never silently clobbers one — an admin edits/waits
-  // first. Date validation (end must be after start) happens in
-  // server.js before this is called, same as every other input-
-  // validated route in this file.
-  async adminGrantPremiumComp(vendorId, adminId, startDate, endDate) {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const { rows: existingRows } = await client.query(
-        `SELECT id FROM vendor_subscriptions WHERE vendor_id = $1 AND status = 'active' FOR UPDATE`, [vendorId]
-      );
-      if (existingRows[0]) {
-        await client.query('ROLLBACK');
-        throw new Error('This vendor already has an active subscription — revoke or cancel it first.');
-      }
-      const id = crypto.randomUUID();
-      const { rows } = await client.query(
-        `INSERT INTO vendor_subscriptions (id, vendor_id, plan_id, status, source, current_period_start, current_period_end, granted_by)
-         VALUES ($1, $2, NULL, 'active', 'admin_comp', COALESCE($3, now()), $4, $5) RETURNING *`,
-        [id, vendorId, startDate || null, endDate || null, adminId]
-      );
-      await client.query('COMMIT');
-      return rowToVendorSubscription(rows[0]);
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-  },
-
-  // Edits the start/end date range on a vendor's already-active
-  // admin_comp grant — this is now also how Premium gets ended early
-  // (set the end date to today or any past moment; isSubscriptionCurrentlyActive
-  // stops counting it as active the moment that date passes, no status
-  // change needed) or extended/rescheduled. Deliberately scoped to
-  // source = 'admin_comp' only — a 'paid' subscription's dates are
-  // billing-cycle-driven and not Super-Admin-editable here. Returns
-  // null (not an error) if the vendor has no active admin_comp row to
-  // edit, so the route can 404 cleanly.
-  async adminSetPremiumCompDates(vendorId, startDate, endDate) {
-    const { rows } = await pool.query(
-      `UPDATE vendor_subscriptions SET current_period_start = $2, current_period_end = $3, updated_at = now()
-       WHERE vendor_id = $1 AND status = 'active' AND source = 'admin_comp' RETURNING *`,
-      [vendorId, startDate, endDate || null]
-    );
-    return rowToVendorSubscription(rows[0]);
-  },
-
-  // Kept for API completeness / any external callers — the Payouts &
-  // Commission UI no longer has a dedicated Revoke button (editing the
-  // end date via adminSetPremiumCompDates above is how a Super Admin
-  // ends Premium now), but immediate cancellation is still a one-call
-  // operation if something needs it directly.
-  async adminRevokePremiumComp(vendorId) {
-    const { rows } = await pool.query(
-      `UPDATE vendor_subscriptions SET status = 'canceled', updated_at = now()
-       WHERE vendor_id = $1 AND status = 'active' AND source = 'admin_comp' RETURNING *`,
-      [vendorId]
-    );
-    return rowToVendorSubscription(rows[0]);
-  },
+  // Free/comp Premium grants (adminGrantPremiumComp/adminSetPremiumComp-
+  // Dates/adminRevokePremiumComp formerly lived here) were removed
+  // platform-wide — see isSubscriptionCurrentlyActive's comment and the
+  // "Free Premium removed entirely" README section. Any pre-existing
+  // admin_comp row is force-canceled by a one-time migration in
+  // schema.sql, so Premium is paid-subscription-only from here on.
 
   // Best-effort hourly scan (see the setInterval in server.js) for
   // subscriptions entering their renewal window. reminder_sent_at IS
@@ -4379,12 +4315,11 @@ const db = {
         isPremium,
         // Real start/end date range straight off the active
         // vendor_subscriptions row — what the Payouts & Commission
-        // table's Premium column shows and, for an admin_comp grant,
-        // lets a Super Admin edit directly (editing the end date is
-        // how Premium is ended now — there's no separate revoke
-        // action). A 'paid' subscription's dates are billing-driven
-        // and shown read-only. All null for non-Premium vendors.
-        premiumSource: isPremium ? premiumMap.get(r.id).source : null,
+        // table's Premium column shows, read-only (billing-cycle-driven).
+        // Null for non-Premium vendors. Premium was previously also
+        // grantable for free with a Super-Admin-editable date range
+        // (source = 'admin_comp') — that was removed platform-wide, see
+        // isSubscriptionCurrentlyActive's comment.
         premiumStart: isPremium ? premiumMap.get(r.id).start : null,
         premiumEnd: isPremium ? premiumMap.get(r.id).end : null,
         effectiveRate,

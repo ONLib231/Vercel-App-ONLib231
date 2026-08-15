@@ -2404,7 +2404,7 @@
         }
         #delivery-app .sa-premium-spotlight-cta:hover { background: #f1f5f9; }
         #delivery-app .sa-premium-spotlight-metrics {
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; align-content: center; position: relative;
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; align-content: center; position: relative;
         }
         #delivery-app .sa-premium-metric {
             background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18);
@@ -5920,10 +5920,6 @@
                                 <div class="sa-premium-metric-label">Pending Direct</div>
                             </div>
                             <div class="sa-premium-metric">
-                                <div class="sa-premium-metric-value" id="sa-premium-comp-count">0</div>
-                                <div class="sa-premium-metric-label">Admin Comps Active</div>
-                            </div>
-                            <div class="sa-premium-metric">
                                 <div class="sa-premium-metric-value" id="sa-premium-commission-rate">0%</div>
                                 <div class="sa-premium-metric-label">Premium Commission Rate</div>
                             </div>
@@ -8777,41 +8773,9 @@
         </div>
     </div>
 
-    <!-- Set Premium Dates (Super Admin) — replaces the old plain Grant/
-         Revoke Free buttons in the Payouts & Commission "Vendors —
-         Standing" table's Premium column. Opened both to grant free
-         Premium in the first place and to edit an already-active
-         grant's dates; End Date is optional (blank = indefinite, no
-         expiry) — setting an end date in the past is how a Super Admin
-         now ends a vendor's free Premium early, there's no separate
-         revoke button anymore. See grantPremiumComp/openSetPremiumDatesModal
-         and PUT .../subscription/comp-dates, POST .../grant-comp. -->
-    <div class="modal-overlay" id="set-premium-dates-modal">
-        <div class="modal" style="max-width: 460px;">
-            <div class="modal-header">
-                <h3 id="set-premium-dates-title">Set Premium Dates</h3>
-                <button class="close-btn" id="close-set-premium-dates-modal">&times;</button>
-            </div>
-            <form id="set-premium-dates-form">
-                <input type="hidden" id="spd-vendor-id">
-                <input type="hidden" id="spd-mode">
-                <p class="settings-hint" id="spd-vendor-label" style="margin-top:0;"></p>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-                    <div class="form-group">
-                        <label class="form-label">Start Date</label>
-                        <input type="date" class="form-input" id="spd-start-date" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">End Date</label>
-                        <input type="date" class="form-input" id="spd-end-date">
-                    </div>
-                </div>
-                <p class="settings-hint">Leave End Date blank for indefinite Premium — no expiry until you come back and set one. To end Premium now, set End Date to today (or any past date).</p>
-                <div class="auth-error" id="set-premium-dates-error" style="display:none;"></div>
-                <button type="submit" class="btn-primary" id="set-premium-dates-submit-btn" style="width:100%;">Save Dates</button>
-            </form>
-        </div>
-    </div>
+    <!-- Set Premium Dates modal (free/comp Premium grants) removed along
+         with the whole feature — see the "Free Premium removed entirely"
+         README section. Premium is paid-subscription-only now. -->
 
     <!-- Commission Statement (Super Admin) — opened from a row in
          payouts-modal. Picks a period, then fetches the real computed
@@ -14734,17 +14698,20 @@
                 // no separate call needed just for this count.
                 const premiumVendors = vendors.filter(v => v.isPremium);
                 document.getElementById('sa-premium-subscribers').textContent = premiumVendors.length;
-                // Premium spotlight panel — subscriber/admin-comp counts come
-                // from the same premiumVendors array; est. monthly value,
-                // pending Direct count, commission rate, and the active
-                // featuring perk come from the new `premium` object on
-                // GET /api/super-admin/overview (real backend aggregates —
-                // see db.getActivePremiumMonthlyValue / getPendingDirect-
+                // Premium spotlight panel — subscriber count comes from the
+                // same premiumVendors array; est. monthly value, pending
+                // Direct count, commission rate, and the active featuring
+                // perk come from the new `premium` object on GET
+                // /api/super-admin/overview (real backend aggregates — see
+                // db.getActivePremiumMonthlyValue / getPendingDirect-
                 // SubscriptionCharges / getPlatformSettings). Nothing here is
-                // an invented period-over-period trend.
+                // an invented period-over-period trend. (Free/admin-comp
+                // grants were removed platform-wide — Premium is
+                // paid-subscription-only now, so there's no separate comp
+                // count to show — see the "Free Premium removed entirely"
+                // README section.)
                 const premium = overviewData.premium || {};
                 document.getElementById('sa-premium-spotlight-count').textContent = premiumVendors.length;
-                document.getElementById('sa-premium-comp-count').textContent = premiumVendors.filter(v => v.premiumSource === 'admin_comp').length;
                 document.getElementById('sa-premium-monthly-value').textContent = `$${Number(premium.estMonthlyValue || 0).toFixed(2)}`;
                 document.getElementById('sa-premium-pending-direct').textContent = premium.pendingDirectCount ?? 0;
                 document.getElementById('sa-premium-commission-rate').textContent = `${premium.commissionPercent ?? 0}%`;
@@ -15382,10 +15349,6 @@
                     openCommissionStatementModal(statementBtn.dataset.id, statementBtn.dataset.type, statementBtn.dataset.name);
                     return;
                 }
-                const grantBtn = e.target.closest('.grant-premium-comp-btn');
-                if (grantBtn) { openSetPremiumDatesModal('grant', grantBtn.dataset.id, grantBtn.dataset.name, null, null); return; }
-                const editDatesBtn = e.target.closest('.edit-premium-comp-dates-btn');
-                if (editDatesBtn) openSetPremiumDatesModal('edit', editDatesBtn.dataset.id, editDatesBtn.dataset.name, editDatesBtn.dataset.start, editDatesBtn.dataset.end);
             };
             document.getElementById('payouts-vendors-table').addEventListener('click', payoutsRowClickHandler);
             document.getElementById('payouts-companies-table').addEventListener('click', payoutsRowClickHandler);
@@ -15411,10 +15374,6 @@
                 document.getElementById('commission-statement-modal').classList.remove('active');
             });
             document.getElementById('commission-statement-form').addEventListener('submit', handleCommissionStatementSubmit);
-            document.getElementById('close-set-premium-dates-modal').addEventListener('click', () => {
-                document.getElementById('set-premium-dates-modal').classList.remove('active');
-            });
-            document.getElementById('set-premium-dates-form').addEventListener('submit', handleSetPremiumDatesSubmit);
 
             // ---- Disputes (Super Admin only) ----
             document.getElementById('open-disputes-btn').addEventListener('click', () => {
@@ -16439,10 +16398,11 @@
             }
         }
 
-        // Short "Aug 15, 2026 → Sep 30, 2026" / "Aug 15, 2026 → Indefinite"
-        // display for a Premium row's real start/end dates — shared by the
-        // Vendors — Standing table's clickable date-range button (admin_comp)
-        // and its read-only equivalent (paid subscriptions).
+        // Short "Aug 15, 2026 → Sep 30, 2026" display for a Premium row's
+        // real start/end dates, shown read-only in the Vendors — Standing
+        // table (Premium is paid-subscription-only — free/admin_comp
+        // grants were removed platform-wide, see the "Free Premium
+        // removed entirely" README section).
         function formatPremiumDateRange(start, end) {
             const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             const startText = start ? fmt(start) : '—';
@@ -16479,15 +16439,9 @@
                             <div style="display:flex; align-items:center; gap:0.4rem; margin-bottom:0.25rem;">
                                 <span class="address-card-default-pill">⭐ Premium</span>
                             </div>
-                            ${r.premiumSource === 'admin_comp' ? `
-                                <button type="button" class="btn-small btn-secondary edit-premium-comp-dates-btn" data-id="${r.id}" data-name="${r.businessName.replace(/"/g, '&quot;')}" data-start="${r.premiumStart || ''}" data-end="${r.premiumEnd || ''}" title="Click to edit the start/end dates">
-                                    ${formatPremiumDateRange(r.premiumStart, r.premiumEnd)}
-                                </button>
-                            ` : `
-                                <div style="font-size:0.75rem; color:var(--slate-light);">${formatPremiumDateRange(r.premiumStart, r.premiumEnd)} <span style="display:block; font-size:0.6875rem;">(paid subscription)</span></div>
-                            `}
+                            <div style="font-size:0.75rem; color:var(--slate-light);">${formatPremiumDateRange(r.premiumStart, r.premiumEnd)} <span style="display:block; font-size:0.6875rem;">(paid subscription)</span></div>
                         ` : `
-                            <button type="button" class="btn-small btn-secondary grant-premium-comp-btn" data-id="${r.id}" data-name="${r.businessName.replace(/"/g, '&quot;')}">Set Dates</button>
+                            <span style="color:var(--slate-light); font-size:0.75rem;">—</span>
                         `}
                     </td>` : ''}
                     <td style="display:flex; gap:0.4rem; flex-wrap:wrap;">
@@ -16919,67 +16873,11 @@
             }
         }
 
-        // "Super Admin chooses what to give out for free, on their own
-        // schedule" — a real start/end date range they set directly,
-        // instead of a plain indefinite on/off toggle. Opened both to
-        // grant free Premium in the first place (mode: 'grant', no
-        // existing dates) and to edit an already-active grant's dates
-        // (mode: 'edit', prefilled) — the same form does both, since
-        // "end this vendor's Premium" is now just "set the end date to
-        // today", not a separate revoke action. See
-        // db.adminGrantPremiumComp/adminSetPremiumCompDates.
-        function toDateInputValue(d) {
-            if (!d) return '';
-            const dt = new Date(d);
-            if (isNaN(dt.getTime())) return '';
-            return dt.toISOString().slice(0, 10);
-        }
-
-        function openSetPremiumDatesModal(mode, vendorId, vendorName, start, end) {
-            document.getElementById('spd-vendor-id').value = vendorId;
-            document.getElementById('spd-mode').value = mode;
-            document.getElementById('spd-vendor-label').textContent = vendorName || '';
-            document.getElementById('set-premium-dates-title').textContent = mode === 'grant' ? 'Grant Free Premium' : 'Edit Premium Dates';
-            document.getElementById('set-premium-dates-submit-btn').textContent = mode === 'grant' ? 'Grant Premium' : 'Save Dates';
-            document.getElementById('spd-start-date').value = start ? toDateInputValue(start) : toDateInputValue(new Date());
-            document.getElementById('spd-end-date').value = end ? toDateInputValue(end) : '';
-            document.getElementById('set-premium-dates-error').style.display = 'none';
-            document.getElementById('set-premium-dates-modal').classList.add('active');
-        }
-
-        async function handleSetPremiumDatesSubmit(e) {
-            e.preventDefault();
-            const vendorId = document.getElementById('spd-vendor-id').value;
-            const mode = document.getElementById('spd-mode').value;
-            const startDate = document.getElementById('spd-start-date').value;
-            const endDate = document.getElementById('spd-end-date').value;
-            const errorEl = document.getElementById('set-premium-dates-error');
-            errorEl.style.display = 'none';
-            if (endDate && endDate <= startDate) {
-                errorEl.textContent = 'End Date must be after Start Date.';
-                errorEl.style.display = 'block';
-                return;
-            }
-            const submitBtn = document.getElementById('set-premium-dates-submit-btn');
-            submitBtn.disabled = true;
-            try {
-                const path = mode === 'grant'
-                    ? `/api/super-admin/vendors/${vendorId}/subscription/grant-comp`
-                    : `/api/super-admin/vendors/${vendorId}/subscription/comp-dates`;
-                await apiFetch(path, {
-                    method: mode === 'grant' ? 'POST' : 'PUT',
-                    body: JSON.stringify({ startDate, endDate: endDate || null }),
-                });
-                showToast(mode === 'grant' ? 'Free Premium granted' : 'Premium dates updated', 'success');
-                document.getElementById('set-premium-dates-modal').classList.remove('active');
-                await loadPayoutsPanel();
-            } catch (err) {
-                errorEl.textContent = err.message;
-                errorEl.style.display = 'block';
-            } finally {
-                submitBtn.disabled = false;
-            }
-        }
+        // Free/comp Premium grants (openSetPremiumDatesModal/handleSet-
+        // PremiumDatesSubmit/revokePremiumComp formerly lived here, plus
+        // the toDateInputValue helper they used) were removed
+        // platform-wide — see the "Free Premium removed entirely" README
+        // section. Premium is paid-subscription-only now.
 
         async function handleEditCommissionRateOverride(id, type, currentRate) {
             const label = type === 'vendor' ? 'this vendor' : 'this delivery company';
@@ -17986,8 +17884,7 @@
             { q: 'How do I generate a monthly report?', a: 'Open Monthly Report in the sidebar, choose "Business (All Customers)" or a specific customer, then a month and year.' },
             { q: 'I forgot my password — what do I do?', a: 'Use "Forgot password?" on the login screen. A reset code is sent to the email on your account, and also by SMS/WhatsApp if there\'s a phone number on file.' },
             { q: 'How do I confirm a vendor\'s Featured Placement or Premium payment?', a: 'Open Payouts & Commission from the sidebar/More menu. Featured Placement requests are under "Featured Placements Settings", Premium subscribe/renewal requests are under "Premium Subscription Settings" — each has its own Pending Direct Payment Requests list with Confirm/Reject buttons. Only "Direct" (manual) payments need this; Mobile Money payments confirm themselves automatically once the vendor approves the prompt on their phone.' },
-            { q: 'What is Premium Subscription and what does it unlock for a vendor?', a: 'An optional, recurring paid upgrade for a vendor\'s account — configured under Payouts & Commission > Premium Subscription Settings. It unlocks PDF Monthly Reports, a lower commission rate, a Featured Placement perk (a free included boost or a discount, whichever mode is currently switched on), and priority support. A vendor on the Free plan keeps everything else in the app, including still being able to buy one-time Featured Placement boosts.' },
-            { q: 'How do I give a vendor free Premium?', a: 'Open Payouts & Commission and find the vendor in the "Vendors — Standing" table, then click "Grant Free" in the Premium column. This is indefinite — no billing, no expiry — and stays active until you click "Revoke Free" on that same vendor.' },
+            { q: 'What is Premium Subscription and what does it unlock for a vendor?', a: 'An optional, recurring paid upgrade for a vendor\'s account — configured under Payouts & Commission > Premium Subscription Settings. It unlocks PDF Monthly Reports, a lower commission rate, a Featured Placement perk (a free included boost or a discount, whichever mode is currently switched on), and priority support. A vendor on the Free plan keeps everything else in the app, including still being able to buy one-time Featured Placement boosts. Premium is paid-subscription-only — there is no way to grant it for free.' },
             { q: 'Why does a vendor\'s commission rate show a different number than the platform default?', a: 'Either they have a custom rate override set (click the rate to change it), or they\'re on an active Premium subscription, which uses the Premium Commission Rate set in Premium Subscription Settings instead of the plain marketplace rate. A custom override always takes priority over the Premium rate.' },
         ];
         const DEFAULT_CUSTOMER_FAQS = [
@@ -21272,19 +21169,18 @@
             const statusEl = document.getElementById('vendor-premium-status');
             const { subscription, isPremium } = vendorPremiumData;
             const perks = 'Messages, Leads, and Customers, PDF sales reports, a lower commission rate, a Featured Placement perk, and priority support';
-            if (!subscription || subscription.status !== 'active') {
+            // isPremium (computed server-side off the real current_period_
+            // start/end, see isSubscriptionCurrentlyActive) is the actual
+            // source of truth — not just subscription.status — matching
+            // the "Expired" pill logic below. Premium used to also be
+            // free-grantable by a Super Admin (source = 'admin_comp'),
+            // which had its own status-only branch here; that's gone now
+            // (see the "Free Premium removed entirely" README section),
+            // so every active subscription reaching this point is paid.
+            if (!subscription || subscription.status !== 'active' || !isPremium) {
                 statusEl.innerHTML = `
                     <p style="margin:0 0 0.75rem; color:var(--slate-light); font-size:0.8125rem;">You're on the Free plan. Upgrade to Premium for ${perks}.</p>
                     <button type="button" class="btn-primary" id="premium-upgrade-btn">Upgrade to Premium</button>
-                `;
-                return;
-            }
-            if (subscription.source === 'admin_comp') {
-                statusEl.innerHTML = `
-                    <div class="address-card"><div class="address-card-body">
-                        <div class="address-card-label-row"><span class="address-card-label">Premium</span><span class="address-card-default-pill">Free — granted by ONLib</span></div>
-                        <div class="address-card-text">You have full Premium access at no charge, for as long as ONLib keeps it active.</div>
-                    </div></div>
                 `;
                 return;
             }

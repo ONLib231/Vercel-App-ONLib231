@@ -871,9 +871,19 @@ CREATE INDEX IF NOT EXISTS idx_featured_slots_scope_status ON featured_slots (sc
 -- truth for "is this vendor Premium right now" (now() < current_period
 -- _end), and a best-effort hourly reminder (see the server-side
 -- scheduler in server.js) nudges the vendor to renew before it lapses.
--- A NULL current_period_end is reserved for a Super-Admin-granted free
--- comp (source = 'admin_comp') — indefinite, no billing cycle, active
--- until an admin explicitly revokes it (sets status = 'canceled').
+--
+-- Premium was previously also grantable for free by a Super Admin
+-- (source = 'admin_comp', a NULL current_period_end meaning indefinite)
+-- — removed platform-wide (see the "Free Premium removed entirely"
+-- README section): ending a grant only ever changed its dates, never
+-- its `status`, so a vendor's own Premium status card could get
+-- permanently stuck reading "Free — granted by ONLib" even after the
+-- grant had genuinely expired. Premium is paid-subscription-only now.
+-- `source` still allows the historical value ('paid', 'admin_comp') so
+-- any pre-existing admin_comp row keeps its true origin rather than
+-- being rewritten to look like a payment that never happened — see the
+-- one-time cleanup UPDATE below this table, which force-cancels any
+-- admin_comp row still marked active so it stops granting Premium.
 -- ============================================================
 
 -- Super-Admin-configured Premium tiers. Deliberately a real table (not
@@ -931,6 +941,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_subscriptions_one_active_per_vendor
 -- `<table>_check` — confirmed against a real Postgres instance, not
 -- guessed).
 ALTER TABLE vendor_subscriptions DROP CONSTRAINT IF EXISTS vendor_subscriptions_check;
+
+-- One-time cleanup for the "Free Premium removed entirely" change: force-
+-- cancel any admin_comp grant still marked active. The application no
+-- longer has any route or UI that creates, edits, or revokes an
+-- admin_comp row, so without this, a vendor granted free Premium before
+-- this change would keep it forever with no way to end it. Runs on every
+-- boot (schema.sql is executed in full on every db.init(), see db.js) but
+-- is naturally idempotent — once a row is canceled here, this WHERE
+-- clause never matches it again.
+UPDATE vendor_subscriptions SET status = 'canceled', updated_at = now()
+    WHERE source = 'admin_comp' AND status = 'active';
 
 -- Payment audit trail per subscribe/renew attempt, same pending/
 -- successful/failed vocabulary and momo/direct split as featured_slots
