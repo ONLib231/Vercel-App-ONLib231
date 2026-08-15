@@ -3408,6 +3408,24 @@ app.get('/api/delivery-company/overview', requireAuth, requireDeliveryCompany, a
   }
 });
 
+// Real, read-only dispute visibility for a delivery company — every
+// dispute tied to one of its own deliveries (d.order_id). Mirrors
+// GET /api/vendor/disputes above: before this, a delivery company had
+// no way to know a dispute even happened, only a quieter lower payout
+// once Super Admin resolved it with a refund. No resolution route
+// here — only Super Admin can decide/refund a dispute; this is
+// view-only.
+app.get('/api/delivery-company/disputes', requireAuth, requireDeliveryCompany, async (req, res) => {
+  try {
+    const status = ['open', 'resolved', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
+    const disputes = await db.getDisputesForDeliveryCompany(req.user.id, { status });
+    res.json({ disputes });
+  } catch (err) {
+    console.error('GET /api/delivery-company/disputes failed', err);
+    res.status(500).json({ error: 'Failed to load disputes' });
+  }
+});
+
 
 app.get('/api/vendor/purchases', requireAuth, requireVendor, async (req, res) => {
   try {

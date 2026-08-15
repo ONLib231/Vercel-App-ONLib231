@@ -2116,6 +2116,13 @@
             background: var(--admin-surface); border: 1px solid var(--admin-border); border-radius: var(--admin-radius-md);
             box-shadow: var(--admin-shadow-lg); z-index: 80;
         }
+        /* Unlike #delivery-app (whose equivalent topbar is a header
+           element with its own position:sticky, an implicit
+           positioning context), #delivery-company-app's topbar is a
+           plain, unpositioned div — so the notification panel's
+           position:absolute above would otherwise anchor to some
+           farther-up ancestor instead of sitting under the bell. */
+        #delivery-company-app .admin-topbar { position: relative; }
         #delivery-app .admin-notification-panel.open { display: block; }
         #delivery-customer-app .admin-notification-panel.open { display: block; }
         #delivery-company-app .admin-notification-panel.open { display: block; }
@@ -4479,6 +4486,10 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
                         Orders
                     </button>
+                    <button type="button" class="admin-nav-item" id="dc-nav-disputes">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        Disputes
+                    </button>
                     <button type="button" class="admin-nav-item" id="dc-nav-reports">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
                         Reports
@@ -4518,10 +4529,29 @@
                             <div class="admin-welcome-role" id="dc-welcome-name">Welcome!</div>
                             <div id="dc-welcome-subtitle" style="font-size:0.875rem; color:var(--slate-light);">Here's your fleet at a glance.</div>
                         </div>
-                        <button type="button" class="dcust-topbar-back-link" id="dc-topbar-back-btn" title="Back to service selector">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-                            <span>Back to service selector</span>
-                        </button>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <button type="button" class="admin-notification-bell" id="dc-notification-bell-btn" aria-label="Notifications">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                                <span class="admin-notification-badge" id="dc-notification-badge" style="display:none;">0</span>
+                            </button>
+                            <button type="button" class="dcust-topbar-back-link" id="dc-topbar-back-btn" title="Back to service selector">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                                <span>Back to service selector</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Notification center dropdown — same real, live
+                         notificationLog every other role's bell reads from
+                         (see recordInAppNotification / renderNotificationCenter);
+                         a delivery company gets a real "New order available"
+                         entry the instant one comes in via Socket.io. -->
+                    <div class="admin-notification-panel" id="dc-notification-panel">
+                        <div class="admin-notification-panel-header">
+                            <strong>Notifications</strong>
+                            <a id="dc-clear-notifications-link">Clear all</a>
+                        </div>
+                        <div id="dc-notification-list"></div>
                     </div>
                 </div>
 
@@ -4598,8 +4628,32 @@
                 <!-- Orders view: full order history with date filters -->
                 <div id="dc-view-orders" style="display:none;">
                     <div class="mobile-section-header"><div class="mobile-section-title">Order History</div></div>
+                    <input type="text" class="form-input" id="dc-orders-search-input" placeholder="Search by order ID, sender, or address…" style="margin-bottom:0.875rem;">
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.875rem;" id="dc-orders-status-filter-row">
+                        <button type="button" class="category-item active-category dc-order-status-filter-btn" data-status="">All</button>
+                        <button type="button" class="category-item dc-order-status-filter-btn" data-status="pending">Pending</button>
+                        <button type="button" class="category-item dc-order-status-filter-btn" data-status="accepted">Accepted</button>
+                        <button type="button" class="category-item dc-order-status-filter-btn" data-status="picked-up">Picked Up</button>
+                        <button type="button" class="category-item dc-order-status-filter-btn" data-status="delivered">Delivered</button>
+                        <button type="button" class="category-item dc-order-status-filter-btn" data-status="cancelled">Cancelled</button>
+                    </div>
                     <div id="dc-order-history-filters"></div>
                     <div id="dc-orders-list" class="dc-cards-grid"></div>
+                </div>
+
+                <!-- Disputes view: real, read-only visibility into
+                     disputes filed against this company's own
+                     deliveries — mirrors the vendor Disputes tab. -->
+                <div id="dc-view-disputes" style="display:none;">
+                    <div class="mobile-section-header"><div class="mobile-section-title">Disputes</div></div>
+                    <p class="settings-hint" style="margin-bottom:1rem;">Real disputes senders have filed against your deliveries. Only Super Admin can resolve one (with or without a refund) — this is a read-only view so you always know when and why.</p>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;" id="dc-disputes-filter-row">
+                        <button type="button" class="category-item active-category dc-dispute-filter-btn" data-status="">All</button>
+                        <button type="button" class="category-item dc-dispute-filter-btn" data-status="open">Open</button>
+                        <button type="button" class="category-item dc-dispute-filter-btn" data-status="resolved">Resolved</button>
+                        <button type="button" class="category-item dc-dispute-filter-btn" data-status="rejected">Rejected</button>
+                    </div>
+                    <div id="dc-disputes-list"></div>
                 </div>
 
                 <!-- Settings view -->
@@ -4633,6 +4687,45 @@
                         <button type="submit" class="btn-small btn-success" id="dc-settings-submit">Save Changes</button>
                         <button type="button" class="btn-small btn-secondary" id="dc-settings-back-btn">Back to Dashboard</button>
                     </form>
+
+                    <!-- Security — self-service email/password change,
+                         same /api/me/change-email + /api/me/change-password
+                         routes the vendor Settings tab already uses (see
+                         wireSettingsEvents), just wired to this company's
+                         own settings screen instead of being locked. -->
+                    <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem; max-width:520px;">
+                        <div class="mobile-section-title" style="margin-bottom:0.75rem;">Security</div>
+                        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                            <button type="button" class="btn-small btn-secondary" id="dc-toggle-change-email-btn">Change Email</button>
+                            <button type="button" class="btn-small btn-secondary" id="dc-toggle-change-password-btn">Change Password</button>
+                        </div>
+
+                        <form id="dc-change-email-form" style="display:none; background:var(--bg-light); padding:1.25rem; border-radius:0.875rem; margin-top:1rem;">
+                            <div class="form-group">
+                                <label class="form-label">New Email</label>
+                                <input type="email" class="form-input" id="dc-change-email-new" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Current Password</label>
+                                <input type="password" class="form-input" id="dc-change-email-current-password" required>
+                            </div>
+                            <div class="auth-error" id="dc-change-email-error"></div>
+                            <button type="submit" class="btn-small btn-success">Update Email</button>
+                        </form>
+
+                        <form id="dc-change-password-form" style="display:none; background:var(--bg-light); padding:1.25rem; border-radius:0.875rem; margin-top:1rem;">
+                            <div class="form-group">
+                                <label class="form-label">Current Password</label>
+                                <input type="password" class="form-input" id="dc-change-password-current" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">New Password</label>
+                                <input type="password" class="form-input" id="dc-change-password-new" placeholder="At least 8 characters" required minlength="8">
+                            </div>
+                            <div class="auth-error" id="dc-change-password-error"></div>
+                            <button type="submit" class="btn-small btn-success">Update Password</button>
+                        </form>
+                    </div>
                 </div>
             </main>
             <nav class="mobile-bottom-nav">
@@ -5883,8 +5976,11 @@
                 <div id="vendor-orders-container"></div>
             </div>
 
-            <!-- Messages — no backend for this yet, honestly marked -->
+            <!-- Messages — real conversations/messages backend (see
+                 GET/POST /api/conversations, POST /api/vendor/conversations),
+                 now a Premium-only perk — vendor-premium-locked below. -->
             <div id="vendor-view-messages" style="display:none;">
+                <div id="vendor-messages-locked" style="display:none;"></div>
                 <div id="vendor-messages-list-view">
                     <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Messages</div></div>
                     <div id="vendor-conversations-list"></div>
@@ -5902,34 +5998,39 @@
                 </div>
             </div>
 
-            <!-- Leads — real high-intent interaction events -->
+            <!-- Leads — real high-intent interaction events, now a
+                 Premium-only perk — vendor-leads-locked below swaps in
+                 for vendor-leads-content on a non-Premium account. -->
             <div id="vendor-view-leads" style="display:none;">
                 <div class="mobile-section" style="margin-top:0;">
                     <div class="mobile-section-header">
                         <div class="mobile-section-title">Leads</div>
                     </div>
-                    <p class="settings-hint" style="margin-bottom:1rem;">Real high-intent buyer interactions: messages, checkout attempts, and phone-number views. Not every browsing session — just meaningful signals of interest.</p>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
-                        <div style="background: var(--bg-light); padding: 0.875rem; border-radius: 0.75rem; text-align: center;">
-                            <div style="font-size: 0.6875rem; color: var(--slate-light); text-transform: uppercase; font-weight: 700;">Total Leads</div>
-                            <div style="font-size: 1.375rem; font-weight: 800; color: var(--slate);" id="leads-summary-total">0</div>
+                    <div id="vendor-leads-locked" style="display:none;"></div>
+                    <div id="vendor-leads-content">
+                        <p class="settings-hint" style="margin-bottom:1rem;">Real high-intent buyer interactions: messages, checkout attempts, and phone-number views. Not every browsing session — just meaningful signals of interest.</p>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+                            <div style="background: var(--bg-light); padding: 0.875rem; border-radius: 0.75rem; text-align: center;">
+                                <div style="font-size: 0.6875rem; color: var(--slate-light); text-transform: uppercase; font-weight: 700;">Total Leads</div>
+                                <div style="font-size: 1.375rem; font-weight: 800; color: var(--slate);" id="leads-summary-total">0</div>
+                            </div>
+                            <div style="background: #fef3c7; padding: 0.875rem; border-radius: 0.75rem; text-align: center;">
+                                <div style="font-size: 0.6875rem; color: #92400e; text-transform: uppercase; font-weight: 700;">New</div>
+                                <div style="font-size: 1.375rem; font-weight: 800; color: #92400e;" id="leads-summary-new">0</div>
+                            </div>
+                            <div style="background: #dcfce7; padding: 0.875rem; border-radius: 0.75rem; text-align: center;">
+                                <div style="font-size: 0.6875rem; color: #15803d; text-transform: uppercase; font-weight: 700;">Converted</div>
+                                <div style="font-size: 1.375rem; font-weight: 800; color: #15803d;" id="leads-summary-converted">0</div>
+                            </div>
                         </div>
-                        <div style="background: #fef3c7; padding: 0.875rem; border-radius: 0.75rem; text-align: center;">
-                            <div style="font-size: 0.6875rem; color: #92400e; text-transform: uppercase; font-weight: 700;">New</div>
-                            <div style="font-size: 1.375rem; font-weight: 800; color: #92400e;" id="leads-summary-new">0</div>
+                        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;" id="leads-filter-row">
+                            <button type="button" class="category-item active-category lead-filter-btn" data-type="">All</button>
+                            <button type="button" class="category-item lead-filter-btn" data-type="MESSAGE_SENT">Messages</button>
+                            <button type="button" class="category-item lead-filter-btn" data-type="PHONE_CLICK">Phone Views</button>
+                            <button type="button" class="category-item lead-filter-btn" data-type="CHECKOUT_STARTED">Checkouts</button>
                         </div>
-                        <div style="background: #dcfce7; padding: 0.875rem; border-radius: 0.75rem; text-align: center;">
-                            <div style="font-size: 0.6875rem; color: #15803d; text-transform: uppercase; font-weight: 700;">Converted</div>
-                            <div style="font-size: 1.375rem; font-weight: 800; color: #15803d;" id="leads-summary-converted">0</div>
-                        </div>
+                        <div id="vendor-leads-list"></div>
                     </div>
-                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;" id="leads-filter-row">
-                        <button type="button" class="category-item active-category lead-filter-btn" data-type="">All</button>
-                        <button type="button" class="category-item lead-filter-btn" data-type="MESSAGE_SENT">Messages</button>
-                        <button type="button" class="category-item lead-filter-btn" data-type="PHONE_CLICK">Phone Views</button>
-                        <button type="button" class="category-item lead-filter-btn" data-type="CHECKOUT_STARTED">Checkouts</button>
-                    </div>
-                    <div id="vendor-leads-list"></div>
                 </div>
             </div>
 
@@ -5963,9 +6064,11 @@
                 </div>
             </div>
 
-            <!-- Customers — real, derived from actual purchase records -->
+            <!-- Customers — real, derived from actual purchase records,
+                 now a Premium-only perk. -->
             <div id="vendor-view-customers" style="display:none;">
                 <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Your Customers</div></div>
+                <div id="vendor-customers-locked" style="display:none;"></div>
                 <div id="vendor-customers-container"></div>
             </div>
 
@@ -6894,6 +6997,20 @@
                     <button type="submit" class="btn-small btn-success" id="dc-accept-order-submit">Accept Order</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Delivery Company: order detail (read-only) — opened from an
+         order-history card, all fields are real values already
+         returned by GET /api/delivery-company/orders (rowToOrder in
+         db.js), nothing fabricated. -->
+    <div class="modal-overlay" id="dc-order-detail-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Order Details</h3>
+                <button class="close-btn" id="close-dc-order-detail-modal">&times;</button>
+            </div>
+            <div id="dc-order-detail-body"></div>
         </div>
     </div>
 
@@ -8505,6 +8622,14 @@
                     </span>
                     <svg class="admin-more-item-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </button>
+                <button type="button" class="admin-more-item" id="dc-more-disputes">
+                    <span class="admin-more-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></span>
+                    <span class="admin-more-item-text">
+                        <span class="admin-more-item-title">Disputes</span>
+                        <span class="admin-more-item-subtitle">See disputes filed against your deliveries</span>
+                    </span>
+                    <svg class="admin-more-item-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
                 <button type="button" class="admin-more-item" id="dc-more-settings">
                     <span class="admin-more-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
                     <span class="admin-more-item-text">
@@ -9006,6 +9131,27 @@
                         </div>
                     `).join('');
             }
+
+            // Delivery Company's own bell (admin-notification-* markup,
+            // same as #delivery-app's) — real "New order available"
+            // entries land here the instant a pending order comes in
+            // (see the socket.on('order:...') handler that calls
+            // sendLocalNotification for a logged-in delivery_company).
+            const dcBadge = document.getElementById('dc-notification-badge');
+            const dcList = document.getElementById('dc-notification-list');
+            if (dcBadge && dcList) {
+                dcBadge.style.display = unreadCount > 0 ? 'flex' : 'none';
+                dcBadge.textContent = unreadCount > 9 ? '9+' : String(unreadCount);
+                dcList.innerHTML = notificationLog.length === 0
+                    ? '<div class="admin-notification-empty">No notifications yet.</div>'
+                    : notificationLog.map(n => `
+                        <div class="admin-notification-item">
+                            <div class="admin-notification-item-title">${n.title}</div>
+                            ${n.body ? `<div class="admin-notification-item-body">${n.body.replace(/\n/g, ' · ')}</div>` : ''}
+                            <div class="admin-notification-item-time">${n.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</div>
+                        </div>
+                    `).join('');
+            }
         }
 
         // Modern, non-blocking feedback — replaces native alert() calls.
@@ -9485,6 +9631,16 @@
             await Platform.storage.remove(AUTH_STORAGE_KEY);
             sessionStorage.removeItem(AUTH_STORAGE_KEY);
             if (socket) { socket.disconnect(); socket = null; }
+            // socket.disconnect() above fires the client's own 'disconnect'
+            // handler (see connectSocket()), which sets this floating badge
+            // to visible with "Reconnecting…" — accurate for an
+            // unexpectedly-dropped connection during an active session, but
+            // wrong here: this is a deliberate logout, there's no session to
+            // reconnect, and nothing else ever hid the badge again — it was
+            // left stuck showing "Reconnecting…" over the App Chooser/login
+            // screen indefinitely. A guest has no connection to report on.
+            const connectionStatusEl = document.getElementById('connection-status');
+            if (connectionStatusEl) connectionStatusEl.style.display = 'none';
         }
 
         async function loadStoredAuth() {
@@ -10047,6 +10203,10 @@
 
         let deliveryCompanyOrdersCache = [];
         let dcSelectedYear = null, dcSelectedMonth = null, dcSelectedDay = null;
+        // Status filter + free-text search, layered on top of the existing
+        // date filters (all three apply together, narrowing the same list).
+        let dcOrdersStatusFilter = '';
+        let dcOrdersSearchQuery = '';
 
         async function loadDeliveryCompanyOrders() {
             const container = document.getElementById('dc-orders-list');
@@ -10073,16 +10233,26 @@
             if (orderYears.length === 0) orderYears.push(new Date().getFullYear());
             filtersEl.innerHTML = renderDateFilterControls('dc-oh-year-select', 'dc-oh-month-select', 'dc-oh-day-select', orderYears, dcSelectedYear, dcSelectedMonth, dcSelectedDay);
 
-            const filtered = filterByDate(deliveryCompanyOrdersCache, o => o.createdAt, dcSelectedYear, dcSelectedMonth, dcSelectedDay);
+            let filtered = filterByDate(deliveryCompanyOrdersCache, o => o.createdAt, dcSelectedYear, dcSelectedMonth, dcSelectedDay);
+            if (dcOrdersStatusFilter) filtered = filtered.filter(o => o.status === dcOrdersStatusFilter);
+            const q = dcOrdersSearchQuery.trim().toLowerCase();
+            if (q) {
+                filtered = filtered.filter(o =>
+                    o.id.toLowerCase().includes(q) ||
+                    (o.senderName || '').toLowerCase().includes(q) ||
+                    (o.pickupAddress || '').toLowerCase().includes(q) ||
+                    (o.dropoffAddress || '').toLowerCase().includes(q)
+                );
+            }
             if (filtered.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: var(--slate-light); padding: 1rem 0;">No orders found for the selected date.</p>';
+                container.innerHTML = '<p style="text-align: center; color: var(--slate-light); padding: 1rem 0;">No orders found for the selected filters.</p>';
                 return;
             }
             container.innerHTML = filtered.slice(0, 100).map(o => {
                 const statusClass = `status-${o.status.replace(' ', '-')}`;
                 const statusText = o.status.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
                 return `
-                    <div class="dc-card">
+                    <div class="dc-card dc-order-card" data-id="${o.id}" style="cursor:pointer;">
                         <div class="dcust-order-card-top">
                             <div class="dcust-order-card-id">${o.id}</div>
                             <span class="status-badge ${statusClass}">${statusText}</span>
@@ -10103,6 +10273,39 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        // Real-values-only detail popup for one order — every field here
+        // is already returned by GET /api/delivery-company/orders
+        // (rowToOrder in db.js); nothing here is fabricated or estimated.
+        function openDcOrderDetailModal(orderId) {
+            const o = deliveryCompanyOrdersCache.find(x => x.id === orderId);
+            if (!o) return;
+            const statusText = o.status.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            const row = (label, value) => value ? `
+                <div class="dcust-order-card-row" style="margin-bottom:0.625rem;">
+                    <span class="dcust-order-card-label" style="min-width:110px; display:inline-block;">${label}</span>
+                    <span class="dcust-order-card-value">${value}</span>
+                </div>` : '';
+            const fmtDate = (d) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+            document.getElementById('dc-order-detail-body').innerHTML = `
+                <div style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-weight:800; font-size:1.0625rem;">${o.id}</div>
+                    <span class="status-badge status-${o.status.replace(' ', '-')}">${statusText}</span>
+                </div>
+                ${row('Sender', o.senderName)}
+                ${row('Pickup', o.pickupAddress)}
+                ${row('Dropoff', o.dropoffAddress)}
+                ${row('Item', o.itemDescription)}
+                ${row('Agent', o.acceptedBy)}
+                ${row('Amount', o.amount !== null && o.amount !== undefined ? `$${Number(o.amount).toFixed(2)}` : null)}
+                ${row('Payment Method', o.paymentMethod)}
+                ${row('Placed', fmtDate(o.createdAt))}
+                ${row('Accepted', fmtDate(o.acceptedAt))}
+                ${row('Picked Up', fmtDate(o.pickedUpAt))}
+                ${row('Delivered', fmtDate(o.deliveredAt))}
+            `;
+            document.getElementById('dc-order-detail-modal').classList.add('active');
         }
 
         function openDeliveryCompanyAgentForm(agentId) {
@@ -10127,27 +10330,75 @@
             editingDeliveryCompanyAgentId = null;
         }
 
-        // Which of the four top-level Delivery Company pages is showing —
-        // same pattern as setDeliveryCustomerView, keeps the sidebar/
-        // bottom-nav "active" state and the visible section in sync.
+        // Which of the top-level Delivery Company pages is showing — same
+        // pattern as setDeliveryCustomerView, keeps the sidebar/bottom-nav
+        // "active" state and the visible section in sync.
         function setDcView(view) {
             document.getElementById('dc-view-dashboard').style.display = view === 'dashboard' ? 'block' : 'none';
             document.getElementById('dc-view-fleet').style.display = view === 'fleet' ? 'block' : 'none';
             document.getElementById('dc-view-orders').style.display = view === 'orders' ? 'block' : 'none';
+            document.getElementById('dc-view-disputes').style.display = view === 'disputes' ? 'block' : 'none';
             document.getElementById('dc-view-settings').style.display = view === 'settings' ? 'block' : 'none';
             document.getElementById('dc-nav-dashboard').classList.toggle('active', view === 'dashboard');
             document.getElementById('dc-nav-fleet').classList.toggle('active', view === 'fleet');
             document.getElementById('dc-nav-orders').classList.toggle('active', view === 'orders');
+            document.getElementById('dc-nav-disputes').classList.toggle('active', view === 'disputes');
             document.getElementById('dc-nav-settings').classList.toggle('active', view === 'settings');
             document.getElementById('dc-mnav-dashboard').classList.toggle('active', view === 'dashboard');
             document.getElementById('dc-mnav-fleet').classList.toggle('active', view === 'fleet');
             document.getElementById('dc-mnav-orders').classList.toggle('active', view === 'orders');
-            if (view === 'settings') {
+            if (view === 'disputes') {
+                loadDeliveryCompanyDisputes();
+            } else if (view === 'settings') {
                 document.getElementById('dc-settings-name-input').value = currentUser.businessName || '';
                 document.getElementById('dc-settings-email').value = currentUser.email || '';
                 populateCountryCodeSelects();
                 splitPhoneNumber(currentUser.phone, 'dc-settings-phone-country', 'dc-settings-phone-input');
             }
+        }
+
+        // Real, read-only delivery-company dispute visibility — mirrors
+        // loadVendorDisputes/renderVendorDisputesList almost verbatim,
+        // reusing the same DISPUTE_CATEGORY_LABELS / DISPUTE_STATUS_PILLS,
+        // just fetched from the delivery-company-scoped endpoint.
+        let dcDisputesFilter = '';
+
+        async function loadDeliveryCompanyDisputes() {
+            const listEl = document.getElementById('dc-disputes-list');
+            listEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
+            try {
+                const params = dcDisputesFilter ? `?status=${dcDisputesFilter}` : '';
+                const data = await apiFetch(`/api/delivery-company/disputes${params}`);
+                renderDeliveryCompanyDisputesList(data.disputes || []);
+            } catch (err) {
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderDeliveryCompanyDisputesList(disputes) {
+            const listEl = document.getElementById('dc-disputes-list');
+            if (disputes.length === 0) {
+                renderEmptyState(listEl, 'No disputes against your deliveries — real ones will show up here.');
+                return;
+            }
+            listEl.innerHTML = disputes.map(d => `
+                <div style="border:1px solid var(--border); border-radius:0.875rem; padding:1rem 1.25rem; margin-bottom:0.875rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.5rem;">
+                        <div>
+                            <div style="font-weight:700; color:var(--slate);">${DISPUTE_CATEGORY_LABELS[d.category] || d.category}</div>
+                            <div style="font-size:0.75rem; color:var(--slate-light);">${new Date(d.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · Filed by ${d.customerName}${d.order ? ` · Order ${d.order.itemDescription ? d.order.itemDescription : ''}` : ''}</div>
+                        </div>
+                        ${DISPUTE_STATUS_PILLS[d.status] || d.status}
+                    </div>
+                    <div style="font-size:0.875rem; color:var(--slate); margin-bottom:${d.resolutionNote ? '0.625rem' : '0'};">${d.description}</div>
+                    ${d.resolutionNote ? `
+                        <div style="background:var(--bg-light); border-radius:0.625rem; padding:0.75rem 0.875rem; font-size:0.8125rem; color:var(--slate);">
+                            <strong>Super Admin ${d.status === 'resolved' ? 'resolution' : 'response'}:</strong> ${d.resolutionNote}
+                            ${d.refundAmount ? `<div style="margin-top:0.375rem; font-weight:700; color:#15803d;">Refunded to sender: $${d.refundAmount.toFixed(2)}</div>` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
         }
 
         function openDcReportModal() {
@@ -10199,10 +10450,70 @@
             document.getElementById('dc-nav-dashboard').addEventListener('click', () => setDcView('dashboard'));
             document.getElementById('dc-nav-fleet').addEventListener('click', () => setDcView('fleet'));
             document.getElementById('dc-nav-orders').addEventListener('click', () => setDcView('orders'));
+            document.getElementById('dc-nav-disputes').addEventListener('click', () => setDcView('disputes'));
             document.getElementById('dc-nav-settings').addEventListener('click', () => setDcView('settings'));
             document.getElementById('dc-nav-reports').addEventListener('click', openDcReportModal);
             document.getElementById('dc-nav-back-to-chooser').addEventListener('click', showAppChooser);
             document.getElementById('dc-topbar-back-btn').addEventListener('click', showAppChooser);
+
+            // ---- Disputes: status filter row ----
+            document.getElementById('dc-disputes-filter-row').addEventListener('click', (e) => {
+                const btn = e.target.closest('.dc-dispute-filter-btn');
+                if (!btn) return;
+                document.querySelectorAll('.dc-dispute-filter-btn').forEach(b => b.classList.remove('active-category'));
+                btn.classList.add('active-category');
+                dcDisputesFilter = btn.dataset.status;
+                loadDeliveryCompanyDisputes();
+            });
+
+            // ---- Order history: status filter + text search ----
+            document.getElementById('dc-orders-status-filter-row').addEventListener('click', (e) => {
+                const btn = e.target.closest('.dc-order-status-filter-btn');
+                if (!btn) return;
+                document.querySelectorAll('.dc-order-status-filter-btn').forEach(b => b.classList.remove('active-category'));
+                btn.classList.add('active-category');
+                dcOrdersStatusFilter = btn.dataset.status;
+                renderDeliveryCompanyOrderHistory();
+            });
+            document.getElementById('dc-orders-search-input').addEventListener('input', (e) => {
+                dcOrdersSearchQuery = e.target.value;
+                renderDeliveryCompanyOrderHistory();
+            });
+            document.getElementById('dc-orders-list').addEventListener('click', (e) => {
+                const card = e.target.closest('.dc-order-card');
+                if (card) openDcOrderDetailModal(card.dataset.id);
+            });
+            document.getElementById('close-dc-order-detail-modal').addEventListener('click', () => {
+                document.getElementById('dc-order-detail-modal').classList.remove('active');
+            });
+
+            // ---- Notification bell — same real notification log as
+            // everywhere else (see renderNotificationCenter). ----
+            const dcBell = document.getElementById('dc-notification-bell-btn');
+            const dcPanel = document.getElementById('dc-notification-panel');
+            dcBell.addEventListener('click', (e) => {
+                e.stopPropagation();
+                dcPanel.classList.toggle('open');
+                if (dcPanel.classList.contains('open')) {
+                    notificationLog.forEach(n => { n.unread = false; });
+                    renderNotificationCenter();
+                }
+            });
+            document.addEventListener('click', (e) => {
+                if (dcPanel.classList.contains('open') && !dcPanel.contains(e.target) && e.target !== dcBell) {
+                    dcPanel.classList.remove('open');
+                }
+            });
+            document.getElementById('dc-clear-notifications-link').addEventListener('click', () => {
+                notificationLog = [];
+                renderNotificationCenter();
+            });
+
+            // ---- More sheet: Disputes ----
+            document.getElementById('dc-more-disputes').addEventListener('click', () => {
+                document.getElementById('dc-more-modal').classList.remove('active');
+                setDcView('disputes');
+            });
 
             // ---- Bottom nav (mobile) ----
             document.getElementById('dc-mnav-dashboard').addEventListener('click', () => setDcView('dashboard'));
@@ -12770,6 +13081,67 @@
                         });
                         document.getElementById('vendor-change-password-form').style.display = 'none';
                         document.getElementById('vendor-change-password-form').reset();
+                        showToast('Password updated', 'success');
+                    } catch (err) {
+                        errorEl.textContent = err.message;
+                        errorEl.style.display = 'block';
+                    }
+                });
+            }
+
+            // ---- Delivery Company Settings: change email / change
+            // password ---- Same block as vendor's directly above, just
+            // targeting the dc-prefixed Settings markup and posting to
+            // the same role-generic /api/me/change-email(-password)
+            // routes — a delivery company previously had a locked email
+            // field and no password-change option at all.
+            if (document.getElementById('dc-toggle-change-email-btn')) {
+                document.getElementById('dc-toggle-change-email-btn').addEventListener('click', () => {
+                    const form = document.getElementById('dc-change-email-form');
+                    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+                });
+                document.getElementById('dc-toggle-change-password-btn').addEventListener('click', () => {
+                    const form = document.getElementById('dc-change-password-form');
+                    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+                });
+
+                document.getElementById('dc-change-email-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const errorEl = document.getElementById('dc-change-email-error');
+                    errorEl.style.display = 'none';
+                    try {
+                        const data = await apiFetch('/api/me/change-email', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                newEmail: document.getElementById('dc-change-email-new').value,
+                                currentPassword: document.getElementById('dc-change-email-current-password').value,
+                            }),
+                        });
+                        saveAuth(data.token, data.user); // token embeds email — must refresh the stored one
+                        document.getElementById('dc-settings-email').value = data.user.email;
+                        document.getElementById('dc-change-email-form').style.display = 'none';
+                        document.getElementById('dc-change-email-form').reset();
+                        showToast('Email updated', 'success');
+                    } catch (err) {
+                        errorEl.textContent = err.message;
+                        errorEl.style.display = 'block';
+                    }
+                });
+
+                document.getElementById('dc-change-password-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const errorEl = document.getElementById('dc-change-password-error');
+                    errorEl.style.display = 'none';
+                    try {
+                        await apiFetch('/api/me/change-password', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                currentPassword: document.getElementById('dc-change-password-current').value,
+                                newPassword: document.getElementById('dc-change-password-new').value,
+                            }),
+                        });
+                        document.getElementById('dc-change-password-form').style.display = 'none';
+                        document.getElementById('dc-change-password-form').reset();
                         showToast('Password updated', 'success');
                     } catch (err) {
                         errorEl.textContent = err.message;
@@ -18982,7 +19354,7 @@
         function renderVendorPremiumStatus() {
             const statusEl = document.getElementById('vendor-premium-status');
             const { subscription, isPremium } = vendorPremiumData;
-            const perks = 'PDF sales reports, a lower commission rate, a Featured Placement perk, and priority support';
+            const perks = 'Messages, Leads, and Customers, PDF sales reports, a lower commission rate, a Featured Placement perk, and priority support';
             if (!subscription || subscription.status !== 'active') {
                 statusEl.innerHTML = `
                     <p style="margin:0 0 0.75rem; color:var(--slate-light); font-size:0.8125rem;">You're on the Free plan. Upgrade to Premium for ${perks}.</p>
@@ -19015,6 +19387,28 @@
                 </div>
                 ${(expired || renewsSoon) ? `<div class="address-card-actions"><button type="button" class="delete-promotion-btn" id="premium-renew-btn">Renew</button></div>` : ''}
                 </div>
+            `;
+        }
+
+        // Shared lock/upgrade prompt for the three Premium-only vendor
+        // tabs (Messages, Leads, Customers) — same "visible but blocked
+        // with an upgrade nudge" pattern already used for the Monthly
+        // Report PDF perk, just as a full replacement block instead of a
+        // toast, since these are whole tabs rather than one button. This
+        // is a UI-visibility toggle, not a hard security boundary — same
+        // caveat as the existing 'reports' Premium perk elsewhere in this
+        // file; the underlying API routes aren't restricted by tier.
+        function renderVendorPremiumLock(containerId, title, description) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = `
+                <div class="address-card"><div class="address-card-body" style="text-align:center; padding:1.75rem 1.25rem;">
+                    <div class="address-card-label-row" style="justify-content:center;">
+                        <span class="address-card-label">${title} is a Premium perk</span>
+                    </div>
+                    <div class="address-card-text" style="max-width:340px; margin:0.5rem auto 1.25rem;">${description}</div>
+                    <button type="button" class="btn-primary vendor-premium-lock-upgrade-btn">Upgrade to Premium</button>
+                </div></div>
             `;
         }
 
@@ -19732,7 +20126,7 @@
         }
 
         const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'disputes', 'settings', 'account'];
-        function setVendorTab(tab) {
+        async function setVendorTab(tab) {
             document.querySelectorAll('#vendor-app .mobile-nav-item, #vendor-app .desktop-sidebar-item[data-vendor-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.vendorTab === tab));
             VENDOR_TAB_VIEWS.forEach(v => {
                 const el = document.getElementById(`vendor-view-${v}`);
@@ -19744,11 +20138,32 @@
                 loadVendorReportsTab();
                 loadVendorPremiumPanel(); // keeps the PDF button's lock state accurate even if 'promotions' was never opened this session
             } else if (tab === 'customers') {
-                loadVendorCustomers();
+                // Premium-only as of this update — loadVendorPremiumPanel()
+                // is awaited fresh here (not just relying on a 'promotions'/
+                // 'reports' visit earlier this session) so a genuine Premium
+                // vendor never sees a false lock screen on first click.
+                await loadVendorPremiumPanel();
+                document.getElementById('vendor-customers-locked').style.display = vendorIsPremium ? 'none' : 'block';
+                document.getElementById('vendor-customers-container').style.display = vendorIsPremium ? 'block' : 'none';
+                if (vendorIsPremium) {
+                    loadVendorCustomers();
+                } else {
+                    renderVendorPremiumLock('vendor-customers-locked', 'Customers', "See every customer who's bought from your store, with their order history, once you upgrade.");
+                }
             } else if (tab === 'messages') {
+                await loadVendorPremiumPanel();
+                const lockedEl = document.getElementById('vendor-messages-locked');
+                const listViewEl = document.getElementById('vendor-messages-list-view');
                 document.getElementById('vendor-messages-thread-view').style.display = 'none';
-                document.getElementById('vendor-messages-list-view').style.display = 'block';
-                loadConversations('vendor');
+                if (vendorIsPremium) {
+                    lockedEl.style.display = 'none';
+                    listViewEl.style.display = 'block';
+                    loadConversations('vendor');
+                } else {
+                    listViewEl.style.display = 'none';
+                    lockedEl.style.display = 'block';
+                    renderVendorPremiumLock('vendor-messages-locked', 'Messages', 'Chat directly with customers about their orders and questions, once you upgrade.');
+                }
             } else if (tab === 'promotions') {
                 closePromotionForm();
                 closeCouponForm();
@@ -19761,7 +20176,14 @@
                 loadVendorFeaturedPanel();
                 loadVendorPremiumPanel();
             } else if (tab === 'leads') {
-                loadVendorLeads();
+                await loadVendorPremiumPanel();
+                document.getElementById('vendor-leads-locked').style.display = vendorIsPremium ? 'none' : 'block';
+                document.getElementById('vendor-leads-content').style.display = vendorIsPremium ? 'block' : 'none';
+                if (vendorIsPremium) {
+                    loadVendorLeads();
+                } else {
+                    renderVendorPremiumLock('vendor-leads-locked', 'Leads', 'Track real high-intent buyer interactions — messages, checkout attempts, phone views — once you upgrade.');
+                }
             } else if (tab === 'disputes') {
                 loadVendorDisputes();
             } else if (tab === 'settings' && currentUser) {
@@ -19804,6 +20226,17 @@
             document.getElementById('vendor-messages-thread-form').addEventListener('submit', (e) => {
                 e.preventDefault();
                 sendMessageInThread('vendor');
+            });
+
+            // ---- Premium lock prompts (Messages, Leads, Customers) ----
+            // One delegated listener covers all three, since
+            // renderVendorPremiumLock() injects the same button class
+            // into whichever container is currently locked.
+            ['vendor-messages-locked', 'vendor-leads-locked', 'vendor-customers-locked'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('click', (e) => {
+                    if (e.target.closest('.vendor-premium-lock-upgrade-btn')) setVendorTab('promotions');
+                });
             });
 
             // ---- Promotions ----

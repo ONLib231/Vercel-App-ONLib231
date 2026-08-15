@@ -4221,6 +4221,26 @@ const db = {
     return rows.map(r => this._rowToDisputeWithContext(r));
   },
 
+  // Read-only delivery-company visibility — the mirror image of
+  // getDisputesForVendor above, but keyed off d.order_id (a Delivery
+  // Company matter) instead of d.purchase_id (a vendor's Marketplace
+  // matter), per the schema.sql comment on the disputes table. Same
+  // reasoning as the vendor version: a delivery company previously had
+  // no way to know a dispute against one of its own deliveries even
+  // existed, only a quieter lower payout once Super Admin resolved it.
+  // Intentionally read-only for the same reason — only Super Admin
+  // resolves a dispute.
+  async getDisputesForDeliveryCompany(deliveryCompanyId, { status } = {}) {
+    const values = [deliveryCompanyId];
+    let where = 'WHERE o.delivery_company_id = $1';
+    if (status) { values.push(status); where += ` AND d.status = $${values.length}`; }
+    const { rows } = await pool.query(
+      `${this._disputeSelect()} ${where} ORDER BY (d.status = 'open') DESC, d.created_at DESC`,
+      values
+    );
+    return rows.map(r => this._rowToDisputeWithContext(r));
+  },
+
   // Super Admin queue. status is optional — omitted means "all".
   async getDisputes({ status } = {}) {
     const values = [];
