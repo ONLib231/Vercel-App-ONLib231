@@ -1590,8 +1590,19 @@
            with the sender view, so re-theming them safely is a separate,
            slightly bigger change — see README). Toggled via
            #delivery-app[data-theme="dark"], set by Settings > Appearance,
-           persisted in localStorage. */
-        #delivery-app[data-theme="dark"] {
+           persisted in localStorage.
+           Delivery customer (#delivery-customer-app) and delivery company
+           (#delivery-company-app) share the exact same --admin-* variable
+           set and the same .order-card/.stat-card/.section-title/
+           .admin-welcome-role component classes as #delivery-app (see the
+           light-mode variable block above and its comment on why each
+           shell needs its own copy — custom properties don't inherit
+           across separate top-level elements), so the same dark palette
+           and rules are just repeated per shell here, the same way the
+           light-mode variables already are. */
+        #delivery-app[data-theme="dark"],
+        #delivery-customer-app[data-theme="dark"],
+        #delivery-company-app[data-theme="dark"] {
             --admin-bg: #0f172a;
             --admin-surface: #1e293b;
             --admin-surface-alt: #273449;
@@ -1602,15 +1613,71 @@
             --admin-text-tertiary: #64748b;
         }
         #delivery-app[data-theme="dark"] .order-card,
-        #delivery-app[data-theme="dark"] .stat-card { background: var(--admin-surface); }
+        #delivery-app[data-theme="dark"] .stat-card,
+        #delivery-customer-app[data-theme="dark"] .order-card,
+        #delivery-customer-app[data-theme="dark"] .stat-card,
+        #delivery-company-app[data-theme="dark"] .order-card,
+        #delivery-company-app[data-theme="dark"] .stat-card { background: var(--admin-surface); }
         #delivery-app[data-theme="dark"] .order-detail-value,
         #delivery-app[data-theme="dark"] .order-id,
-        #delivery-app[data-theme="dark"] .section-title { color: var(--admin-text); }
+        #delivery-app[data-theme="dark"] .section-title,
+        #delivery-customer-app[data-theme="dark"] .order-detail-value,
+        #delivery-customer-app[data-theme="dark"] .order-id,
+        #delivery-customer-app[data-theme="dark"] .section-title,
+        #delivery-company-app[data-theme="dark"] .order-detail-value,
+        #delivery-company-app[data-theme="dark"] .order-id,
+        #delivery-company-app[data-theme="dark"] .section-title { color: var(--admin-text); }
         #delivery-app[data-theme="dark"] .order-detail-label,
         #delivery-app[data-theme="dark"] .order-date-label,
-        #delivery-app[data-theme="dark"] .order-timestamp { color: var(--admin-text-tertiary); }
-        #delivery-app[data-theme="dark"] .order-actions { border-top-color: var(--admin-border); }
-        #delivery-app[data-theme="dark"] .admin-welcome-role { background: #1e2547; }
+        #delivery-app[data-theme="dark"] .order-timestamp,
+        #delivery-customer-app[data-theme="dark"] .order-detail-label,
+        #delivery-customer-app[data-theme="dark"] .order-date-label,
+        #delivery-customer-app[data-theme="dark"] .order-timestamp,
+        #delivery-company-app[data-theme="dark"] .order-detail-label,
+        #delivery-company-app[data-theme="dark"] .order-date-label,
+        #delivery-company-app[data-theme="dark"] .order-timestamp { color: var(--admin-text-tertiary); }
+        #delivery-app[data-theme="dark"] .order-actions,
+        #delivery-customer-app[data-theme="dark"] .order-actions,
+        #delivery-company-app[data-theme="dark"] .order-actions { border-top-color: var(--admin-border); }
+        #delivery-app[data-theme="dark"] .admin-welcome-role,
+        #delivery-customer-app[data-theme="dark"] .admin-welcome-role,
+        #delivery-company-app[data-theme="dark"] .admin-welcome-role { background: #1e2547; }
+        /* #delivery-app's own sidebar is already dark navy regardless of
+           theme (see --admin-sidebar-from/to in its base variable block
+           above) — it has nothing to override here. Delivery customer and
+           delivery company's sidebars are plain white in light mode
+           though (a deliberate, different look from Manage Agent's), so
+           without this they'd stay a bright white column next to an
+           otherwise-dark dashboard once toggled — the single most
+           visually broken part of an otherwise-working dark theme, caught
+           by screenshotting the actual result rather than just checking
+           the CSS variables resolved. Recolors the sidebar to match
+           #delivery-app's own dark look (same --admin-sidebar-from/to
+           gradient, same hover/active treatment) so all three shells
+           converge to the same dark sidebar once dark mode is on. */
+        #delivery-customer-app[data-theme="dark"] .admin-sidebar,
+        #delivery-company-app[data-theme="dark"] .admin-sidebar {
+            background: linear-gradient(180deg, var(--admin-sidebar-from), var(--admin-sidebar-to));
+            border-right-color: rgba(255,255,255,0.06);
+        }
+        #delivery-customer-app[data-theme="dark"] .admin-nav-item,
+        #delivery-company-app[data-theme="dark"] .admin-nav-item { color: var(--admin-sidebar-text); }
+        #delivery-customer-app[data-theme="dark"] .admin-nav-item:hover,
+        #delivery-company-app[data-theme="dark"] .admin-nav-item:hover {
+            background: rgba(255,255,255,0.08); color: var(--admin-sidebar-text-hover);
+        }
+        #delivery-customer-app[data-theme="dark"] .admin-nav-item:focus-visible,
+        #delivery-company-app[data-theme="dark"] .admin-nav-item:focus-visible {
+            background: rgba(255,255,255,0.06); color: var(--admin-sidebar-text-hover);
+        }
+        #delivery-customer-app[data-theme="dark"] .admin-sidebar-footer,
+        #delivery-company-app[data-theme="dark"] .admin-sidebar-footer { border-top-color: rgba(255,255,255,0.08); }
+        #delivery-customer-app[data-theme="dark"] .admin-profile-label,
+        #delivery-company-app[data-theme="dark"] .admin-profile-label { color: var(--admin-sidebar-text-hover); }
+        #delivery-customer-app[data-theme="dark"] .admin-logout,
+        #delivery-company-app[data-theme="dark"] .admin-logout { color: #f87171; }
+        #delivery-customer-app[data-theme="dark"] .admin-logout:hover,
+        #delivery-company-app[data-theme="dark"] .admin-logout:hover { background: rgba(248,113,113,0.14); color: #fca5a5; }
         #delivery-app .admin-shell {
             display: grid;
             grid-template-columns: 272px 1fr;
@@ -4883,6 +4950,27 @@
                             <button type="button" class="btn-small btn-danger two-factor-disable-btn" data-prefix="dc" style="display:none;">Disable</button>
                         </div>
                     </div>
+
+                    <!-- Appearance — same real dark theme as every other
+                         role's Settings > Appearance (see setThemeChoice()
+                         and #delivery-company-app[data-theme="dark"] in
+                         the CSS). This card keeps the same hardcoded
+                         `background:white` its Security/2FA siblings
+                         above already use, so — like them — it stays
+                         light-themed regardless of the toggle; only the
+                         dashboard shell around it (sidebar, order/stat
+                         cards, welcome badge) actually goes dark. Same
+                         documented limitation as the modal-based Settings
+                         screens elsewhere, just for a different reason
+                         (hardcoded card background instead of DOM
+                         placement). -->
+                    <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem; max-width:520px;">
+                        <div class="mobile-section-title" style="margin-bottom:0.75rem;">Appearance</div>
+                        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                            <button type="button" class="settings-theme-option active" id="dc-theme-option-light" data-theme="light">☀️ Light Mode</button>
+                            <button type="button" class="settings-theme-option" id="dc-theme-option-dark" data-theme="dark">🌙 Dark Mode</button>
+                        </div>
+                    </div>
                 </div>
             </main>
             <nav class="mobile-bottom-nav">
@@ -6608,6 +6696,24 @@
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="settings" style="width:100%; margin-top:1.5rem;">Store Settings</button>
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="disputes" style="width:100%; margin-top:0.75rem;">Disputes</button>
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="returns" style="width:100%; margin-top:0.75rem;">Returns</button>
+                <!-- The "Upgrade to Premium" button (#premium-upgrade-btn,
+                     see renderVendorPremiumStatus()) has always existed
+                     and worked — but it only ever rendered inside the
+                     Promotions tab, and that tab was desktop-sidebar-only
+                     (data-vendor-tab="promotions" existed nowhere else,
+                     no mobile-bottom-nav item, no Account quick-access
+                     link). A vendor using this app on a phone had no path
+                     to it at all: not "buried," genuinely unreachable.
+                     Same class of gap as the Help & Support one just
+                     below (and the one found for Delivery Company before
+                     that) — a real, already-working feature with no door
+                     to it on part of the app. Labeled "Premium" here
+                     rather than reusing "Promotions," since that's what a
+                     vendor is actually looking for, and scrolls straight
+                     to the Premium section instead of leaving them to
+                     find it below Promotions/Coupons/Featured Placement
+                     on that tab (see openVendorPremiumSection()). -->
+                <button type="button" class="quick-access-btn secondary" id="vendor-mobile-premium-btn" style="width:100%; margin-top:0.75rem;">⭐ Upgrade to Premium</button>
                 <!-- Neither of these existed on mobile before — the only
                      Help & Support/Chat with Support entry point for a
                      vendor was the desktop-only sidebar footer button, so
@@ -9328,6 +9434,24 @@
                 <div id="dcust-settings-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
                 <button type="submit" class="btn-small btn-success" id="dcust-settings-submit-btn">Save Changes</button>
             </form>
+
+            <!-- Appearance — same real dark theme as Manage Agent/
+                 Marketplace/Vendor Settings > Appearance (see
+                 setThemeChoice() and #delivery-customer-app[data-theme=
+                 "dark"] in the CSS). Immediate-apply, same as Marketplace/
+                 Vendor's simpler toggle rather than the admin panel's
+                 separate "follow system" checkbox + Save step. This modal
+                 itself stays light-themed regardless (it's rendered
+                 outside #delivery-customer-app in the DOM) — same
+                 documented limitation as every other role's Settings
+                 modal; only the dashboard shell underneath goes dark. -->
+            <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                <div class="mobile-section-title" style="margin-bottom:0.75rem;">Appearance</div>
+                <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                    <button type="button" class="settings-theme-option active" id="dcust-theme-option-light" data-theme="light">☀️ Light Mode</button>
+                    <button type="button" class="settings-theme-option" id="dcust-theme-option-dark" data-theme="dark">🌙 Dark Mode</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -9372,7 +9496,10 @@
         <div class="modal" style="max-width: 640px; max-height: 85vh; overflow-y: auto;">
             <div class="modal-header">
                 <h3>Support Inbox</h3>
-                <button class="close-btn" id="close-support-inbox-modal">&times;</button>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    <button type="button" class="btn-small btn-success" id="open-new-message-btn">+ New Message</button>
+                    <button class="close-btn" id="close-support-inbox-modal">&times;</button>
+                </div>
             </div>
             <div id="support-inbox-list-view">
                 <div id="support-inbox-threads-list"></div>
@@ -9385,6 +9512,54 @@
                 <div class="messages-thread-body" id="support-inbox-thread-body"></div>
                 <form class="messages-thread-form" id="support-inbox-thread-form">
                     <input type="text" class="form-input" id="support-inbox-thread-input" placeholder="Type a reply…" autocomplete="off">
+                    <button type="submit" class="btn-small btn-success">Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Support Inbox: New Message — lets an admin start a conversation
+         with a Customer, Vendor, or Delivery Company who hasn't messaged
+         support before (the picker view), or send one message to every
+         user in a group at once (the broadcast path). Both paths write
+         into the same support_messages table an ordinary reply uses —
+         see broadcastSupportMessage()'s comment in db.js — so from the
+         recipient's own Chat with Support, an admin-started or
+         broadcast message looks and behaves exactly like a normal
+         Support reply. Opened from the "+ New Message" button on the
+         Support Inbox modal above; same Super Admin / Manage Agent
+         (support_inbox permission) access as Support Inbox itself,
+         since every route behind it is gated the same way. -->
+    <div class="modal-overlay" id="new-message-modal">
+        <div class="modal" style="max-width: 520px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>New Message</h3>
+                <button class="close-btn" id="close-new-message-modal">&times;</button>
+            </div>
+
+            <div id="new-message-picker-view">
+                <div style="display:flex; gap:0.5rem; margin-bottom:1rem;">
+                    <button type="button" class="settings-theme-option active" data-nm-role="sender">Customers</button>
+                    <button type="button" class="settings-theme-option" data-nm-role="vendor">Vendors</button>
+                    <button type="button" class="settings-theme-option" data-nm-role="delivery_company">Delivery Companies</button>
+                </div>
+
+                <button type="button" class="btn-small btn-success" id="new-message-broadcast-btn" style="width:100%; margin-bottom:1.25rem;">
+                    📢 Message everyone in this group
+                </button>
+
+                <input type="text" class="form-input" id="new-message-search-input" placeholder="Search by name, email, or phone…" style="margin-bottom:1rem;">
+                <div id="new-message-results"></div>
+            </div>
+
+            <div id="new-message-compose-view" style="display:none;">
+                <button type="button" class="messages-back-btn" id="new-message-compose-back-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                    <span id="new-message-compose-title">New Message</span>
+                </button>
+                <p id="new-message-compose-hint" style="color: var(--slate-light); font-size: 0.875rem; margin: 0.5rem 0 1rem;"></p>
+                <form class="messages-thread-form" id="new-message-compose-form">
+                    <input type="text" class="form-input" id="new-message-compose-input" placeholder="Type a message…" autocomplete="off">
                     <button type="submit" class="btn-small btn-success">Send</button>
                 </form>
             </div>
@@ -11231,6 +11406,9 @@
                 }
             });
 
+            document.getElementById('dc-theme-option-light').addEventListener('click', () => chooseAndSaveTheme('light'));
+            document.getElementById('dc-theme-option-dark').addEventListener('click', () => chooseAndSaveTheme('dark'));
+
             document.getElementById('dc-add-agent-btn').addEventListener('click', () => openDeliveryCompanyAgentForm(null));
             document.getElementById('dc-agent-form-cancel').addEventListener('click', closeDeliveryCompanyAgentForm);
             document.getElementById('dc-agent-form').addEventListener('submit', async (e) => {
@@ -12178,6 +12356,8 @@
                 document.getElementById('dcust-settings-modal').classList.remove('active');
             });
             document.getElementById('dcust-settings-form').addEventListener('submit', handleDcustSettingsSubmit);
+            document.getElementById('dcust-theme-option-light').addEventListener('click', () => chooseAndSaveTheme('light'));
+            document.getElementById('dcust-theme-option-dark').addEventListener('click', () => chooseAndSaveTheme('dark'));
             document.getElementById('delivery-guest-back-btn').addEventListener('click', showAppChooser);
             document.getElementById('delivery-guest-login-btn-2').addEventListener('click', showAuthScreen);
             document.getElementById('dcust-topbar-login-btn').addEventListener('click', showAuthScreen);
@@ -12311,7 +12491,7 @@
             closeAuthScreen();
             connectSocket();
             requestNotificationPermission();
-            // Applies to all three theme-capable app shells at once (see
+            // Applies to all five theme-capable app shells at once (see
             // setThemeChoice) — safe to call unconditionally before the
             // role branch below picks which one to actually show.
             applySavedTheme();
@@ -14219,16 +14399,18 @@
             document.getElementById('disable-2fa-form').addEventListener('submit', handleDisable2FASubmit);
         }
 
-        // One theme preference follows a person across every role —
-        // admin, marketplace customer, and vendor each have their own
-        // Appearance toggle in Settings, but all three write/read the
-        // same verta_theme localStorage key and flip in lockstep, so
-        // switching roles doesn't reset it. Each app container is a
-        // no-op to toggle if that role's dashboard isn't in the DOM
-        // right now (only one role's top-level app div exists per
-        // session), guarded with the `?.` so this never throws.
-        const THEME_TOGGLE_APP_IDS = ['delivery-app', 'home-screen', 'vendor-app'];
-        const THEME_TOGGLE_BTN_PREFIXES = ['', 'mp-', 'vendor-'];
+        // One theme preference follows a person across every role — admin,
+        // marketplace customer, vendor, delivery customer, and delivery
+        // company each have their own Appearance toggle in Settings, but
+        // all five write/read the same verta_theme localStorage key and
+        // flip in lockstep, so switching roles (or switching between
+        // Delivery and Marketplace as the same sender account) doesn't
+        // reset it. Each app container is a no-op to toggle if that
+        // role's dashboard isn't in the DOM right now (only one role's
+        // top-level app div exists per session), guarded with the `?.`
+        // so this never throws.
+        const THEME_TOGGLE_APP_IDS = ['delivery-app', 'home-screen', 'vendor-app', 'delivery-customer-app', 'delivery-company-app'];
+        const THEME_TOGGLE_BTN_PREFIXES = ['', 'mp-', 'vendor-', 'dcust-', 'dc-'];
 
         function setThemeChoice(theme) {
             THEME_TOGGLE_APP_IDS.forEach(id => document.getElementById(id)?.setAttribute('data-theme', theme));
@@ -15215,6 +15397,26 @@
             document.getElementById('support-inbox-thread-form').addEventListener('submit', (e) => {
                 e.preventDefault();
                 sendSupportInboxReply();
+            });
+
+            // ---- Support Inbox: New Message (same access as Support Inbox above — see openNewMessageModal()) ----
+            document.getElementById('open-new-message-btn').addEventListener('click', openNewMessageModal);
+            document.getElementById('close-new-message-modal').addEventListener('click', closeNewMessageModal);
+            document.querySelectorAll('#new-message-modal [data-nm-role]').forEach((btn) => {
+                btn.addEventListener('click', () => selectNewMessageRole(btn.dataset.nmRole));
+            });
+            document.getElementById('new-message-search-input').addEventListener('input', debounce(searchNewMessageDirectory, 200));
+            document.getElementById('new-message-broadcast-btn').addEventListener('click', () => {
+                openNewMessageCompose({ isBroadcast: true });
+            });
+            document.getElementById('new-message-results').addEventListener('click', (e) => {
+                const btn = e.target.closest('.new-message-pick-btn');
+                if (btn) openNewMessageCompose({ recipientId: btn.dataset.userId, recipientName: btn.dataset.userName, isBroadcast: false });
+            });
+            document.getElementById('new-message-compose-back-btn').addEventListener('click', closeNewMessageCompose);
+            document.getElementById('new-message-compose-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                sendNewMessage();
             });
 
             // ---- Admin: New Order on behalf of a customer ----
@@ -17304,6 +17506,132 @@
             } catch (err) {
                 showToast(err.message, 'error');
                 input.value = body;
+            }
+        }
+
+        // ============================================================
+        // Support Inbox: New Message — an admin picking a Customer,
+        // Vendor, or Delivery Company to start a conversation with (the
+        // existing POST .../threads/:userId/messages route already
+        // accepts any userId, thread or not — see its comment above),
+        // or broadcasting one message to every user in a group via
+        // POST /api/admin/support/broadcast. Two views inside the same
+        // #new-message-modal: a picker (role tabs + broadcast button +
+        // search-and-select) and a compose view, same back/forward
+        // pattern as Support Inbox's own list/thread views.
+        // ============================================================
+        const MESSAGING_ROLE_LABELS = { sender: 'Customers', vendor: 'Vendors', delivery_company: 'Delivery Companies' };
+        const MESSAGING_ROLE_SINGULAR = { sender: 'customer', vendor: 'vendor', delivery_company: 'delivery company' };
+        let newMessageSelectedRole = 'sender';
+        let newMessageSelectedRecipient = null; // { id, businessName } when messaging one person; null when broadcasting
+        let newMessageIsBroadcast = false;
+
+        function openNewMessageModal() {
+            newMessageSelectedRole = 'sender';
+            newMessageSelectedRecipient = null;
+            newMessageIsBroadcast = false;
+            document.querySelectorAll('#new-message-modal [data-nm-role]').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.nmRole === 'sender');
+            });
+            document.getElementById('new-message-search-input').value = '';
+            document.getElementById('new-message-picker-view').style.display = 'block';
+            document.getElementById('new-message-compose-view').style.display = 'none';
+            document.getElementById('new-message-modal').classList.add('active');
+            searchNewMessageDirectory();
+        }
+
+        function closeNewMessageModal() {
+            document.getElementById('new-message-modal').classList.remove('active');
+        }
+
+        function selectNewMessageRole(role) {
+            newMessageSelectedRole = role;
+            document.querySelectorAll('#new-message-modal [data-nm-role]').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.nmRole === role);
+            });
+            searchNewMessageDirectory();
+        }
+
+        async function searchNewMessageDirectory() {
+            const resultsEl = document.getElementById('new-message-results');
+            const search = document.getElementById('new-message-search-input').value.trim();
+            resultsEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Searching…</p>';
+            try {
+                const data = await apiFetch(`/api/admin/support/directory?role=${encodeURIComponent(newMessageSelectedRole)}&search=${encodeURIComponent(search)}`);
+                renderNewMessageResults(data.results || []);
+            } catch (err) {
+                resultsEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderNewMessageResults(results) {
+            const resultsEl = document.getElementById('new-message-results');
+            if (results.length === 0) {
+                renderEmptyState(resultsEl, `No ${MESSAGING_ROLE_LABELS[newMessageSelectedRole].toLowerCase()} match your search.`);
+                return;
+            }
+            resultsEl.innerHTML = results.map(u => `
+                <div class="conversation-card new-message-pick-btn" data-user-id="${u.id}" data-user-name="${(u.businessName || 'User').replace(/"/g, '&quot;')}">
+                    <div class="conversation-card-avatar">${(u.businessName || '?').charAt(0).toUpperCase()}</div>
+                    <div class="conversation-card-body">
+                        <div class="conversation-card-name">${u.businessName || 'User'}</div>
+                        <div class="conversation-card-preview">${u.email || u.phone || ''}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openNewMessageCompose({ recipientId, recipientName, isBroadcast }) {
+            newMessageIsBroadcast = !!isBroadcast;
+            newMessageSelectedRecipient = isBroadcast ? null : { id: recipientId, businessName: recipientName };
+            document.getElementById('new-message-picker-view').style.display = 'none';
+            document.getElementById('new-message-compose-view').style.display = 'block';
+            document.getElementById('new-message-compose-title').textContent = isBroadcast
+                ? `All ${MESSAGING_ROLE_LABELS[newMessageSelectedRole]}`
+                : (recipientName || 'User');
+            document.getElementById('new-message-compose-hint').textContent = isBroadcast
+                ? `This message goes to every ${MESSAGING_ROLE_SINGULAR[newMessageSelectedRole]} on the platform — there's no way to undo a broadcast once sent.`
+                : '';
+            document.getElementById('new-message-compose-input').value = '';
+            document.getElementById('new-message-compose-input').focus();
+        }
+
+        function closeNewMessageCompose() {
+            document.getElementById('new-message-compose-view').style.display = 'none';
+            document.getElementById('new-message-picker-view').style.display = 'block';
+        }
+
+        async function sendNewMessage() {
+            const input = document.getElementById('new-message-compose-input');
+            const body = input.value.trim();
+            if (!body) return;
+            const submitBtn = document.querySelector('#new-message-compose-form button[type="submit"]');
+            submitBtn.disabled = true;
+            try {
+                if (newMessageIsBroadcast) {
+                    const confirmed = confirm(`Send this message to every ${MESSAGING_ROLE_SINGULAR[newMessageSelectedRole]} on the platform? This can't be undone.`);
+                    if (!confirmed) { submitBtn.disabled = false; return; }
+                    const data = await apiFetch('/api/admin/support/broadcast', {
+                        method: 'POST',
+                        body: JSON.stringify({ role: newMessageSelectedRole, body }),
+                    });
+                    showToast(`Sent to ${data.recipientCount} ${MESSAGING_ROLE_LABELS[newMessageSelectedRole].toLowerCase()}`, 'success');
+                    closeNewMessageModal();
+                    loadSupportInboxThreads();
+                } else if (newMessageSelectedRecipient) {
+                    await apiFetch(`/api/admin/support/threads/${newMessageSelectedRecipient.id}/messages`, {
+                        method: 'POST',
+                        body: JSON.stringify({ body }),
+                    });
+                    showToast('Message sent', 'success');
+                    closeNewMessageModal();
+                    await loadSupportInboxThreads();
+                    openSupportThread(newMessageSelectedRecipient.id);
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
             }
         }
 
@@ -20742,6 +21070,25 @@
             `;
         }
 
+        // Dedicated entry point for the new mobile "⭐ Upgrade to Premium"
+        // quick-access button (#vendor-mobile-premium-btn, Account tab) —
+        // the Premium section itself has always lived inside the
+        // Promotions tab, several sections down (Promotions list, Coupon
+        // Codes, Featured Placement, then Premium), so a plain tab-switch
+        // via the generic [data-vendor-tab] delegation would land a
+        // vendor at the top of a tab they'd still have to scroll through
+        // to find what they actually came for. This switches tabs the
+        // same way, then scrolls straight to #vendor-premium-section —
+        // setVendorTab() toggles the tab's display:block synchronously
+        // before any of its awaited work, so the section is already
+        // visible (if not yet fully loaded) by the time scrollIntoView
+        // runs the moment the await below resolves.
+        async function openVendorPremiumSection() {
+            await setVendorTab('promotions');
+            const section = document.getElementById('vendor-premium-section');
+            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         // Shared lock/upgrade prompt for the three Premium-only vendor
         // tabs (Messages, Leads, Customers) — same "visible but blocked
         // with an upgrade nudge" pattern already used for the Monthly
@@ -22235,6 +22582,7 @@
                 document.getElementById('help-support-modal').classList.add('active');
             });
             document.getElementById('vendor-mobile-chat-support-btn').addEventListener('click', openSupportChatModal);
+            document.getElementById('vendor-mobile-premium-btn').addEventListener('click', openVendorPremiumSection);
             document.getElementById('vendor-desktop-logout-btn').addEventListener('click', vendorLogoutOrExitImpersonation);
 
             // Desktop profile dropdown

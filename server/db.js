@@ -2543,6 +2543,55 @@ const db = {
     }));
   },
 
+  // Admin "New Message" recipient picker — a lightweight, role-scoped
+  // directory search, deliberately separate from getCustomers()/
+  // getVendors()/getDeliveryCompanies() (which carry extra fields
+  // those pages need — order totals, approval status, etc. — and are
+  // gated by different feature/role checks). This one is scoped
+  // entirely to role IN ('sender','vendor','delivery_company') —
+  // enforced by the caller passing only a whitelisted role — and
+  // capped at 50 results, same convention as every other search box
+  // in this app (Fleet Directory, Customers, Order History).
+  async searchMessagingDirectory(role, search) {
+    const term = (search || '').trim();
+    const { rows } = await pool.query(
+      `SELECT id, business_name, email, phone FROM users
+       WHERE role = $1
+         AND ($2 = '' OR business_name ILIKE '%' || $2 || '%' OR email ILIKE '%' || $2 || '%' OR phone ILIKE '%' || $2 || '%')
+       ORDER BY business_name ASC
+       LIMIT 50`,
+      [role, term]
+    );
+    return rows.map(r => ({ id: r.id, businessName: r.business_name, email: r.email, phone: r.phone }));
+  },
+
+  // Admin "message everyone in this group" broadcast — writes one
+  // support_messages row per recipient (sender_role='support'), same
+  // table and shape a normal reply uses, so from each recipient's own
+  // Chat with Support it looks exactly like Support messaged them
+  // individually. Skips disabled accounts (nothing gained by writing
+  // a message a suspended account can never read). A single bulk
+  // INSERT via unnest() rather than one query per recipient — this
+  // app has no other bulk-insert precedent to follow, so this is
+  // written to scale to a few thousand recipients without issuing
+  // that many round trips.
+  async broadcastSupportMessage({ role, body }) {
+    const { rows: recipients } = await pool.query(
+      `SELECT id FROM users WHERE role = $1 AND is_disabled = false`,
+      [role]
+    );
+    if (recipients.length === 0) return [];
+    const ids = recipients.map(() => crypto.randomUUID());
+    const userIds = recipients.map(r => r.id);
+    const { rows } = await pool.query(
+      `INSERT INTO support_messages (id, user_id, sender_role, body)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[])
+       RETURNING *`,
+      [ids, userIds, userIds.map(() => 'support'), userIds.map(() => body)]
+    );
+    return rows.map(rowToSupportMessage);
+  },
+
   // ---- Web Push (VAPID) subscriptions — see push.js for the send
   // side. A user can have more than one (a phone and a laptop both
   // subscribed), so this is a plain list, not a single row per user. ----

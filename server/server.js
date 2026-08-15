@@ -4595,6 +4595,63 @@ app.post('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmi
   }
 });
 
+// Roles an admin is allowed to message through this feature — kept as
+// an explicit whitelist rather than trusting whatever the client
+// sends, same reasoning as every other role-scoped query in this
+// file. 'admin'/'super_admin' are deliberately excluded: this is for
+// reaching customers/vendors/delivery companies, not staff-to-staff
+// messaging (which has no product need here).
+const MESSAGING_DIRECTORY_ROLES = ['sender', 'vendor', 'delivery_company'];
+
+// Support Inbox's "New Message" recipient picker — search customers,
+// vendors, or delivery companies by name/email/phone so an admin can
+// start a conversation with someone who has never messaged support
+// before (the existing POST .../threads/:userId/messages route above
+// already works for any userId, thread or no thread — this route is
+// what lets the frontend find that userId in the first place).
+app.get('/api/admin/support/directory', requireAuth, requireAdmin, requireFeature('support_inbox'), async (req, res) => {
+  const { role, search } = req.query;
+  if (!MESSAGING_DIRECTORY_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  try {
+    const results = await db.searchMessagingDirectory(role, search || '');
+    res.json({ results });
+  } catch (err) {
+    console.error('GET /api/admin/support/directory failed', err);
+    res.status(500).json({ error: 'Failed to search directory' });
+  }
+});
+
+// Support Inbox's "Message everyone in this group" broadcast — one
+// message, written into every matching user's own support thread
+// (skipping disabled accounts). Real-time delivery mirrors the
+// single-recipient route above: each recipient's own tabs get it live
+// via their `user:<id>` room, and every connected admin/support staff
+// member sees it too (a broadcast should show up in Support Inbox's
+// thread list exactly like an individual reply would). Push
+// notifications are fire-and-forget per recipient, same pattern used
+// everywhere else in this file — not awaited, so a slow/failed push
+// for one recipient can never delay or fail the response for the rest.
+app.post('/api/admin/support/broadcast', requireAuth, requireAdmin, requireFeature('support_inbox'), async (req, res) => {
+  const { role, body } = req.body || {};
+  if (!MESSAGING_DIRECTORY_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Invalid role' });
+  }
+  if (!body || !body.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+  try {
+    const messages = await db.broadcastSupportMessage({ role, body: body.trim() });
+    messages.forEach((message) => {
+      io.to(`user:${message.userId}`).to('admins').emit('support:new', { userId: message.userId, message });
+      sendPushToUser(db, message.userId, { title: 'New message from Support', body: message.body, url: '/' }); // fire-and-forget
+    });
+    res.json({ recipientCount: messages.length });
+  } catch (err) {
+    console.error('POST /api/admin/support/broadcast failed', err);
+    res.status(500).json({ error: 'Failed to send broadcast' });
+  }
+});
+
 // ============================================================
 // Web Push (VAPID) — no third-party account needed. See push.js for
 // full setup instructions and the send side.
