@@ -54,6 +54,13 @@ const FEATURE_KEYS = {
   // toggle, not a hard security boundary; documented here so that stays
   // obvious rather than assumed.
   reports: 'Monthly & Daily Reports (view and download PDF)',
+  // Support Inbox was built Super-Admin-only (see the "Support Inbox"
+  // section of the README) — a Manage Agent account couldn't reach it
+  // at all, gated purely in the frontend nav. Opened up to Manage
+  // Agent as an opt-in, Super-Admin-granted permission like every
+  // other key here, rather than turned on unconditionally for every
+  // Manage Agent account.
+  support_inbox: 'Support Inbox (live chat with customers/vendors/delivery companies)',
 };
 
 // REST middleware version — checked fresh against the database on
@@ -4548,7 +4555,7 @@ app.post('/api/support/messages', requireAuth, async (req, res) => {
 
 // Support inbox (admin-facing) — every user who has ever messaged
 // support, most-recently-active first.
-app.get('/api/admin/support/threads', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/support/threads', requireAuth, requireAdmin, requireFeature('support_inbox'), async (req, res) => {
   try {
     const threads = await db.getSupportThreadsForAdmin();
     res.json({ threads });
@@ -4560,7 +4567,7 @@ app.get('/api/admin/support/threads', requireAuth, requireAdmin, async (req, res
 
 // A specific user's thread, from the support side. Reading it marks
 // the user's messages read.
-app.get('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin, async (req, res) => {
+app.get('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin, requireFeature('support_inbox'), async (req, res) => {
   try {
     const messages = await db.getSupportMessages(req.params.userId);
     await db.markSupportMessagesRead(req.params.userId, 'support');
@@ -4571,7 +4578,7 @@ app.get('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin
   }
 });
 
-app.post('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin, async (req, res) => {
+app.post('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin, requireFeature('support_inbox'), async (req, res) => {
   const { body } = req.body || {};
   if (!body || !body.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
   try {
