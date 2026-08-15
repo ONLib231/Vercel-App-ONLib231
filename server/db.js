@@ -33,6 +33,18 @@ function rowToOrder(r) {
     pickedUpAt: r.picked_up_at,
     deliveredAt: r.delivered_at,
     deliveryCompanyId: r.delivery_company_id,
+    // Real, collision-safe agent link (see the schema.sql comment on
+    // orders.agent_id) — null for any order accepted before this
+    // column existed, or one an admin accepted with no matching agent
+    // record at all.
+    agentId: r.agent_id || null,
+    tipAmount: r.tip_amount === null || r.tip_amount === undefined ? null : Number(r.tip_amount),
+    scheduledFor: r.scheduled_for || null,
+    recurrence: r.recurrence || null,
+    // Only present when the query joined agent_reviews (see
+    // getOrdersBySender) — lets the sender's own order list know
+    // whether "Rate your delivery" should still show for this order.
+    ...(r.agent_review_id !== undefined ? { agentReviewId: r.agent_review_id } : {}),
     // Only present when the query joined purchases (see
     // getOrdersBySender) — a plain package-delivery order (no
     // marketplace purchase behind it) has nothing to rate, so these
@@ -63,6 +75,38 @@ function rowToAgent(r) {
     phone: r.phone,
     dutyStatus: r.duty_status,
     deliveryCompanyId: r.delivery_company_id,
+    // Only present when the query joined the agent_reviews aggregate
+    // (see getAgentsByCompany) — an agent with zero ratings yet gets
+    // null/0 here rather than a fabricated default.
+    ...(r.avg_rating !== undefined ? {
+      avgRating: r.avg_rating === null ? null : Number(r.avg_rating),
+      reviewCount: Number(r.review_count || 0),
+    } : {}),
+  };
+}
+
+function rowToAgentReview(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    agentId: r.agent_id,
+    orderId: r.order_id,
+    customerId: r.customer_id,
+    rating: r.rating,
+    comment: r.comment,
+    createdAt: r.created_at,
+  };
+}
+
+function rowToSupportMessage(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    userId: r.user_id,
+    senderRole: r.sender_role,
+    body: r.body,
+    createdAt: r.created_at,
+    readAt: r.read_at,
   };
 }
 
@@ -428,6 +472,7 @@ function rowToUser(r) {
     // boost/badge instead of a separate vendor-directory page.
     featuredUntil: r.featured_until || null,
     isStoreFeatured: isFuture(r.featured_until),
+    twoFactorEnabled: !!r.two_factor_enabled,
   };
 }
 
@@ -641,7 +686,13 @@ const db = {
   // ---- Delivery Company (multi-provider) scoped queries ----------------
   async getAgentsByCompany(companyId) {
     const { rows } = await pool.query(
-      'SELECT * FROM agents WHERE delivery_company_id = $1 ORDER BY created_at ASC',
+      `SELECT a.*, r.avg_rating, r.review_count
+       FROM agents a
+       LEFT JOIN (
+         SELECT agent_id, AVG(rating)::numeric(3,2) AS avg_rating, COUNT(*) AS review_count
+         FROM agent_reviews GROUP BY agent_id
+       ) r ON r.agent_id = a.id
+       WHERE a.delivery_company_id = $1 ORDER BY a.created_at ASC`,
       [companyId]
     );
     return rows.map(rowToAgent);
@@ -674,10 +725,12 @@ const db = {
   // all, and that's normal, not missing data.
   async getOrdersBySender(senderId) {
     const { rows } = await pool.query(`
-      SELECT o.*, pu.id AS purchase_id, pu.vendor_id AS purchase_vendor_id, u.business_name AS purchase_vendor_name
+      SELECT o.*, pu.id AS purchase_id, pu.vendor_id AS purchase_vendor_id, u.business_name AS purchase_vendor_name,
+        ar.id AS agent_review_id
       FROM orders o
       LEFT JOIN purchases pu ON pu.delivery_order_id = o.id
       LEFT JOIN users u ON u.id = pu.vendor_id
+      LEFT JOIN agent_reviews ar ON ar.order_id = o.id
       WHERE o.sender_id = $1
       ORDER BY o.created_at DESC
     `, [senderId]);
@@ -686,10 +739,54 @@ const db = {
 
   async createOrder(order) {
     const { rows } = await pool.query(
-      `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, scheduled_for, recurrence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [order.id, order.senderId, order.senderName, order.pickupAddress, order.dropoffAddress, order.itemDescription, order.amount, order.status || 'pending', !!order.placedByAdmin]
+      [order.id, order.senderId, order.senderName, order.pickupAddress, order.dropoffAddress, order.itemDescription, order.amount, order.status || 'pending', !!order.placedByAdmin, order.scheduledFor || null, order.recurrence || null]
+    );
+    return rowToOrder(rows[0]);
+  },
+
+  // ---- Scheduled/recurring "Send a Package" orders — see the
+  // scheduled_for/recurrence comment in schema.sql for the design:
+  // status='scheduled' keeps a not-yet-due order invisible to
+  // getPendingOrders() until a periodic sweep (see server.js) promotes
+  // it. ----
+
+  async getScheduledOrdersDue() {
+    const { rows } = await pool.query(
+      "SELECT * FROM orders WHERE status = 'scheduled' AND scheduled_for <= now()"
+    );
+    return rows.map(rowToOrder);
+  },
+
+  // Guarded by WHERE status = 'scheduled' for the same reason
+  // acceptOrderAtomic guards on 'pending' — the sweep runs on an
+  // interval, not exactly-once, so this stays safe even if a future
+  // change ever calls it twice for the same order.
+  async promoteScheduledOrder(id) {
+    const { rows } = await pool.query(
+      `UPDATE orders SET status = 'pending' WHERE id = $1 AND status = 'scheduled' RETURNING *`,
+      [id]
+    );
+    return rowToOrder(rows[0]);
+  },
+
+  // Listing a sender's own scheduled orders doesn't need a dedicated
+  // getter — GET /api/state already returns every order for a sender
+  // (getOrdersBySender is not status-filtered), scheduled ones
+  // included, and every subsequent change arrives live over the
+  // socket like any other order.
+
+  // A customer cancelling a not-yet-due scheduled order — distinct from
+  // cancelOrderAndRestock, which only ever matches status='pending' and
+  // has no reason to run here: a scheduled order was created through
+  // this same manual "Send a Package" flow, never through marketplace
+  // checkout, so it never has a linked purchase to restock.
+  async cancelScheduledOrder(id, senderId) {
+    const { rows } = await pool.query(
+      `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND sender_id = $2 AND status = 'scheduled' RETURNING *`,
+      [id, senderId]
     );
     return rowToOrder(rows[0]);
   },
@@ -712,18 +809,53 @@ const db = {
   // A plain "Send a Package" order (no linked purchase) gets the
   // platform's current service fee snapshotted, same reasoning as
   // amount/commission_rate elsewhere in this app.
-  async acceptOrderAtomic(id, { amount, acceptedBy, paymentMethod, deliveryCompanyId }) {
+  async acceptOrderAtomic(id, { amount, acceptedBy, paymentMethod, deliveryCompanyId, agentId }) {
     const { rows } = await pool.query(
       `UPDATE orders SET amount = $1, accepted_by = $2, payment_method = $3,
-       status = 'accepted', accepted_at = now(), delivery_company_id = $4,
+       status = 'accepted', accepted_at = now(), delivery_company_id = $4, agent_id = $6,
        service_fee = CASE
          WHEN EXISTS (SELECT 1 FROM purchases WHERE delivery_order_id = orders.id) THEN 0
          ELSE (SELECT service_fee FROM platform_settings WHERE id = 'platform')
        END
        WHERE id = $5 AND status = 'pending' RETURNING *`,
-      [amount, acceptedBy, paymentMethod || null, deliveryCompanyId || null, id]
+      [amount, acceptedBy, paymentMethod || null, deliveryCompanyId || null, id, agentId || null]
     );
     return rowToOrder(rows[0]);
+  },
+
+  // The "Rate your delivery" submission — a star rating for the real
+  // agent who delivered the order (agent_id, see schema.sql), plus an
+  // optional tip. Ownership/status/agent-presence are all validated by
+  // the caller (see POST /api/orders/:id/rate in server.js) before
+  // this runs; the UNIQUE(order_id) constraint on agent_reviews is the
+  // actual backstop against a double-submit race. tipAmount is
+  // optional and independent of the rating — a sender can tip without
+  // leaving a comment, or leave a rating with no tip.
+  async rateDelivery({ id, orderId, agentId, customerId, rating, comment, tipAmount }) {
+    const { rows } = await pool.query(
+      `INSERT INTO agent_reviews (id, agent_id, order_id, customer_id, rating, comment)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [id, agentId, orderId, customerId, rating, comment || null]
+    );
+    if (tipAmount !== undefined && tipAmount !== null) {
+      await pool.query('UPDATE orders SET tip_amount = $1 WHERE id = $2', [tipAmount, orderId]);
+    }
+    return rowToAgentReview(rows[0]);
+  },
+
+  async getAgentReviewForOrder(orderId) {
+    const { rows } = await pool.query('SELECT * FROM agent_reviews WHERE order_id = $1', [orderId]);
+    return rowToAgentReview(rows[0]);
+  },
+
+  async getAgentReviews(agentId) {
+    const { rows } = await pool.query(
+      `SELECT ar.*, u.business_name AS customer_name
+       FROM agent_reviews ar JOIN users u ON u.id = ar.customer_id
+       WHERE ar.agent_id = $1 ORDER BY ar.created_at DESC`,
+      [agentId]
+    );
+    return rows.map(r => ({ ...rowToAgentReview(r), customerName: r.customer_name }));
   },
 
   async updateOrder(id, fields) {
@@ -1069,6 +1201,32 @@ const db = {
 
   async markPasswordResetUsed(id) {
     await pool.query('UPDATE password_resets SET used = true WHERE id = $1', [id]);
+  },
+
+  // ---- Two-factor authentication (SMS via Twilio, all roles) — same
+  // code/hash/expiry/used shape as password_resets above, kept as its
+  // own table since it's a distinct concern (a login-time challenge,
+  // not a password-recovery flow). See schema.sql for the "rebuilt
+  // from scratch" note. ----
+
+  async setTwoFactorEnabled(userId, enabled) {
+    await pool.query('UPDATE users SET two_factor_enabled = $1 WHERE id = $2', [enabled, userId]);
+  },
+
+  async createTwoFactorChallenge({ id, userId, codeHash, expiresAt }) {
+    await pool.query(
+      `INSERT INTO two_factor_challenges (id, user_id, code_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+      [id, userId, codeHash, expiresAt]
+    );
+  },
+
+  async getTwoFactorChallenge(id) {
+    const { rows } = await pool.query('SELECT * FROM two_factor_challenges WHERE id = $1', [id]);
+    return rows[0] || null;
+  },
+
+  async markTwoFactorChallengeUsed(id) {
+    await pool.query('UPDATE two_factor_challenges SET used = true WHERE id = $1', [id]);
   },
 
   // ---- Settings (Business Profile / Regional) -------------------------
@@ -2240,6 +2398,180 @@ const db = {
   async getPurchaseById(id) {
     const { rows } = await pool.query('SELECT * FROM purchases WHERE id = $1', [id]);
     return rowToPurchase(rows[0]);
+  },
+
+  // ---- Self-service returns — distinct from disputes, see the
+  // schema.sql comment on return_requests. ----
+
+  _returnRequestSelect() {
+    return `SELECT rr.*, pr.total_amount AS purchase_total_amount, cust.business_name AS customer_name
+      FROM return_requests rr
+      JOIN purchases pr ON pr.id = rr.purchase_id
+      JOIN users cust ON cust.id = rr.customer_id`;
+  },
+
+  _rowToReturnRequest(r) {
+    if (!r) return null;
+    return {
+      id: r.id,
+      purchaseId: r.purchase_id,
+      customerId: r.customer_id,
+      customerName: r.customer_name,
+      vendorId: r.vendor_id,
+      reason: r.reason,
+      description: r.description,
+      status: r.status,
+      vendorNote: r.vendor_note,
+      refundAmount: r.refund_amount === null || r.refund_amount === undefined ? null : Number(r.refund_amount),
+      purchaseAmount: r.purchase_total_amount === null || r.purchase_total_amount === undefined ? null : Number(r.purchase_total_amount),
+      resolvedAt: r.resolved_at,
+      createdAt: r.created_at,
+    };
+  },
+
+  async createReturnRequest({ id, purchaseId, customerId, vendorId, reason, description }) {
+    const { rows } = await pool.query(
+      `INSERT INTO return_requests (id, purchase_id, customer_id, vendor_id, reason, description)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [id, purchaseId, customerId, vendorId, reason, description || null]
+    );
+    return this._rowToReturnRequest(rows[0]);
+  },
+
+  async getReturnRequestByPurchase(purchaseId) {
+    const { rows } = await pool.query(`${this._returnRequestSelect()} WHERE rr.purchase_id = $1`, [purchaseId]);
+    return this._rowToReturnRequest(rows[0]);
+  },
+
+  async getReturnRequestById(id) {
+    const { rows } = await pool.query(`${this._returnRequestSelect()} WHERE rr.id = $1`, [id]);
+    return this._rowToReturnRequest(rows[0]);
+  },
+
+  async getReturnRequestsForCustomer(customerId) {
+    const { rows } = await pool.query(
+      `${this._returnRequestSelect()} WHERE rr.customer_id = $1 ORDER BY rr.created_at DESC`,
+      [customerId]
+    );
+    return rows.map(r => this._rowToReturnRequest(r));
+  },
+
+  // Vendor's own review queue — the equivalent of Super Admin's
+  // dispute queue, but scoped to this vendor and with no Super Admin
+  // step: the vendor decides directly (see resolveReturnRequest).
+  async getReturnRequestsForVendor(vendorId, { status } = {}) {
+    const values = [vendorId];
+    let where = 'WHERE rr.vendor_id = $1';
+    if (status) { values.push(status); where += ` AND rr.status = $${values.length}`; }
+    const { rows } = await pool.query(
+      `${this._returnRequestSelect()} ${where} ORDER BY (rr.status = 'requested') DESC, rr.created_at DESC`,
+      values
+    );
+    return rows.map(r => this._rowToReturnRequest(r));
+  },
+
+  // requested -> approved|rejected (vendor's first decision), or
+  // approved -> refunded (vendor confirms the refund happened). Scoped
+  // to the expected "from" status so a return can't be double-decided
+  // or refunded before being approved; returns null (not an error) if
+  // that guard fails, same 409-on-null pattern as resolveDispute.
+  async resolveReturnRequest(id, { status, vendorNote, refundAmount }) {
+    const fromStatus = status === 'refunded' ? 'approved' : 'requested';
+    const { rows } = await pool.query(
+      `UPDATE return_requests SET status = $1, vendor_note = $2, refund_amount = $3, resolved_at = now()
+       WHERE id = $4 AND status = $5 RETURNING *`,
+      [status, vendorNote || null, refundAmount || null, id, fromStatus]
+    );
+    return this._rowToReturnRequest(rows[0]);
+  },
+
+  // ---- Live in-app support chat — one thread per user account,
+  // distinct from vendor<->customer conversations (support is
+  // platform-run, not scoped to any one vendor). See the
+  // support_messages comment in schema.sql. ----
+
+  async getSupportMessages(userId) {
+    const { rows } = await pool.query(
+      `SELECT * FROM support_messages WHERE user_id = $1 ORDER BY created_at ASC`,
+      [userId]
+    );
+    return rows.map(rowToSupportMessage);
+  },
+
+  async createSupportMessage({ id, userId, senderRole, body }) {
+    const { rows } = await pool.query(
+      `INSERT INTO support_messages (id, user_id, sender_role, body) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id, userId, senderRole, body]
+    );
+    return rowToSupportMessage(rows[0]);
+  },
+
+  // Marks the OTHER side's messages read — called when the user opens
+  // their own thread (marks 'support' messages read) or when support
+  // opens a user's thread (marks 'user' messages read). Mirrors the
+  // read-on-open pattern GET /api/conversations/:id/messages already
+  // uses for vendor<->customer messaging.
+  async markSupportMessagesRead(userId, readerRole) {
+    const otherRole = readerRole === 'user' ? 'support' : 'user';
+    await pool.query(
+      `UPDATE support_messages SET read_at = now() WHERE user_id = $1 AND sender_role = $2 AND read_at IS NULL`,
+      [userId, otherRole]
+    );
+  },
+
+  // Support inbox (admin-facing) — one row per user who has ever
+  // messaged support, most-recently-active first, with a last-message
+  // preview and an unread count (messages from the user support hasn't
+  // read yet) so the inbox can show what needs a reply first.
+  async getSupportThreadsForAdmin() {
+    const { rows } = await pool.query(`
+      SELECT u.id AS user_id, u.business_name AS user_name, u.role AS user_role,
+        (SELECT body FROM support_messages WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+        (SELECT created_at FROM support_messages WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
+        (SELECT COUNT(*) FROM support_messages WHERE user_id = u.id AND sender_role = 'user' AND read_at IS NULL)::int AS unread_count
+      FROM users u
+      WHERE EXISTS (SELECT 1 FROM support_messages sm WHERE sm.user_id = u.id)
+      ORDER BY last_message_at DESC
+    `);
+    return rows.map(r => ({
+      userId: r.user_id,
+      userName: r.user_name,
+      userRole: r.user_role,
+      lastMessage: r.last_message,
+      lastMessageAt: r.last_message_at,
+      unreadCount: r.unread_count,
+    }));
+  },
+
+  // ---- Web Push (VAPID) subscriptions — see push.js for the send
+  // side. A user can have more than one (a phone and a laptop both
+  // subscribed), so this is a plain list, not a single row per user. ----
+
+  // ON CONFLICT (endpoint) rather than a plain INSERT: re-subscribing
+  // (e.g. the browser silently rotated the push endpoint's keys, or the
+  // same device re-registered) should update the existing row, not
+  // throw on the UNIQUE(endpoint) constraint or create a duplicate.
+  async upsertPushSubscription({ id, userId, endpoint, p256dh, auth }) {
+    const { rows } = await pool.query(
+      `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (endpoint) DO UPDATE SET user_id = $2, p256dh = $4, auth = $5
+       RETURNING *`,
+      [id, userId, endpoint, p256dh, auth]
+    );
+    return rows[0];
+  },
+
+  async deletePushSubscriptionByEndpoint(endpoint) {
+    await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
+  },
+
+  async getPushSubscriptionsForUser(userId) {
+    const { rows } = await pool.query(
+      'SELECT * FROM push_subscriptions WHERE user_id = $1',
+      [userId]
+    );
+    return rows.map(r => ({ endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth }));
   },
 
   // Real sales overview for the vendor dashboard — total revenue and

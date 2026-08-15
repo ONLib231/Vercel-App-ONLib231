@@ -53,6 +53,68 @@
             --primary: var(--golib-red);
             --primary-dark: var(--golib-red-dark);
         }
+        /* Dark mode for the marketplace (#home-screen) and vendor
+           dashboard (#vendor-app) — same strategy as the existing
+           #delivery-app[data-theme="dark"] theme (see its comment
+           above): redefine the shared --slate/--bg-light/--border
+           variables, which most of these two apps' text/border/subtle
+           backgrounds already consume, then add targeted overrides for
+           the handful of component classes that use a literal "white"
+           surface instead of a variable (a literal doesn't follow a
+           redefined --white). Toggled via [data-theme="dark"], set from
+           each app's own Settings > Appearance, persisted in
+           localStorage under the same verta_theme key #delivery-app
+           uses — one preference follows a person across every role.
+           Scope, matching the admin theme's own documented limit: the
+           primary shell and the highest-traffic surfaces (home/browse,
+           product cards, forms, bottom nav, settings). Shared modals
+           (checkout, product detail, cart, auth) render outside
+           #home-screen/#vendor-app in the DOM and stay light-themed for
+           now, same deferral the admin theme already made for its own
+           modals. */
+        #home-screen[data-theme="dark"], #vendor-app[data-theme="dark"] {
+            --slate: #f1f5f9;
+            --slate-light: #94a3b8;
+            --slate-lighter: #64748b;
+            --bg-light: #0f172a;
+            --border: #334155;
+        }
+        #home-screen[data-theme="dark"] .mobile-topbar,
+        #vendor-app[data-theme="dark"] .mobile-topbar,
+        #home-screen[data-theme="dark"] .mobile-bottom-nav,
+        #vendor-app[data-theme="dark"] .mobile-bottom-nav,
+        #home-screen[data-theme="dark"] .product-card,
+        #vendor-app[data-theme="dark"] .product-card,
+        #home-screen[data-theme="dark"] .category-item,
+        #vendor-app[data-theme="dark"] .category-item,
+        #home-screen[data-theme="dark"] .address-card,
+        #vendor-app[data-theme="dark"] .address-card,
+        #home-screen[data-theme="dark"] .stat-card,
+        #vendor-app[data-theme="dark"] .stat-card,
+        #home-screen[data-theme="dark"] .desktop-sidebar,
+        #vendor-app[data-theme="dark"] .desktop-sidebar,
+        #home-screen[data-theme="dark"] #vendor-view-settings form,
+        #vendor-app[data-theme="dark"] #vendor-view-settings form,
+        #home-screen[data-theme="dark"] #mp-view-settings form,
+        #vendor-app[data-theme="dark"] #mp-view-settings form {
+            background: #1e293b;
+        }
+        #home-screen[data-theme="dark"] .form-input,
+        #vendor-app[data-theme="dark"] .form-input,
+        #home-screen[data-theme="dark"] .product-card-image,
+        #vendor-app[data-theme="dark"] .product-card-image {
+            background: #273449;
+        }
+        #home-screen[data-theme="dark"] .form-input:focus,
+        #vendor-app[data-theme="dark"] .form-input:focus {
+            background: #1e293b;
+        }
+        #home-screen[data-theme="dark"] .settings-table td,
+        #vendor-app[data-theme="dark"] .settings-table td,
+        #home-screen[data-theme="dark"] .settings-table th,
+        #vendor-app[data-theme="dark"] .settings-table th {
+            border-bottom-color: #334155;
+        }
         .mobile-app-shell { max-width: 480px; margin: 0 auto; min-height: 100vh; background: var(--bg-light); position: relative; }
         .mobile-topbar {
             background: white; color: var(--slate); padding: 0.875rem 1.125rem;
@@ -509,6 +571,14 @@
         .star-rating svg { width: 12px; height: 12px; color: #f59e0b; }
         .star-rating-empty { color: var(--slate-lighter); font-size: 0.75rem; }
 
+        /* Clickable 1-5 star picker — "Rate your delivery" and any
+           other future rating-submission UI. */
+        .rate-delivery-star {
+            background: none; border: none; cursor: pointer; color: var(--border);
+            line-height: 1; padding: 0; transition: color 0.1s;
+        }
+        .rate-delivery-star.selected, .rate-delivery-star:hover { color: #f59e0b; }
+
         .store-card {
             display: flex; flex-direction: column; align-items: center; gap: 0.375rem;
             background: white; border-radius: 1rem; padding: 1rem 0.5rem; border: 1px solid var(--border); box-shadow: var(--shadow-sm);
@@ -606,7 +676,16 @@
             max-width: 75%; padding: 0.625rem 0.875rem; border-radius: 1rem; font-size: 0.875rem; line-height: 1.4;
         }
         .message-bubble.mine {
-            align-self: flex-end; background: var(--golib-red); color: white; border-bottom-right-radius: 0.25rem;
+            /* --golib-red is only defined inside #home-screen/#vendor-app
+               (see the scoped block near the top of this stylesheet) — the
+               shared modals that also use this class (support chat,
+               Support Inbox) live outside that scope, so --golib-red is
+               undefined there and the background silently fell through to
+               transparent (white text on a white modal = invisible). Fall
+               back to --primary, which is always defined (root-level), so
+               the two contexts each get their own already-correct accent
+               color instead of one of them going invisible. */
+            align-self: flex-end; background: var(--golib-red, var(--primary)); color: white; border-bottom-right-radius: 0.25rem;
         }
         .message-bubble.theirs {
             align-self: flex-start; background: var(--bg-light); color: var(--slate); border-bottom-left-radius: 0.25rem;
@@ -862,6 +941,7 @@
         .status-picked-up { background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; }
         .status-delivered { background: #DCFCE7; color: #15803D; border: 1px solid #bbf7d0; }
         .status-cancelled { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+        .status-scheduled { background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; }
         .status-off-duty { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
 
         .order-details { margin-bottom: 1.25rem; }
@@ -3735,6 +3815,24 @@
                 <button type="submit" class="btn-primary" style="width:100%;" id="reset-password-submit-btn">Reset Password</button>
                 <div class="auth-switch-link"><a id="back-to-login-link-2">Back to login</a></div>
             </form>
+
+            <!-- Two-factor authentication (SMS via Twilio) — shown when
+                 /api/auth/login responds with requiresTwoFactor instead
+                 of a token. Same code-entry pattern as the password
+                 reset step above, but completes a login rather than a
+                 password change. -->
+            <form id="two-factor-form" style="display:none;">
+                <p style="margin-bottom: 1.25rem; color: var(--slate-light);">Enter the 6-digit code we texted to your phone to finish logging in.</p>
+                <input type="hidden" id="two-factor-challenge-id">
+                <div class="form-group">
+                    <label class="form-label">Verification Code</label>
+                    <input type="text" class="form-input" id="two-factor-code" placeholder="123456" required inputmode="numeric" maxlength="6">
+                </div>
+                <div class="auth-error" id="two-factor-error"></div>
+                <button type="submit" class="btn-primary" style="width:100%;" id="two-factor-submit-btn">Verify &amp; Log In</button>
+                <p class="auth-switch-line"><a id="two-factor-resend-link" class="auth-inline-link">Resend code</a></p>
+                <div class="auth-switch-link"><a id="back-to-login-link-3">Back to login</a></div>
+            </form>
         </div>
 
         <!-- Every role (Customer, Manage Agent, Super Admin, Vendor) logs
@@ -4066,6 +4164,31 @@
                         <button type="submit" class="btn-primary" id="mp-settings-save-btn" style="width:100%;">Save Changes</button>
                     </form>
                     <p style="color:var(--slate-light); font-size:0.8125rem; margin-top:1rem;">Email and password changes aren't part of this form yet — those need their own careful flow (uniqueness checks, verification).</p>
+
+                    <!-- Appearance — same real dark theme #delivery-app's
+                         Settings > Appearance already has (see the
+                         [data-theme="dark"] CSS + setThemeChoice()),
+                         just a simpler immediate-apply toggle here
+                         instead of that panel's separate Save step. -->
+                    <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                        <div class="mobile-section-title" style="margin-bottom:0.75rem;">Appearance</div>
+                        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                            <button type="button" class="settings-theme-option active" id="mp-theme-option-light" data-theme="light">☀️ Light Mode</button>
+                            <button type="button" class="settings-theme-option" id="mp-theme-option-dark" data-theme="dark">🌙 Dark Mode</button>
+                        </div>
+                    </div>
+
+                    <!-- Two-Factor Authentication — same SMS-via-Twilio
+                         mechanism as every other role's Security block. -->
+                    <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                        <div class="mobile-section-title" style="margin-bottom:0.75rem;">Two-Factor Authentication</div>
+                        <p class="settings-hint">Adds a 6-digit code sent by SMS to your phone, on top of your password, every time you log in.</p>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <span id="mp-2fa-status">Loading…</span>
+                            <button type="button" class="btn-small btn-secondary two-factor-enable-btn" data-prefix="mp" style="display:none;">Enable</button>
+                            <button type="button" class="btn-small btn-danger two-factor-disable-btn" data-prefix="mp" style="display:none;">Disable</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -4145,6 +4268,11 @@
                         <button type="button" class="mp-account-menu-item" id="mp-account-menu-disputes">
                             <div class="mp-account-menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>
                             <div><div class="mp-account-menu-title">My Reports</div><div class="mp-account-menu-sub">Problems you've reported and their status</div></div>
+                            <div class="mp-account-menu-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></div>
+                        </button>
+                        <button type="button" class="mp-account-menu-item" id="mp-account-menu-returns">
+                            <div class="mp-account-menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></div>
+                            <div><div class="mp-account-menu-title">My Returns</div><div class="mp-account-menu-sub">Request or track a return on a delivered order</div></div>
                             <div class="mp-account-menu-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></div>
                         </button>
                         <button type="button" class="mp-account-menu-item" id="mp-account-menu-help">
@@ -4726,6 +4854,18 @@
                             <button type="submit" class="btn-small btn-success">Update Password</button>
                         </form>
                     </div>
+
+                    <!-- Two-Factor Authentication — same SMS-via-Twilio
+                         mechanism as every other role's Security block. -->
+                    <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem; max-width:520px;">
+                        <div class="mobile-section-title" style="margin-bottom:0.75rem;">Two-Factor Authentication</div>
+                        <p class="settings-hint">Adds a 6-digit code sent by SMS to your phone, on top of your password, every time you log in.</p>
+                        <div style="display:flex; align-items:center; gap:0.75rem;">
+                            <span id="dc-2fa-status">Loading…</span>
+                            <button type="button" class="btn-small btn-secondary two-factor-enable-btn" data-prefix="dc" style="display:none;">Enable</button>
+                            <button type="button" class="btn-small btn-danger two-factor-disable-btn" data-prefix="dc" style="display:none;">Disable</button>
+                        </div>
+                    </div>
                 </div>
             </main>
             <nav class="mobile-bottom-nav">
@@ -5228,6 +5368,11 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                                 Disputes
                                 <span id="disputes-open-count-badge" style="display:none; margin-left:auto; background:#dc2626; color:white; border-radius:9999px; font-size:0.6875rem; font-weight:700; padding:0.0625rem 0.5rem;"></span>
+                            </button>
+                            <button type="button" class="admin-nav-item" id="open-support-inbox-btn" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                                Support Inbox
+                                <span id="support-inbox-unread-badge" style="display:none; margin-left:auto; background:#dc2626; color:white; border-radius:9999px; font-size:0.6875rem; font-weight:700; padding:0.0625rem 0.5rem;"></span>
                             </button>
                             <button type="button" class="admin-nav-item" id="open-audit-log-btn" style="display:none;">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line><line x1="9" y1="11" x2="15" y2="11"></line></svg>
@@ -5790,6 +5935,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                     Disputes
                 </button>
+                <button type="button" class="desktop-sidebar-item" data-vendor-tab="returns">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                    Returns
+                </button>
                 <button type="button" class="desktop-sidebar-item" data-vendor-tab="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     Settings
@@ -6297,6 +6446,24 @@
                 <div id="vendor-disputes-list"></div>
             </div>
 
+            <!-- Returns — self-service, distinct from Disputes above: the
+                 vendor decides directly here (approve/reject, then mark
+                 refunded once money actually moves), no Super Admin step. -->
+            <div id="vendor-view-returns" style="display:none;">
+                <div class="mobile-section-header" style="margin-top:0;">
+                    <div class="mobile-section-title">Returns</div>
+                </div>
+                <p class="settings-hint" style="margin-bottom:1rem;">Return requests customers have filed on your products. You decide directly — approve or reject, then mark refunded once you've actually sent the money back.</p>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;" id="vendor-returns-filter-row">
+                    <button type="button" class="category-item active-category vendor-return-filter-btn" data-status="">All</button>
+                    <button type="button" class="category-item vendor-return-filter-btn" data-status="requested">Requested</button>
+                    <button type="button" class="category-item vendor-return-filter-btn" data-status="approved">Approved</button>
+                    <button type="button" class="category-item vendor-return-filter-btn" data-status="rejected">Rejected</button>
+                    <button type="button" class="category-item vendor-return-filter-btn" data-status="refunded">Refunded</button>
+                </div>
+                <div id="vendor-returns-list"></div>
+            </div>
+
             <!-- Settings — real account info, read-only for now -->
             <div id="vendor-view-settings" style="display:none;">
                 <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Store Settings</div></div>
@@ -6379,6 +6546,28 @@
                         <button type="submit" class="btn-small btn-success">Update Password</button>
                     </form>
                 </div>
+
+                <!-- Two-Factor Authentication — same SMS-via-Twilio
+                     mechanism as every other role's Security block. -->
+                <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                    <div class="mobile-section-title" style="margin-bottom:0.75rem;">Two-Factor Authentication</div>
+                    <p class="settings-hint">Adds a 6-digit code sent by SMS to your phone, on top of your password, every time you log in.</p>
+                    <div style="display:flex; align-items:center; gap:0.75rem;">
+                        <span id="vendor-2fa-status">Loading…</span>
+                        <button type="button" class="btn-small btn-secondary two-factor-enable-btn" data-prefix="vendor" style="display:none;">Enable</button>
+                        <button type="button" class="btn-small btn-danger two-factor-disable-btn" data-prefix="vendor" style="display:none;">Disable</button>
+                    </div>
+                </div>
+
+                <!-- Appearance — same real dark theme as marketplace/
+                     admin Settings > Appearance (see setThemeChoice()). -->
+                <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                    <div class="mobile-section-title" style="margin-bottom:0.75rem;">Appearance</div>
+                    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                        <button type="button" class="settings-theme-option active" id="vendor-theme-option-light" data-theme="light">☀️ Light Mode</button>
+                        <button type="button" class="settings-theme-option" id="vendor-theme-option-dark" data-theme="dark">🌙 Dark Mode</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Account -->
@@ -6392,6 +6581,7 @@
                 </div>
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="settings" style="width:100%; margin-top:1.5rem;">Store Settings</button>
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="disputes" style="width:100%; margin-top:0.75rem;">Disputes</button>
+                <button type="button" class="quick-access-btn secondary" data-vendor-tab="returns" style="width:100%; margin-top:0.75rem;">Returns</button>
                 <button type="button" class="btn-primary" id="switch-to-marketplace-btn" style="width:100%; margin-top:0.75rem;">Switch to Marketplace</button>
                 <button type="button" class="quick-access-btn secondary" id="vendor-logout-btn" style="width:100%; margin-top:0.75rem;">Logout</button>
             </div>
@@ -6663,6 +6853,24 @@
                     <label class="form-label">Item Description</label>
                     <textarea class="form-input" id="item-description" rows="3" required></textarea>
                 </div>
+                <div class="form-group">
+                    <label class="auth-checkbox-label" style="margin:0;"><input type="checkbox" id="new-order-schedule-toggle"> Schedule for later</label>
+                </div>
+                <div id="new-order-schedule-fields" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">Date &amp; Time</label>
+                        <input type="datetime-local" class="form-input" id="new-order-scheduled-for-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Repeat</label>
+                        <select class="form-input" id="new-order-recurrence-input">
+                            <option value="">Doesn't repeat</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="auth-error" id="new-order-form-error"></div>
                 <div class="modal-footer">
                     <button type="button" class="btn-small btn-secondary" id="cancel-new-order">Cancel</button>
                     <button type="submit" class="btn-small btn-success">Create Order</button>
@@ -6679,6 +6887,33 @@
                 <button class="close-btn" id="close-order-details">&times;</button>
             </div>
             <div id="order-details-content"></div>
+        </div>
+    </div>
+
+    <!-- Rate your delivery — a star rating for the real agent who
+         delivered the order, plus an optional tip. See
+         openRateDeliveryModal()/submitRateDelivery() and POST
+         /api/orders/:id/rate. -->
+    <div class="modal-overlay" id="rate-delivery-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Rate Your Delivery</h3>
+                <button class="close-btn" id="close-rate-delivery-modal">&times;</button>
+            </div>
+            <div id="rate-delivery-stars" style="display:flex; gap:0.375rem; justify-content:center; font-size:2rem; margin-bottom:1.25rem;"></div>
+            <div class="form-group">
+                <label class="form-label">Comment (optional)</label>
+                <textarea class="form-input" id="rate-delivery-comment" rows="3" placeholder="How was your delivery?"></textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Add a tip for your agent (optional)</label>
+                <input type="number" class="form-input" id="rate-delivery-tip" min="0" step="0.01" placeholder="$0.00">
+            </div>
+            <div id="rate-delivery-error" style="color:#dc2626; font-size:0.875rem; margin-bottom:1rem; display:none;"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn-small btn-secondary" id="cancel-rate-delivery">Cancel</button>
+                <button type="button" class="btn-small btn-success" id="rate-delivery-submit-btn">Submit</button>
+            </div>
         </div>
     </div>
 
@@ -6746,6 +6981,51 @@
                 <button class="close-btn" id="close-my-disputes-modal">&times;</button>
             </div>
             <div id="my-disputes-list"><p style="text-align: center; color: var(--slate-light); padding: 1rem 0;">Loading…</p></div>
+        </div>
+    </div>
+
+    <!-- Request a Return — self-service, separate from disputes (see
+         schema.sql return_requests comment): the customer requests
+         directly and the vendor decides directly, no Super Admin step. -->
+    <div class="modal-overlay" id="request-return-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Request a Return</h3>
+                <button class="close-btn" id="close-request-return-modal">&times;</button>
+            </div>
+            <form id="request-return-form">
+                <div class="form-group">
+                    <label class="form-label">Reason for return</label>
+                    <select class="form-input" id="request-return-reason-input">
+                        <option value="changed_mind">Changed my mind</option>
+                        <option value="wrong_item">Wrong item</option>
+                        <option value="damaged">Item arrived damaged</option>
+                        <option value="not_as_described">Not as described</option>
+                        <option value="other">Something else</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Details (optional)</label>
+                    <textarea class="form-input" id="request-return-description-input" rows="4" placeholder="Anything that helps the seller understand — optional."></textarea>
+                </div>
+                <div id="request-return-form-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-request-return-form">Cancel</button>
+                    <button type="submit" class="btn-small btn-success" id="request-return-form-submit-btn">Submit Request</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- My Returns (customer-facing) — status/history of every return
+         requested, including the vendor's note and refund once decided. -->
+    <div class="modal-overlay" id="my-returns-modal">
+        <div class="modal" style="max-width: 640px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>My Returns</h3>
+                <button class="close-btn" id="close-my-returns-modal">&times;</button>
+            </div>
+            <div id="my-returns-list"><p style="text-align: center; color: var(--slate-light); padding: 1rem 0;">Loading…</p></div>
         </div>
     </div>
 
@@ -7463,6 +7743,14 @@
                             <div class="auth-error" id="change-password-error"></div>
                             <button type="submit" class="btn-small btn-success">Update Password</button>
                         </form>
+
+                        <h4 class="settings-section-title">Two-Factor Authentication</h4>
+                        <p class="settings-hint">Adds a 6-digit code sent by SMS to your phone, on top of your password, every time you log in.</p>
+                        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1.25rem;">
+                            <span id="admin-2fa-status">Loading…</span>
+                            <button type="button" class="btn-small btn-secondary two-factor-enable-btn" data-prefix="admin" style="display:none;">Enable</button>
+                            <button type="button" class="btn-small btn-danger two-factor-disable-btn" data-prefix="admin" style="display:none;">Disable</button>
+                        </div>
 
                         <h4 class="settings-section-title">Account Recovery</h4>
                         <p class="settings-hint">If you forget your password, "Forgot password?" on the login screen sends a real verification code to the email on the account, and also by text if there's a phone number on file, before letting you set a new one — that's the account-security check this app actually has.</p>
@@ -8399,6 +8687,127 @@
         </div>
     </div>
 
+    <!-- Vendor decides a return request: approve or reject. Mirrors the
+         Super Admin resolve-dispute-modal, minus the refund-amount step —
+         a return's refund is confirmed separately, once approved, via
+         mark-refunded-modal below. -->
+    <div class="modal-overlay" id="resolve-return-modal">
+        <div class="modal" style="max-width: 560px;">
+            <div class="modal-header">
+                <h3 id="resolve-return-modal-title">Decide Return Request</h3>
+                <button class="close-btn" id="close-resolve-return-modal">&times;</button>
+            </div>
+            <div id="resolve-return-summary" style="background:var(--bg-light); border-radius:0.75rem; padding:1rem; margin-bottom:1.25rem; font-size:0.875rem;"></div>
+            <form id="resolve-return-form">
+                <div class="form-group">
+                    <label class="form-label">Decision</label>
+                    <div style="display:flex; gap:1rem;">
+                        <label class="auth-checkbox-label" style="margin:0;"><input type="radio" name="resolve-return-decision" value="approved" checked> Approve</label>
+                        <label class="auth-checkbox-label" style="margin:0;"><input type="radio" name="resolve-return-decision" value="rejected"> Reject</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Note to customer (optional)</label>
+                    <textarea class="form-input" id="resolve-return-note-input" rows="3" placeholder="e.g. Approved — ship it back and we'll refund once received."></textarea>
+                </div>
+                <div id="resolve-return-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-resolve-return-form">Cancel</button>
+                    <button type="submit" class="btn-small btn-success" id="resolve-return-form-submit-btn">Save Decision</button>
+                </div>
+            </form>
+            <!-- Read-only view for a return that's already been decided
+                 (or refunded) — no re-editing a past decision. -->
+            <div id="resolve-return-decided-view" style="display:none;">
+                <div id="resolve-return-decided-content" style="font-size:0.875rem;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="close-resolve-return-decided-view">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vendor confirms a refund actually happened for an already-approved
+         return — same bookkeeping-only caveat as dispute refunds (no live
+         payment processor to reverse a charge automatically). -->
+    <div class="modal-overlay" id="mark-refunded-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Mark as Refunded</h3>
+                <button class="close-btn" id="close-mark-refunded-modal">&times;</button>
+            </div>
+            <form id="mark-refunded-form">
+                <div class="form-group">
+                    <label class="form-label">Refund Amount ($)</label>
+                    <input type="number" class="form-input" id="mark-refunded-amount-input" min="0.01" step="0.01" placeholder="e.g. 24.00">
+                    <p class="settings-hint">Recorded as a bookkeeping entry against this purchase — it isn't an automatic payment reversal, since this app has no live payment processor integration.</p>
+                </div>
+                <div id="mark-refunded-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-mark-refunded-form">Cancel</button>
+                    <button type="submit" class="btn-small btn-success" id="mark-refunded-form-submit-btn">Confirm Refund</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Two-Factor Authentication — enable. Two steps in one modal: a
+         code goes out first (step 1), then the same modal collects it
+         (step 2) before actually flipping the account's
+         two_factor_enabled flag. Reused by every role's Security
+         block above (opened with a data-prefix so it knows which
+         status/button pair to refresh when done). -->
+    <div class="modal-overlay" id="enable-2fa-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Enable Two-Factor Authentication</h3>
+                <button class="close-btn" id="close-enable-2fa-modal">&times;</button>
+            </div>
+            <div id="enable-2fa-step1">
+                <p style="margin-bottom:1.25rem; color:var(--slate-light);">We'll text a 6-digit code to <strong id="enable-2fa-phone-display"></strong> to confirm we can reach you there before turning this on.</p>
+                <div id="enable-2fa-request-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-enable-2fa-modal">Cancel</button>
+                    <button type="button" class="btn-small btn-success" id="enable-2fa-send-code-btn">Send Code</button>
+                </div>
+            </div>
+            <form id="enable-2fa-step2" style="display:none;">
+                <div class="form-group">
+                    <label class="form-label">Verification Code</label>
+                    <input type="text" class="form-input" id="enable-2fa-code-input" placeholder="123456" required inputmode="numeric" maxlength="6">
+                </div>
+                <div id="enable-2fa-confirm-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-enable-2fa-step2">Cancel</button>
+                    <button type="submit" class="btn-small btn-success" id="enable-2fa-confirm-btn">Verify &amp; Enable</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Two-Factor Authentication — disable. Requires the account
+         password, since turning this off is the security-reducing
+         direction (see POST /api/me/2fa/disable). -->
+    <div class="modal-overlay" id="disable-2fa-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Disable Two-Factor Authentication</h3>
+                <button class="close-btn" id="close-disable-2fa-modal">&times;</button>
+            </div>
+            <form id="disable-2fa-form">
+                <div class="form-group">
+                    <label class="form-label">Current Password</label>
+                    <input type="password" class="form-input" id="disable-2fa-password-input" required>
+                </div>
+                <div id="disable-2fa-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-disable-2fa-form">Cancel</button>
+                    <button type="submit" class="btn-small btn-danger" id="disable-2fa-form-submit-btn">Disable</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Platform Settings (Super Admin only) — default delivery fee,
          service area, and a real maintenance-mode switch. -->
     <div class="modal-overlay" id="platform-settings-modal">
@@ -8863,6 +9272,52 @@
         </div>
     </div>
 
+    <!-- Live in-app support chat (customer/vendor/delivery-company side)
+         — one thread per account, opened from Help & Support. Reuses the
+         same .messages-thread-body/.message-bubble pattern as the
+         existing vendor<->customer conversation threads. -->
+    <div class="modal-overlay" id="support-chat-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Chat with Support</h3>
+                <button class="close-btn" id="close-support-chat-modal">&times;</button>
+            </div>
+            <div class="messages-thread-body" id="support-chat-body"></div>
+            <form class="messages-thread-form" id="support-chat-form">
+                <input type="text" class="form-input" id="support-chat-input" placeholder="Type a message…" autocomplete="off">
+                <button type="submit" class="btn-small btn-success">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Support Inbox (Super Admin only) — every user who has messaged
+         support, most-recently-active first; opening one shows the
+         thread and lets support reply. Same list/thread toggle pattern
+         as the marketplace Messages tab (mp-messages-list-view /
+         mp-messages-thread-view). -->
+    <div class="modal-overlay" id="support-inbox-modal">
+        <div class="modal" style="max-width: 640px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Support Inbox</h3>
+                <button class="close-btn" id="close-support-inbox-modal">&times;</button>
+            </div>
+            <div id="support-inbox-list-view">
+                <div id="support-inbox-threads-list"></div>
+            </div>
+            <div id="support-inbox-thread-view" style="display:none;">
+                <button type="button" class="messages-back-btn" id="support-inbox-back-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                    <span id="support-inbox-thread-name">User</span>
+                </button>
+                <div class="messages-thread-body" id="support-inbox-thread-body"></div>
+                <form class="messages-thread-form" id="support-inbox-thread-form">
+                    <input type="text" class="form-input" id="support-inbox-thread-input" placeholder="Type a reply…" autocomplete="off">
+                    <button type="submit" class="btn-small btn-success">Send</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Admin: New Order on behalf of a customer -->
     <div class="modal-overlay" id="admin-new-order-modal">
         <div class="modal">
@@ -9048,10 +9503,60 @@
                 return;
             }
             if (Notification.permission === 'default') {
-                Notification.requestPermission().catch(() => {
+                Notification.requestPermission().then((permission) => {
+                    if (permission === 'granted') subscribeToPushNotifications();
+                }).catch(() => {
                     // Some browsers reject the promise instead of resolving 'denied' —
                     // either way, the app must keep working normally.
                 });
+            } else if (Notification.permission === 'granted') {
+                // Already granted in a previous session — (re)subscribe so
+                // this device/tab has a live push subscription on file.
+                // upsertPushSubscription on the server makes this a no-op
+                // if the endpoint is unchanged, so it's safe to call often.
+                subscribeToPushNotifications();
+            }
+        }
+
+        // ============================================================
+        // Web Push (VAPID) — real background notifications (the tab
+        // doesn't need to be open), distinct from the foreground-only
+        // Notification API above. No third-party account needed — see
+        // push.js on the server for the send side and setup
+        // instructions. Best-effort throughout: any failure here just
+        // means no push subscription gets saved, nothing else in the
+        // app depends on it.
+        // ============================================================
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+            return outputArray;
+        }
+
+        async function subscribeToPushNotifications() {
+            if (Platform.isNative()) return; // native push is a separate mechanism, out of scope here
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+            if (!currentUser) return; // subscribing requires an authenticated /api/push/subscribe call
+            try {
+                const keyData = await apiFetch('/api/push/vapid-public-key');
+                const registration = await navigator.serviceWorker.ready;
+                let subscription = await registration.pushManager.getSubscription();
+                if (!subscription) {
+                    subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+                    });
+                }
+                const json = subscription.toJSON();
+                await apiFetch('/api/push/subscribe', {
+                    method: 'POST',
+                    body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+                });
+            } catch (err) {
+                console.warn('[push] Subscription failed — push notifications will be unavailable this session', err);
             }
         }
 
@@ -9444,6 +9949,12 @@
         let authToken = null;
         let currentUser = null; // { id, businessName, email, role }
         let socket = null;
+        // Stashes the login form's "Remember for 30 days" checkbox state
+        // across the two-factor detour — /api/auth/login doesn't issue a
+        // token at all when 2FA is required, so saveAuth() only actually
+        // runs after /api/auth/2fa/verify succeeds, by which point the
+        // original form is out of view.
+        let pendingLoginRemember = true;
 
         // "Remember for 30 days" (login form checkbox) is real: checked
         // (default) persists the session via Platform.storage as before;
@@ -9867,6 +10378,51 @@
                     if (document.getElementById(`${prefix}-conversations-list`)) loadConversations(prefix);
                 }
             });
+            socket.on('support:new', ({ userId, message }) => {
+                const isSupportStaff = currentUser.role === 'admin' || currentUser.role === 'super_admin';
+                if (isSupportStaff) {
+                    // Support Inbox: live-append if this user's thread is
+                    // open right now, otherwise just refresh the list so
+                    // the preview/unread badge stay current.
+                    const inboxOpen = document.getElementById('support-inbox-modal').classList.contains('active');
+                    if (inboxOpen && supportInboxCurrentUserId === userId && message.senderRole === 'user') {
+                        const bodyEl = document.getElementById('support-inbox-thread-body');
+                        if (bodyEl) {
+                            if (bodyEl.querySelector('p')) bodyEl.innerHTML = '';
+                            bodyEl.insertAdjacentHTML('beforeend', `
+                                <div class="message-bubble theirs">
+                                    ${message.body}
+                                    <span class="message-bubble-time">${new Date(message.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                                </div>
+                            `);
+                            bodyEl.scrollTop = bodyEl.scrollHeight;
+                        }
+                        apiFetch(`/api/admin/support/threads/${userId}/messages`).catch(() => {}); // mark read server-side
+                    } else if (inboxOpen) {
+                        loadSupportInboxThreads();
+                    }
+                } else if (currentUser.id === userId && message.senderRole === 'support') {
+                    // The user's own chat: live-append if the chat modal
+                    // is open, otherwise a toast so they know to check it.
+                    const chatOpen = document.getElementById('support-chat-modal').classList.contains('active');
+                    if (chatOpen) {
+                        const bodyEl = document.getElementById('support-chat-body');
+                        if (bodyEl) {
+                            if (bodyEl.querySelector('p')) bodyEl.innerHTML = '';
+                            bodyEl.insertAdjacentHTML('beforeend', `
+                                <div class="message-bubble theirs">
+                                    ${message.body}
+                                    <span class="message-bubble-time">${new Date(message.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                                </div>
+                            `);
+                            bodyEl.scrollTop = bodyEl.scrollHeight;
+                        }
+                        apiFetch('/api/support/messages').catch(() => {}); // mark read server-side
+                    } else {
+                        showToast('New message from Support', 'success');
+                    }
+                }
+            });
         }
 
         function emitWithAck(event, payload) {
@@ -10166,6 +10722,7 @@
                             <div>
                                 <div class="dcust-order-card-id">${a.name}</div>
                                 <div class="dcust-order-card-time">${a.phone}</div>
+                                <div style="margin-top:0.25rem;">${renderStars(a.avgRating, a.reviewCount)}</div>
                             </div>
                             <span class="status-badge ${a.dutyStatus === 'on_duty' ? 'status-delivered' : 'status-off-duty'}">${a.dutyStatus === 'on_duty' ? 'On Duty' : 'Off Duty'}</span>
                         </div>
@@ -11373,6 +11930,10 @@
                 document.getElementById('my-disputes-modal').classList.add('active');
                 loadMyDisputesPanel();
             });
+            document.getElementById('mp-account-menu-returns').addEventListener('click', () => {
+                document.getElementById('my-returns-modal').classList.add('active');
+                loadMyReturnsPanel();
+            });
             document.getElementById('mp-account-menu-payment').addEventListener('click', () => setMarketplaceTab('payment-methods'));
             document.getElementById('mp-account-menu-help').addEventListener('click', () => {
                 renderHelpSupport('customer');
@@ -11640,6 +12201,14 @@
             closeAuthScreen();
             connectSocket();
             requestNotificationPermission();
+            // Applies to all three theme-capable app shells at once (see
+            // setThemeChoice) — safe to call unconditionally before the
+            // role branch below picks which one to actually show.
+            applySavedTheme();
+            // Same reasoning — every role's Security block exists in the
+            // DOM regardless of which one is actually visible, so this
+            // is safe to call unconditionally too (see render2FAStatus).
+            renderAll2FAStatuses();
 
             // Show the right dashboard shell immediately, with skeleton
             // placeholders while the initial state loads — no blank gap.
@@ -11684,6 +12253,8 @@
                 if (payoutsNavBtn) payoutsNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
                 const disputesNavBtn = document.getElementById('open-disputes-btn');
                 if (disputesNavBtn) disputesNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
+                const supportInboxNavBtn = document.getElementById('open-support-inbox-btn');
+                if (supportInboxNavBtn) supportInboxNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
                 const auditLogNavBtn = document.getElementById('open-audit-log-btn');
                 if (auditLogNavBtn) auditLogNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
                 const platformSettingsNavBtn = document.getElementById('open-platform-settings-btn');
@@ -11907,6 +12478,7 @@
                 register: { eyebrow: "Let's get you started", title: 'Create your account' },
                 forgotRequest: { eyebrow: 'Forgot your password?', title: 'Reset password' },
                 resetPassword: { eyebrow: 'Check your email or phone', title: 'Enter your code' },
+                twoFactor: { eyebrow: 'One more step', title: 'Verify your identity' },
             };
             function showAuthPanel(panel) {
                 const heading = document.getElementById('sender-auth-heading');
@@ -11915,6 +12487,7 @@
                     register: registerForm,
                     forgotRequest: document.getElementById('forgot-password-request-form'),
                     resetPassword: document.getElementById('reset-password-form'),
+                    twoFactor: document.getElementById('two-factor-form'),
                 };
                 Object.values(panels).forEach(el => { el.style.display = 'none'; });
                 panels[panel].style.display = 'block';
@@ -11934,6 +12507,7 @@
             });
             document.getElementById('back-to-login-link-1').addEventListener('click', () => showAuthPanel('login'));
             document.getElementById('back-to-login-link-2').addEventListener('click', () => showAuthPanel('login'));
+            document.getElementById('back-to-login-link-3').addEventListener('click', () => showAuthPanel('login'));
 
             document.getElementById('forgot-password-request-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -12053,6 +12627,18 @@
                             password: document.getElementById('login-password').value
                         })
                     });
+                    if (data.requiresTwoFactor) {
+                        // Password checked out, but this account has SMS
+                        // two-factor enabled — a code just went out, and
+                        // the login isn't complete (no token yet) until
+                        // it's verified below.
+                        pendingLoginRemember = document.getElementById('login-remember-me').checked;
+                        document.getElementById('two-factor-challenge-id').value = data.challengeId;
+                        document.getElementById('two-factor-code').value = '';
+                        document.getElementById('two-factor-error').style.display = 'none';
+                        showAuthPanel('twoFactor');
+                        return;
+                    }
                     const remember = document.getElementById('login-remember-me').checked;
                     await saveAuth(data.token, data.user, remember);
                     await enterApp();
@@ -12062,6 +12648,48 @@
                 } finally {
                     btn.disabled = false;
                     btn.textContent = 'Login';
+                }
+            });
+
+            // ---- Two-factor authentication (SMS) — login step 2 ----
+            document.getElementById('two-factor-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const errorEl = document.getElementById('two-factor-error');
+                const btn = document.getElementById('two-factor-submit-btn');
+                errorEl.style.display = 'none';
+                btn.disabled = true;
+                btn.textContent = 'Verifying…';
+                try {
+                    const data = await apiFetch('/api/auth/2fa/verify', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            challengeId: document.getElementById('two-factor-challenge-id').value,
+                            code: document.getElementById('two-factor-code').value,
+                        })
+                    });
+                    await saveAuth(data.token, data.user, pendingLoginRemember);
+                    await enterApp();
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Verify & Log In';
+                }
+            });
+            document.getElementById('two-factor-resend-link').addEventListener('click', async () => {
+                const errorEl = document.getElementById('two-factor-error');
+                errorEl.style.display = 'none';
+                try {
+                    const data = await apiFetch('/api/auth/2fa/resend', {
+                        method: 'POST',
+                        body: JSON.stringify({ challengeId: document.getElementById('two-factor-challenge-id').value }),
+                    });
+                    document.getElementById('two-factor-challenge-id').value = data.challengeId;
+                    showToast('A new code was sent', 'success');
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
                 }
             });
 
@@ -12217,6 +12845,24 @@
             document.getElementById('cancel-new-order').addEventListener('click', closeNewOrderModal);
             document.getElementById('close-order-details').addEventListener('click', closeOrderDetailsModal);
             document.getElementById('new-order-form').addEventListener('submit', handleNewOrder);
+            document.getElementById('new-order-schedule-toggle').addEventListener('change', (e) => {
+                document.getElementById('new-order-schedule-fields').style.display = e.target.checked ? 'block' : 'none';
+            });
+
+            // ---- Rate your delivery ----
+            document.getElementById('close-rate-delivery-modal').addEventListener('click', () => {
+                document.getElementById('rate-delivery-modal').classList.remove('active');
+            });
+            document.getElementById('cancel-rate-delivery').addEventListener('click', () => {
+                document.getElementById('rate-delivery-modal').classList.remove('active');
+            });
+            document.getElementById('rate-delivery-stars').addEventListener('click', (e) => {
+                const star = e.target.closest('.rate-delivery-star');
+                if (!star) return;
+                rateDeliverySelectedStars = parseInt(star.dataset.star);
+                renderRateDeliveryStars();
+            });
+            document.getElementById('rate-delivery-submit-btn').addEventListener('click', submitRateDelivery);
 
             // ---- Report a Problem / My Reports (customer-facing disputes) ----
             document.getElementById('close-report-dispute-modal').addEventListener('click', closeReportDisputeModal);
@@ -12224,6 +12870,14 @@
             document.getElementById('report-dispute-form').addEventListener('submit', handleReportDisputeFormSubmit);
             document.getElementById('close-my-disputes-modal').addEventListener('click', () => {
                 document.getElementById('my-disputes-modal').classList.remove('active');
+            });
+
+            // ---- Request a Return / My Returns (customer-facing) ----
+            document.getElementById('close-request-return-modal').addEventListener('click', closeRequestReturnModal);
+            document.getElementById('cancel-request-return-form').addEventListener('click', closeRequestReturnModal);
+            document.getElementById('request-return-form').addEventListener('submit', handleRequestReturnFormSubmit);
+            document.getElementById('close-my-returns-modal').addEventListener('click', () => {
+                document.getElementById('my-returns-modal').classList.remove('active');
             });
 
             document.getElementById('order-search-input').addEventListener('input', debounce(renderOrdersDelivery, 200));
@@ -12874,6 +13528,144 @@
 
         let pendingLogoDataUrl = null;
 
+        // ============================================================
+        // Two-Factor Authentication (SMS via Twilio, any role) — one
+        // shared status/enable/disable flow reused across every role's
+        // Security block (admin, vendor, dc, mp), distinguished only by
+        // a data-prefix on the buttons. See POST /api/me/2fa/* in
+        // server.js.
+        // ============================================================
+        const TWO_FACTOR_PREFIXES = ['admin', 'vendor', 'dc', 'mp'];
+
+        function render2FAStatus(prefix) {
+            const statusEl = document.getElementById(`${prefix}-2fa-status`);
+            if (!statusEl || !currentUser) return;
+            const enableBtn = document.querySelector(`.two-factor-enable-btn[data-prefix="${prefix}"]`);
+            const disableBtn = document.querySelector(`.two-factor-disable-btn[data-prefix="${prefix}"]`);
+            if (currentUser.twoFactorEnabled) {
+                statusEl.innerHTML = '<span style="color:#15803d; font-weight:700;">Enabled</span>';
+                if (enableBtn) enableBtn.style.display = 'none';
+                if (disableBtn) disableBtn.style.display = 'inline-flex';
+            } else {
+                statusEl.innerHTML = '<span style="color:var(--slate-light); font-weight:700;">Disabled</span>';
+                if (enableBtn) enableBtn.style.display = 'inline-flex';
+                if (disableBtn) disableBtn.style.display = 'none';
+            }
+        }
+        function renderAll2FAStatuses() {
+            TWO_FACTOR_PREFIXES.forEach(render2FAStatus);
+        }
+
+        // Re-persists currentUser (already mutated in place by the
+        // enable/disable handlers below) into whichever storage this
+        // session is actually using — mirrors saveAuth's remember-vs-
+        // session-only branch without needing to track which one was
+        // chosen at login time.
+        function persistCurrentUserUpdate() {
+            const payload = JSON.stringify({ token: authToken, user: currentUser });
+            if (sessionStorage.getItem(AUTH_STORAGE_KEY) !== null) {
+                sessionStorage.setItem(AUTH_STORAGE_KEY, payload);
+            } else {
+                Platform.storage.set(AUTH_STORAGE_KEY, payload).catch(() => {});
+            }
+        }
+
+        let enable2FAChallengeId = null;
+
+        function openEnable2FAModal() {
+            document.getElementById('enable-2fa-phone-display').textContent = (currentUser && currentUser.phone) || 'your phone';
+            document.getElementById('enable-2fa-step1').style.display = 'block';
+            document.getElementById('enable-2fa-step2').style.display = 'none';
+            document.getElementById('enable-2fa-request-error').style.display = 'none';
+            document.getElementById('enable-2fa-confirm-error').style.display = 'none';
+            document.getElementById('enable-2fa-modal').classList.add('active');
+        }
+        function closeEnable2FAModal() {
+            document.getElementById('enable-2fa-modal').classList.remove('active');
+        }
+
+        async function sendEnable2FACode() {
+            const errorEl = document.getElementById('enable-2fa-request-error');
+            const btn = document.getElementById('enable-2fa-send-code-btn');
+            errorEl.style.display = 'none';
+            btn.disabled = true;
+            btn.textContent = 'Sending…';
+            try {
+                const data = await apiFetch('/api/me/2fa/enable-request', { method: 'POST' });
+                enable2FAChallengeId = data.challengeId;
+                document.getElementById('enable-2fa-code-input').value = '';
+                document.getElementById('enable-2fa-step1').style.display = 'none';
+                document.getElementById('enable-2fa-step2').style.display = 'block';
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Send Code';
+            }
+        }
+
+        async function confirmEnable2FA(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('enable-2fa-confirm-error');
+            const btn = document.getElementById('enable-2fa-confirm-btn');
+            errorEl.style.display = 'none';
+            btn.disabled = true;
+            btn.textContent = 'Verifying…';
+            try {
+                await apiFetch('/api/me/2fa/enable-confirm', {
+                    method: 'POST',
+                    body: JSON.stringify({ challengeId: enable2FAChallengeId, code: document.getElementById('enable-2fa-code-input').value }),
+                });
+                currentUser.twoFactorEnabled = true;
+                persistCurrentUserUpdate();
+                renderAll2FAStatuses();
+                closeEnable2FAModal();
+                showToast('Two-factor authentication enabled', 'success');
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Verify & Enable';
+            }
+        }
+
+        function openDisable2FAModal() {
+            document.getElementById('disable-2fa-form').reset();
+            document.getElementById('disable-2fa-error').style.display = 'none';
+            document.getElementById('disable-2fa-modal').classList.add('active');
+        }
+        function closeDisable2FAModal() {
+            document.getElementById('disable-2fa-modal').classList.remove('active');
+        }
+
+        async function handleDisable2FASubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('disable-2fa-error');
+            const btn = document.getElementById('disable-2fa-form-submit-btn');
+            errorEl.style.display = 'none';
+            btn.disabled = true;
+            btn.textContent = 'Disabling…';
+            try {
+                await apiFetch('/api/me/2fa/disable', {
+                    method: 'POST',
+                    body: JSON.stringify({ currentPassword: document.getElementById('disable-2fa-password-input').value }),
+                });
+                currentUser.twoFactorEnabled = false;
+                persistCurrentUserUpdate();
+                renderAll2FAStatuses();
+                closeDisable2FAModal();
+                showToast('Two-factor authentication disabled', 'success');
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Disable';
+            }
+        }
+
         function wireSettingsEvents() {
             document.getElementById('settings-logo-upload-btn').addEventListener('click', () => {
                 document.getElementById('settings-logo-input').click();
@@ -13270,22 +14062,64 @@
             document.getElementById('close-weekly-revenue-modal-btn').addEventListener('click', () => {
                 document.getElementById('weekly-revenue-modal').classList.remove('active');
             });
+
+            // ---- Two-Factor Authentication (shared across every role) ----
+            document.querySelectorAll('.two-factor-enable-btn').forEach(btn => {
+                btn.addEventListener('click', openEnable2FAModal);
+            });
+            document.querySelectorAll('.two-factor-disable-btn').forEach(btn => {
+                btn.addEventListener('click', openDisable2FAModal);
+            });
+            document.getElementById('close-enable-2fa-modal').addEventListener('click', closeEnable2FAModal);
+            document.getElementById('cancel-enable-2fa-modal').addEventListener('click', closeEnable2FAModal);
+            document.getElementById('cancel-enable-2fa-step2').addEventListener('click', closeEnable2FAModal);
+            document.getElementById('enable-2fa-send-code-btn').addEventListener('click', sendEnable2FACode);
+            document.getElementById('enable-2fa-step2').addEventListener('submit', confirmEnable2FA);
+            document.getElementById('close-disable-2fa-modal').addEventListener('click', closeDisable2FAModal);
+            document.getElementById('cancel-disable-2fa-form').addEventListener('click', closeDisable2FAModal);
+            document.getElementById('disable-2fa-form').addEventListener('submit', handleDisable2FASubmit);
         }
 
+        // One theme preference follows a person across every role —
+        // admin, marketplace customer, and vendor each have their own
+        // Appearance toggle in Settings, but all three write/read the
+        // same verta_theme localStorage key and flip in lockstep, so
+        // switching roles doesn't reset it. Each app container is a
+        // no-op to toggle if that role's dashboard isn't in the DOM
+        // right now (only one role's top-level app div exists per
+        // session), guarded with the `?.` so this never throws.
+        const THEME_TOGGLE_APP_IDS = ['delivery-app', 'home-screen', 'vendor-app'];
+        const THEME_TOGGLE_BTN_PREFIXES = ['', 'mp-', 'vendor-'];
+
         function setThemeChoice(theme) {
-            document.getElementById('delivery-app').setAttribute('data-theme', theme);
-            document.getElementById('theme-option-light').classList.toggle('active', theme === 'light');
-            document.getElementById('theme-option-dark').classList.toggle('active', theme === 'dark');
+            THEME_TOGGLE_APP_IDS.forEach(id => document.getElementById(id)?.setAttribute('data-theme', theme));
+            THEME_TOGGLE_BTN_PREFIXES.forEach(prefix => {
+                document.getElementById(`${prefix}theme-option-light`)?.classList.toggle('active', theme === 'light');
+                document.getElementById(`${prefix}theme-option-dark`)?.classList.toggle('active', theme === 'dark');
+            });
         }
 
         function applySavedTheme() {
             const followSystem = localStorage.getItem('verta_theme_follow_system') === 'true';
-            document.getElementById('theme-follow-system').checked = followSystem;
+            THEME_TOGGLE_BTN_PREFIXES.forEach(prefix => {
+                const el = document.getElementById(`${prefix}theme-follow-system`);
+                if (el) el.checked = followSystem;
+            });
             let theme = localStorage.getItem('verta_theme') || 'light';
             if (followSystem) {
                 theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
             }
             setThemeChoice(theme);
+        }
+
+        // Marketplace/vendor Appearance toggles apply and persist in one
+        // click — simpler than the admin panel's separate "follow
+        // system" checkbox + explicit Save Theme button, since these two
+        // are just a two-button Light/Dark choice.
+        function chooseAndSaveTheme(theme) {
+            setThemeChoice(theme);
+            localStorage.setItem('verta_theme_follow_system', 'false');
+            localStorage.setItem('verta_theme', theme);
         }
 
         // ============================================================
@@ -14205,6 +15039,45 @@
             });
             document.getElementById('close-help-support-modal').addEventListener('click', () => {
                 document.getElementById('help-support-modal').classList.remove('active');
+            });
+
+            // ---- Live in-app support chat (customer/vendor/delivery-
+            // company side) — the "Chat with Support" button is
+            // re-rendered every time renderHelpSupport() runs, so this
+            // is delegated rather than bound directly. ----
+            document.getElementById('help-support-content').addEventListener('click', (e) => {
+                if (e.target.closest('#open-support-chat-from-help-btn')) {
+                    document.getElementById('help-support-modal').classList.remove('active');
+                    document.getElementById('support-chat-modal').classList.add('active');
+                    loadSupportChat();
+                }
+            });
+            document.getElementById('close-support-chat-modal').addEventListener('click', () => {
+                document.getElementById('support-chat-modal').classList.remove('active');
+            });
+            document.getElementById('support-chat-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                sendSupportChatMessage();
+            });
+
+            // ---- Support Inbox (Super Admin only) ----
+            document.getElementById('open-support-inbox-btn').addEventListener('click', () => {
+                document.getElementById('support-inbox-modal').classList.add('active');
+                document.getElementById('support-inbox-list-view').style.display = 'block';
+                document.getElementById('support-inbox-thread-view').style.display = 'none';
+                loadSupportInboxThreads();
+            });
+            document.getElementById('close-support-inbox-modal').addEventListener('click', () => {
+                document.getElementById('support-inbox-modal').classList.remove('active');
+            });
+            document.getElementById('support-inbox-threads-list').addEventListener('click', (e) => {
+                const btn = e.target.closest('.open-support-thread-btn');
+                if (btn) openSupportThread(btn.dataset.userId);
+            });
+            document.getElementById('support-inbox-back-btn').addEventListener('click', closeSupportThreadView);
+            document.getElementById('support-inbox-thread-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                sendSupportInboxReply();
             });
 
             // ---- Admin: New Order on behalf of a customer ----
@@ -16169,6 +17042,128 @@
         }
 
         // ============================================================
+        // Support Inbox (Super Admin only) — the reply side of the
+        // live in-app support chat. See loadSupportChat/sendSupportChat
+        // Message near the conversations functions for the customer/
+        // vendor/delivery-company side of the same feature.
+        // ============================================================
+        let supportInboxThreadsCache = [];
+        let supportInboxCurrentUserId = null;
+
+        function updateSupportInboxBadge() {
+            const badge = document.getElementById('support-inbox-unread-badge');
+            if (!badge) return;
+            const totalUnread = supportInboxThreadsCache.reduce((sum, t) => sum + (t.unreadCount || 0), 0);
+            if (totalUnread > 0) {
+                badge.textContent = totalUnread;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        async function loadSupportInboxThreads() {
+            const listEl = document.getElementById('support-inbox-threads-list');
+            listEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
+            try {
+                const data = await apiFetch('/api/admin/support/threads');
+                supportInboxThreadsCache = data.threads || [];
+                renderSupportInboxThreadsList();
+                updateSupportInboxBadge();
+            } catch (err) {
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderSupportInboxThreadsList() {
+            const listEl = document.getElementById('support-inbox-threads-list');
+            if (supportInboxThreadsCache.length === 0) {
+                renderEmptyState(listEl, 'No support conversations yet.');
+                return;
+            }
+            listEl.innerHTML = supportInboxThreadsCache.map(t => `
+                <div class="conversation-card open-support-thread-btn" data-user-id="${t.userId}">
+                    <div class="conversation-card-avatar">${(t.userName || '?').charAt(0).toUpperCase()}</div>
+                    <div class="conversation-card-body">
+                        <div class="conversation-card-name">${t.userName || 'User'}</div>
+                        <div class="conversation-card-preview">${t.lastMessage || 'No messages yet'}</div>
+                    </div>
+                    <div class="conversation-card-meta">
+                        <div class="conversation-card-time">${t.lastMessageAt ? new Date(t.lastMessageAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</div>
+                        ${t.unreadCount > 0 ? `<span class="conversation-card-unread">${t.unreadCount}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function openSupportThread(userId) {
+            supportInboxCurrentUserId = userId;
+            const thread = supportInboxThreadsCache.find(t => t.userId === userId);
+            document.getElementById('support-inbox-thread-name').textContent = thread ? (thread.userName || 'User') : 'User';
+            document.getElementById('support-inbox-list-view').style.display = 'none';
+            document.getElementById('support-inbox-thread-view').style.display = 'block';
+            const bodyEl = document.getElementById('support-inbox-thread-body');
+            bodyEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
+            try {
+                const data = await apiFetch(`/api/admin/support/threads/${userId}/messages`);
+                renderSupportInboxThreadMessages(data.messages || []);
+                // The GET above already marked these read server-side —
+                // reflect that immediately in the list's unread badge too.
+                if (thread) thread.unreadCount = 0;
+                updateSupportInboxBadge();
+            } catch (err) {
+                bodyEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderSupportInboxThreadMessages(messages) {
+            const bodyEl = document.getElementById('support-inbox-thread-body');
+            if (messages.length === 0) {
+                bodyEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">No messages yet.</p>';
+                return;
+            }
+            bodyEl.innerHTML = messages.map(m => `
+                <div class="message-bubble ${m.senderRole === 'support' ? 'mine' : 'theirs'}">
+                    ${m.body}
+                    <span class="message-bubble-time">${new Date(m.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                </div>
+            `).join('');
+            bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+
+        function closeSupportThreadView() {
+            document.getElementById('support-inbox-thread-view').style.display = 'none';
+            document.getElementById('support-inbox-list-view').style.display = 'block';
+            supportInboxCurrentUserId = null;
+            loadSupportInboxThreads(); // refresh previews/unread state after visiting a thread
+        }
+
+        async function sendSupportInboxReply() {
+            const input = document.getElementById('support-inbox-thread-input');
+            const body = input.value.trim();
+            if (!body || !supportInboxCurrentUserId) return;
+            input.value = '';
+            try {
+                const data = await apiFetch(`/api/admin/support/threads/${supportInboxCurrentUserId}/messages`, {
+                    method: 'POST',
+                    body: JSON.stringify({ body }),
+                });
+                const bodyEl = document.getElementById('support-inbox-thread-body');
+                if (bodyEl.querySelector('p')) bodyEl.innerHTML = '';
+                bodyEl.insertAdjacentHTML('beforeend', `
+                    <div class="message-bubble mine">
+                        ${data.message.body}
+                        <span class="message-bubble-time">${new Date(data.message.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                    </div>
+                `);
+                bodyEl.scrollTop = bodyEl.scrollHeight;
+            } catch (err) {
+                showToast(err.message, 'error');
+                input.value = body;
+            }
+        }
+
+        // ============================================================
         // Platform Settings (Super Admin only)
         // ============================================================
         async function loadPlatformSettingsPanel() {
@@ -16393,6 +17388,9 @@
                     <div style="font-weight: 700; margin-bottom: 0.5rem;">Still need help?</div>
                     <div style="color: var(--slate-light);">Email: <a href="mailto:${email}" style="color: var(--primary); font-weight: 600;">${email}</a></div>
                     <div style="color: var(--slate-light);">Phone: <a href="tel:${phone}" style="color: var(--primary); font-weight: 600;">${phone}</a></div>
+                    ${currentUser && currentUser.role !== 'admin' && currentUser.role !== 'super_admin' ? `
+                        <button type="button" class="btn-small btn-success" id="open-support-chat-from-help-btn" style="width:100%; margin-top:1rem;">Chat with Support</button>
+                    ` : ''}
                 </div>
             `;
         }
@@ -17993,8 +18991,9 @@
                                     <span>Total</span>$${purchase.totalAmount.toFixed(2)}
                                     ${paymentStatusBadgeHtml(purchase)}
                                 </div>
-                                <div style="display:flex; gap:0.5rem;">
+                                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                                     ${purchase.deliveryOrderId ? `<button type="button" class="btn-small btn-secondary track-purchase-delivery-btn" data-order-id="${purchase.deliveryOrderId}">Track Delivery</button>` : ''}
+                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
                                     <button type="button" class="btn-small btn-secondary report-purchase-dispute-btn" data-purchase-id="${purchase.id}">Report a Problem</button>
                                 </div>
                             </div>
@@ -18047,6 +19046,95 @@
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Submit Report';
+            }
+        }
+
+        // ---- Request a Return / My Returns (customer-facing, self-service) ----
+        // Distinct from Report a Problem above: a return is decided
+        // directly by the vendor (no Super Admin step) — see the
+        // return_requests comment in schema.sql.
+        let requestReturnTargetPurchaseId = null;
+
+        function openRequestReturnModal(purchaseId) {
+            requestReturnTargetPurchaseId = purchaseId;
+            document.getElementById('request-return-form').reset();
+            document.getElementById('request-return-form-error').style.display = 'none';
+            document.getElementById('request-return-modal').classList.add('active');
+        }
+
+        function closeRequestReturnModal() {
+            document.getElementById('request-return-modal').classList.remove('active');
+        }
+
+        async function handleRequestReturnFormSubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('request-return-form-error');
+            const submitBtn = document.getElementById('request-return-form-submit-btn');
+            errorEl.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting…';
+            try {
+                const reason = document.getElementById('request-return-reason-input').value;
+                const description = document.getElementById('request-return-description-input').value.trim();
+                await apiFetch('/api/returns', {
+                    method: 'POST',
+                    body: JSON.stringify({ purchaseId: requestReturnTargetPurchaseId, reason, description }),
+                });
+                closeRequestReturnModal();
+                showToast("Return requested — the seller will review it", 'success');
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Request';
+            }
+        }
+
+        const RETURN_REASON_LABELS = {
+            changed_mind: 'Changed my mind',
+            wrong_item: 'Wrong item',
+            damaged: 'Item arrived damaged',
+            not_as_described: 'Not as described',
+            other: 'Something else',
+        };
+
+        const RETURN_STATUS_PILLS = {
+            requested: '<span style="background:#fef3c7; color:#92400e; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Requested</span>',
+            approved: '<span style="background:#dbeafe; color:#1d4ed8; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Approved</span>',
+            rejected: '<span style="background:#fee2e2; color:#b91c1c; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Rejected</span>',
+            refunded: '<span style="background:#dcfce7; color:#15803d; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Refunded</span>',
+        };
+
+        async function loadMyReturnsPanel() {
+            const listEl = document.getElementById('my-returns-list');
+            try {
+                const data = await apiFetch('/api/returns/mine');
+                const returnRequests = data.returnRequests || [];
+                if (returnRequests.length === 0) {
+                    renderEmptyState(listEl, "You haven't requested any returns.");
+                    return;
+                }
+                listEl.innerHTML = returnRequests.map(r => `
+                    <div style="border:1px solid var(--border); border-radius:0.875rem; padding:1rem 1.25rem; margin-bottom:0.875rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.5rem;">
+                            <div>
+                                <div style="font-weight:700; color:var(--slate);">${RETURN_REASON_LABELS[r.reason] || r.reason}</div>
+                                <div style="font-size:0.75rem; color:var(--slate-light);">${new Date(r.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}${r.purchaseAmount !== null ? ` · $${r.purchaseAmount.toFixed(2)} purchase` : ''}</div>
+                            </div>
+                            ${RETURN_STATUS_PILLS[r.status] || r.status}
+                        </div>
+                        ${r.description ? `<div style="font-size:0.875rem; color:var(--slate); margin-bottom:${r.vendorNote || r.refundAmount ? '0.625rem' : '0'};">${r.description}</div>` : ''}
+                        ${(r.vendorNote || r.refundAmount) ? `
+                            <div style="background:var(--bg-light); border-radius:0.625rem; padding:0.75rem 0.875rem; font-size:0.8125rem; color:var(--slate);">
+                                ${r.vendorNote ? `<strong>Seller note:</strong> ${r.vendorNote}` : ''}
+                                ${r.refundAmount ? `<div style="margin-top:0.375rem; font-weight:700; color:#15803d;">Refunded: $${r.refundAmount.toFixed(2)}</div>` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+            } catch (err) {
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626; padding:2rem 0;">${err.message}</p>`;
             }
         }
 
@@ -18219,7 +19307,11 @@
             const container = document.getElementById('orders-grouped-delivery');
             if (!container) return;
             populateOrderAgentFilter();
-            const activeOrders = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled');
+            // 'scheduled' orders aren't accept-ready yet — excluded here
+            // the same way getPendingOrders() excludes them server-side,
+            // so a delivery company/admin never sees a not-yet-due order
+            // with nothing they can do about it.
+            const activeOrders = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled' && o.status !== 'scheduled');
             const filtered = applyOrderFilters(activeOrders);
             const emptyMessage = activeOrders.length === 0
                 ? 'No available orders right now.'
@@ -18288,12 +19380,13 @@
                     ${order.amount !== null && order.serviceFee ? `<div class="order-detail"><span class="order-detail-label">Service Fee:</span><span class="order-detail-value">$${order.serviceFee.toFixed(2)}</span></div><div class="order-detail"><span class="order-detail-label">Total Due:</span><span class="order-detail-value" style="font-weight: 700;">$${(order.amount + order.serviceFee).toFixed(2)}</span></div>` : ''}
                     ${order.paymentMethod ? `<div class="order-detail"><span class="order-detail-label">Payment:</span><span class="order-detail-value"><span class="payment-method-pill">${order.paymentMethod}</span></span></div>` : ''}
                     ${order.acceptedBy ? `<div class="order-detail"><span class="order-detail-label">Agent:</span><span class="order-detail-value" style="font-weight: 600;">${order.acceptedBy}${agents[order.acceptedBy] ? ` (${agents[order.acceptedBy]})` : ''}</span></div>` : ''}
+                    ${order.status === 'scheduled' && order.scheduledFor ? `<div class="order-detail"><span class="order-detail-label">Scheduled:</span><span class="order-detail-value">${new Date(order.scheduledFor).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}${order.recurrence ? ` · Repeats ${order.recurrence}` : ''}</span></div>` : ''}
                 </div>
                 <div class="order-actions">
                     ${role === 'delivery' ? `<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 600;"><input type="checkbox" class="order-checkbox" data-id="${order.id}" ${selectedOrderIds.includes(order.id) ? 'checked' : ''}> Select</label>` : ''}
                     <button class="btn-small btn-secondary view-details" data-id="${order.id}">View Details</button>
                     ${role === 'delivery' ? renderActionButtons(order) : ''}
-                    ${role === 'sender' && order.status === 'pending' ? `<button class="btn-small btn-danger cancel-order" data-id="${order.id}">Cancel Order</button>` : ''}
+                    ${role === 'sender' && (order.status === 'pending' || order.status === 'scheduled') ? `<button class="btn-small btn-danger cancel-order" data-id="${order.id}">Cancel Order</button>` : ''}
                 </div>
             `;
             card.querySelector('.view-details').addEventListener('click', () => openOrderDetails(order.id, role));
@@ -18343,6 +19436,8 @@
         function openNewOrderModal() {
             document.getElementById('new-order-modal').classList.add('active');
             document.getElementById('new-order-form').reset();
+            document.getElementById('new-order-schedule-fields').style.display = 'none';
+            document.getElementById('new-order-form-error').style.display = 'none';
         }
         function closeNewOrderModal() { document.getElementById('new-order-modal').classList.remove('active'); }
 
@@ -18387,7 +19482,7 @@
                     btn.addEventListener('click', () => { updateOrderStatus(order.id, 'delivered'); closeOrderDetailsModal(); });
                     timelineContainer.appendChild(btn);
                 }
-            } else if (role === 'sender' && order.status === 'pending') {
+            } else if (role === 'sender' && (order.status === 'pending' || order.status === 'scheduled')) {
                 const timelineContainer = content.querySelector('.timeline');
                 const btn = document.createElement('button');
                 btn.className = 'btn-small btn-danger'; btn.textContent = 'Cancel Order'; btn.style.marginTop = '1rem';
@@ -18398,10 +19493,82 @@
                 // actually finished, one way or another — an in-flight
                 // order should just be cancelled or waited out instead.
                 const timelineContainer = content.querySelector('.timeline');
+                // Rating needs a real, collision-safe agent link
+                // (order.agentId — see schema.sql) and hasn't already
+                // been rated (order.agentReviewId, only populated when
+                // getOrdersBySender's join found one).
+                if (order.status === 'delivered' && order.agentId && !order.agentReviewId) {
+                    const rateBtn = document.createElement('button');
+                    rateBtn.className = 'btn-small btn-success'; rateBtn.textContent = 'Rate Delivery'; rateBtn.style.marginTop = '1rem'; rateBtn.style.marginRight = '0.75rem';
+                    rateBtn.addEventListener('click', () => { closeOrderDetailsModal(); openRateDeliveryModal(order.id); });
+                    timelineContainer.appendChild(rateBtn);
+                }
                 const btn = document.createElement('button');
                 btn.className = 'btn-small btn-secondary'; btn.textContent = 'Report a Problem'; btn.style.marginTop = '1rem';
                 btn.addEventListener('click', () => openReportDisputeModal(order.id, 'order'));
                 timelineContainer.appendChild(btn);
+            }
+        }
+
+        // ---- "Rate your delivery" — star rating for the real agent who
+        // delivered the order, plus an optional tip. See POST
+        // /api/orders/:id/rate. ----
+        let rateDeliveryOrderId = null;
+        let rateDeliverySelectedStars = 0;
+
+        function openRateDeliveryModal(orderId) {
+            rateDeliveryOrderId = orderId;
+            rateDeliverySelectedStars = 0;
+            renderRateDeliveryStars();
+            document.getElementById('rate-delivery-comment').value = '';
+            document.getElementById('rate-delivery-tip').value = '';
+            document.getElementById('rate-delivery-error').style.display = 'none';
+            document.getElementById('rate-delivery-modal').classList.add('active');
+        }
+
+        function renderRateDeliveryStars() {
+            const starsEl = document.getElementById('rate-delivery-stars');
+            starsEl.innerHTML = [1, 2, 3, 4, 5].map(n => `
+                <button type="button" class="rate-delivery-star${n <= rateDeliverySelectedStars ? ' selected' : ''}" data-star="${n}" aria-label="${n} star${n > 1 ? 's' : ''}">★</button>
+            `).join('');
+        }
+
+        async function submitRateDelivery() {
+            const errorEl = document.getElementById('rate-delivery-error');
+            errorEl.style.display = 'none';
+            if (rateDeliverySelectedStars < 1) {
+                errorEl.textContent = 'Please choose a star rating.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            const comment = document.getElementById('rate-delivery-comment').value.trim();
+            const tipRaw = document.getElementById('rate-delivery-tip').value.trim();
+            const submitBtn = document.getElementById('rate-delivery-submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting…';
+            try {
+                const data = await apiFetch(`/api/orders/${rateDeliveryOrderId}/rate`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        rating: rateDeliverySelectedStars,
+                        comment: comment || undefined,
+                        tipAmount: tipRaw ? Number(tipRaw) : undefined,
+                    }),
+                });
+                const order = orders.find(o => o.id === rateDeliveryOrderId);
+                if (order) {
+                    order.agentReviewId = data.review.id;
+                    if (tipRaw) order.tipAmount = Number(tipRaw);
+                }
+                document.getElementById('rate-delivery-modal').classList.remove('active');
+                showToast('Thanks for rating your delivery!', 'success');
+                refreshAllViews();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit';
             }
         }
         function closeOrderDetailsModal() { document.getElementById('order-details-modal').classList.remove('active'); }
@@ -18409,7 +19576,7 @@
         function renderTimeline(order) {
             const steps = [
                 { label: 'Order Created', completed: true, time: order.createdAt },
-                { label: 'Order Accepted', completed: order.status !== 'pending' && order.status !== 'cancelled', time: order.acceptedAt },
+                { label: 'Order Accepted', completed: order.status !== 'pending' && order.status !== 'scheduled' && order.status !== 'cancelled', time: order.acceptedAt },
                 { label: 'Picked Up', completed: order.status === 'picked-up' || order.status === 'delivered', time: order.pickedUpAt },
                 { label: 'Delivered', completed: order.status === 'delivered', time: order.deliveredAt }
             ];
@@ -18426,15 +19593,31 @@
 
         async function handleNewOrder(e) {
             e.preventDefault();
+            const errorEl = document.getElementById('new-order-form-error');
+            errorEl.style.display = 'none';
             const newOrder = {
                 pickupAddress: document.getElementById('pickup-address').value,
                 dropoffAddress: document.getElementById('dropoff-address').value,
                 itemDescription: document.getElementById('item-description').value
             };
+            if (document.getElementById('new-order-schedule-toggle').checked) {
+                const scheduledForRaw = document.getElementById('new-order-scheduled-for-input').value;
+                if (!scheduledForRaw) {
+                    errorEl.textContent = 'Choose a date and time to schedule this order';
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                newOrder.scheduledFor = new Date(scheduledForRaw).toISOString();
+                const recurrence = document.getElementById('new-order-recurrence-input').value;
+                if (recurrence) newOrder.recurrence = recurrence;
+            }
             const result = await emitWithAck('order:create', newOrder);
-            if (!result.ok) { showToast(result.error || 'Failed to create order', 'error'); return; }
+            if (!result.ok) { errorEl.textContent = result.error || 'Failed to create order'; errorEl.style.display = 'block'; return; }
             closeNewOrderModal();
-            sendLocalNotification('Order Submitted', { body: 'Your delivery request was sent.' });
+            sendLocalNotification(
+                newOrder.scheduledFor ? 'Order Scheduled' : 'Order Submitted',
+                { body: newOrder.scheduledFor ? 'Your delivery request will be sent at the scheduled time.' : 'Your delivery request was sent.' }
+            );
         }
 
         async function updateOrderStatus(orderId, newStatus) {
@@ -19665,6 +20848,175 @@
             `).join('');
         }
 
+        // Vendor-side self-service returns queue — the vendor decides
+        // directly (approve/reject, then mark refunded), unlike Disputes
+        // above which is read-only for vendors. Mirrors disputesCache's
+        // pattern of caching the list so the decide/view modals can look
+        // a row up by id without a second fetch.
+        let vendorReturnsFilter = '';
+        let vendorReturnsCache = [];
+
+        async function loadVendorReturns() {
+            const listEl = document.getElementById('vendor-returns-list');
+            listEl.innerHTML = '<p style="text-align: center; color: var(--slate-light);">Loading…</p>';
+            try {
+                const params = vendorReturnsFilter ? `?status=${vendorReturnsFilter}` : '';
+                const data = await apiFetch(`/api/vendor/returns${params}`);
+                vendorReturnsCache = data.returnRequests || [];
+                renderVendorReturnsList(vendorReturnsCache);
+            } catch (err) {
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderVendorReturnsList(returnRequests) {
+            const listEl = document.getElementById('vendor-returns-list');
+            if (returnRequests.length === 0) {
+                renderEmptyState(listEl, 'No return requests yet — real ones will show up here.');
+                return;
+            }
+            listEl.innerHTML = returnRequests.map(r => `
+                <div style="border:1px solid var(--border); border-radius:0.875rem; padding:1rem 1.25rem; margin-bottom:0.875rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.5rem;">
+                        <div>
+                            <div style="font-weight:700; color:var(--slate);">${RETURN_REASON_LABELS[r.reason] || r.reason}</div>
+                            <div style="font-size:0.75rem; color:var(--slate-light);">${new Date(r.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · Filed by ${r.customerName}${r.purchaseAmount !== null ? ` · $${r.purchaseAmount.toFixed(2)} purchase` : ''}</div>
+                        </div>
+                        ${RETURN_STATUS_PILLS[r.status] || r.status}
+                    </div>
+                    ${r.description ? `<div style="font-size:0.875rem; color:var(--slate); margin-bottom:0.625rem;">${r.description}</div>` : ''}
+                    ${r.vendorNote ? `
+                        <div style="background:var(--bg-light); border-radius:0.625rem; padding:0.75rem 0.875rem; font-size:0.8125rem; color:var(--slate); margin-bottom:0.625rem;">
+                            <strong>Your note:</strong> ${r.vendorNote}
+                            ${r.refundAmount ? `<div style="margin-top:0.375rem; font-weight:700; color:#15803d;">Refunded: $${r.refundAmount.toFixed(2)}</div>` : ''}
+                        </div>
+                    ` : ''}
+                    <div style="display:flex; gap:0.5rem;">
+                        ${r.status === 'requested' ? `<button type="button" class="btn-small btn-secondary decide-return-btn" data-id="${r.id}">Decide</button>` : ''}
+                        ${r.status === 'approved' ? `<button type="button" class="btn-small btn-success mark-refunded-btn" data-id="${r.id}">Mark Refunded</button>` : ''}
+                        ${(r.status === 'rejected' || r.status === 'refunded') ? `<button type="button" class="btn-small btn-secondary view-return-btn" data-id="${r.id}">View</button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function returnSummaryHtml(r) {
+            return `
+                <div><strong>${RETURN_REASON_LABELS[r.reason] || r.reason}</strong></div>
+                <div style="margin-top:0.375rem; color:var(--slate-light);">Filed by ${r.customerName}${r.purchaseAmount !== null ? ` · $${r.purchaseAmount.toFixed(2)} purchase` : ''}</div>
+                ${r.description ? `<div style="margin-top:0.5rem;">${r.description}</div>` : ''}
+            `;
+        }
+
+        let resolveReturnTargetId = null;
+
+        function openResolveReturnModal(id) {
+            const r = vendorReturnsCache.find(x => x.id === id);
+            if (!r) return;
+            resolveReturnTargetId = id;
+            document.getElementById('resolve-return-modal-title').textContent = 'Decide Return Request';
+            document.getElementById('resolve-return-summary').innerHTML = returnSummaryHtml(r);
+            document.getElementById('resolve-return-form').reset();
+            document.getElementById('resolve-return-error').style.display = 'none';
+            document.getElementById('resolve-return-form').style.display = 'block';
+            document.getElementById('resolve-return-decided-view').style.display = 'none';
+            document.getElementById('resolve-return-modal').classList.add('active');
+        }
+
+        // Read-only view for an already-decided (rejected/refunded)
+        // return — same summary, form replaced with what was decided.
+        function viewReturnModal(id) {
+            const r = vendorReturnsCache.find(x => x.id === id);
+            if (!r) return;
+            document.getElementById('resolve-return-modal-title').textContent = r.status === 'refunded' ? 'Refunded Return' : 'Rejected Return';
+            document.getElementById('resolve-return-summary').innerHTML = returnSummaryHtml(r);
+            document.getElementById('resolve-return-form').style.display = 'none';
+            document.getElementById('resolve-return-decided-view').style.display = 'block';
+            document.getElementById('resolve-return-decided-content').innerHTML = `
+                <div>${RETURN_STATUS_PILLS[r.status] || r.status}</div>
+                <div style="margin-top:0.75rem; background:var(--bg-light); border-radius:0.625rem; padding:0.875rem 1rem;">
+                    ${r.vendorNote || ''}
+                    ${r.refundAmount ? `<div style="margin-top:0.5rem; font-weight:700; color:#15803d;">Refunded: $${r.refundAmount.toFixed(2)}</div>` : ''}
+                </div>
+            `;
+            document.getElementById('resolve-return-modal').classList.add('active');
+        }
+
+        function closeResolveReturnModal() {
+            document.getElementById('resolve-return-modal').classList.remove('active');
+        }
+
+        async function handleResolveReturnFormSubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('resolve-return-error');
+            const submitBtn = document.getElementById('resolve-return-form-submit-btn');
+            errorEl.style.display = 'none';
+            const status = document.querySelector('input[name="resolve-return-decision"]:checked').value;
+            const vendorNote = document.getElementById('resolve-return-note-input').value.trim();
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving…';
+            try {
+                await apiFetch(`/api/vendor/returns/${resolveReturnTargetId}/decision`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status, vendorNote }),
+                });
+                closeResolveReturnModal();
+                showToast('Return decision saved', 'success');
+                await loadVendorReturns();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Decision';
+            }
+        }
+
+        let markRefundedTargetId = null;
+
+        function openMarkRefundedModal(id) {
+            const r = vendorReturnsCache.find(x => x.id === id);
+            markRefundedTargetId = id;
+            document.getElementById('mark-refunded-form').reset();
+            document.getElementById('mark-refunded-error').style.display = 'none';
+            if (r && r.purchaseAmount !== null) document.getElementById('mark-refunded-amount-input').value = r.purchaseAmount;
+            document.getElementById('mark-refunded-modal').classList.add('active');
+        }
+
+        function closeMarkRefundedModal() {
+            document.getElementById('mark-refunded-modal').classList.remove('active');
+        }
+
+        async function handleMarkRefundedFormSubmit(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('mark-refunded-error');
+            const submitBtn = document.getElementById('mark-refunded-form-submit-btn');
+            errorEl.style.display = 'none';
+            const refundAmount = Number(document.getElementById('mark-refunded-amount-input').value);
+            if (!refundAmount || refundAmount <= 0) {
+                errorEl.textContent = 'Enter a refund amount greater than $0';
+                errorEl.style.display = 'block';
+                return;
+            }
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving…';
+            try {
+                await apiFetch(`/api/vendor/returns/${markRefundedTargetId}/refund`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ refundAmount }),
+                });
+                closeMarkRefundedModal();
+                showToast('Refund recorded', 'success');
+                await loadVendorReturns();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Confirm Refund';
+            }
+        }
+
         function vendorOrderRowHtml(p) {
             // Status pill reflects the linked delivery order's real status
             // when one exists. A purchase with no delivery order yet is no
@@ -20125,7 +21477,7 @@
             `).join('') || '<p style="color:var(--slate-light);">No rows processed.</p>';
         }
 
-        const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'disputes', 'settings', 'account'];
+        const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'disputes', 'returns', 'settings', 'account'];
         async function setVendorTab(tab) {
             document.querySelectorAll('#vendor-app .mobile-nav-item, #vendor-app .desktop-sidebar-item[data-vendor-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.vendorTab === tab));
             VENDOR_TAB_VIEWS.forEach(v => {
@@ -20186,6 +21538,8 @@
                 }
             } else if (tab === 'disputes') {
                 loadVendorDisputes();
+            } else if (tab === 'returns') {
+                loadVendorReturns();
             } else if (tab === 'settings' && currentUser) {
                 document.getElementById('vendor-settings-name-input').value = currentUser.businessName || '';
                 splitPhoneNumber(currentUser.phone, 'vendor-settings-phone-country', 'vendor-settings-phone-input');
@@ -20389,6 +21743,29 @@
                 vendorDisputesFilter = btn.dataset.status;
                 loadVendorDisputes();
             });
+            document.getElementById('vendor-returns-filter-row').addEventListener('click', (e) => {
+                const btn = e.target.closest('.vendor-return-filter-btn');
+                if (!btn) return;
+                document.querySelectorAll('.vendor-return-filter-btn').forEach(b => b.classList.remove('active-category'));
+                btn.classList.add('active-category');
+                vendorReturnsFilter = btn.dataset.status;
+                loadVendorReturns();
+            });
+            document.getElementById('vendor-returns-list').addEventListener('click', (e) => {
+                const decideBtn = e.target.closest('.decide-return-btn');
+                if (decideBtn) { openResolveReturnModal(decideBtn.dataset.id); return; }
+                const refundBtn = e.target.closest('.mark-refunded-btn');
+                if (refundBtn) { openMarkRefundedModal(refundBtn.dataset.id); return; }
+                const viewBtn = e.target.closest('.view-return-btn');
+                if (viewBtn) viewReturnModal(viewBtn.dataset.id);
+            });
+            document.getElementById('close-resolve-return-modal').addEventListener('click', closeResolveReturnModal);
+            document.getElementById('cancel-resolve-return-form').addEventListener('click', closeResolveReturnModal);
+            document.getElementById('close-resolve-return-decided-view').addEventListener('click', closeResolveReturnModal);
+            document.getElementById('resolve-return-form').addEventListener('submit', handleResolveReturnFormSubmit);
+            document.getElementById('close-mark-refunded-modal').addEventListener('click', closeMarkRefundedModal);
+            document.getElementById('cancel-mark-refunded-form').addEventListener('click', closeMarkRefundedModal);
+            document.getElementById('mark-refunded-form').addEventListener('submit', handleMarkRefundedFormSubmit);
             document.getElementById('promotion-form').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const errorEl = document.getElementById('promotion-form-error');
@@ -20455,6 +21832,8 @@
                     btn.textContent = 'Save Changes';
                 }
             });
+            document.getElementById('vendor-theme-option-light').addEventListener('click', () => chooseAndSaveTheme('light'));
+            document.getElementById('vendor-theme-option-dark').addEventListener('click', () => chooseAndSaveTheme('dark'));
             document.getElementById('exit-impersonation-btn').addEventListener('click', exitVendorImpersonation);
             document.getElementById('vendor-logout-btn').addEventListener('click', vendorLogoutOrExitImpersonation);
             document.getElementById('vendor-back-to-chooser-btn').addEventListener('click', vendorLogoutOrExitImpersonation);
@@ -21504,6 +22883,58 @@
                 badge.textContent = count;
                 badge.style.display = count > 0 ? 'flex' : 'none';
             });
+        }
+
+        // ---- Live in-app support chat (customer/vendor/delivery-company
+        // side) — one thread per account, opened from Help & Support.
+        // See the Support Inbox section (near Platform Settings) for the
+        // reply side. ----
+        async function loadSupportChat() {
+            const bodyEl = document.getElementById('support-chat-body');
+            bodyEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
+            try {
+                const data = await apiFetch('/api/support/messages');
+                renderSupportChatMessages(data.messages || []);
+            } catch (err) {
+                bodyEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
+        function renderSupportChatMessages(messages) {
+            const bodyEl = document.getElementById('support-chat-body');
+            if (messages.length === 0) {
+                bodyEl.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Send a message and our team will get back to you.</p>';
+                return;
+            }
+            bodyEl.innerHTML = messages.map(m => `
+                <div class="message-bubble ${m.senderRole === 'user' ? 'mine' : 'theirs'}">
+                    ${m.body}
+                    <span class="message-bubble-time">${new Date(m.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                </div>
+            `).join('');
+            bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+
+        async function sendSupportChatMessage() {
+            const input = document.getElementById('support-chat-input');
+            const body = input.value.trim();
+            if (!body) return;
+            input.value = '';
+            try {
+                const data = await apiFetch('/api/support/messages', { method: 'POST', body: JSON.stringify({ body }) });
+                const bodyEl = document.getElementById('support-chat-body');
+                if (bodyEl.querySelector('p')) bodyEl.innerHTML = '';
+                bodyEl.insertAdjacentHTML('beforeend', `
+                    <div class="message-bubble mine">
+                        ${data.message.body}
+                        <span class="message-bubble-time">${new Date(data.message.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                    </div>
+                `);
+                bodyEl.scrollTop = bodyEl.scrollHeight;
+            } catch (err) {
+                showToast(err.message, 'error');
+                input.value = body;
+            }
         }
 
         async function openConversationThread(prefix, conversationId) {
@@ -22622,7 +24053,9 @@
                 const trackBtn = e.target.closest('.track-purchase-delivery-btn');
                 if (trackBtn) { openOrderDetails(trackBtn.dataset.orderId, 'sender'); return; }
                 const reportBtn = e.target.closest('.report-purchase-dispute-btn');
-                if (reportBtn) openReportDisputeModal(reportBtn.dataset.purchaseId, 'purchase');
+                if (reportBtn) { openReportDisputeModal(reportBtn.dataset.purchaseId, 'purchase'); return; }
+                const returnBtn = e.target.closest('.request-return-btn');
+                if (returnBtn) openRequestReturnModal(returnBtn.dataset.purchaseId);
             });
 
             // ---- Messages ----
@@ -22709,6 +24142,8 @@
                     btn.textContent = 'Save Changes';
                 }
             });
+            document.getElementById('mp-theme-option-light').addEventListener('click', () => chooseAndSaveTheme('light'));
+            document.getElementById('mp-theme-option-dark').addEventListener('click', () => chooseAndSaveTheme('dark'));
             document.getElementById('storefront-search-input').addEventListener('input', debounce(renderStorefrontProducts, 200));
             document.getElementById('storefront-sort-select').addEventListener('change', renderStorefrontProducts);
             document.getElementById('storefront-min-price').addEventListener('input', debounce(renderStorefrontProducts, 300));

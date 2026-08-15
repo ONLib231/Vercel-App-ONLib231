@@ -1044,3 +1044,140 @@ CREATE TABLE IF NOT EXISTS product_variants (
     UNIQUE (product_id, color, size)
 );
 CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants (product_id);
+
+-- ============================================================
+-- Round: Delivery agent ratings + tipping, self-service returns,
+-- scheduled/recurring orders, live support chat, push notifications,
+-- and a real (rebuilt-from-scratch) two-factor authentication.
+-- ============================================================
+
+-- A real, collision-safe link from an order to the agent who accepted
+-- it. orders.accepted_by (above) is a permanent free-text NAME
+-- snapshot — useful for display, but two agents (even across two
+-- different companies) can share a name, so it was never safe to key
+-- a rating off it. agent_id is populated going forward by
+-- acceptOrderAtomic from the same already-resolved `agent` record the
+-- accept handler uses for its own ownership check — see server.js.
+-- Orders accepted before this column existed keep agent_id NULL;
+-- there's no reliable way to backfill which specific agent a historic
+-- free-text name actually referred to, so those orders simply aren't
+-- rateable, rather than guessing.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL;
+
+-- Optional tip, entered by the sender from the same "Rate your
+-- delivery" prompt as the agent rating below (see the frontend's
+-- rate-and-tip modal). Kept as its own column, separate from `amount`
+-- (the delivery fee amount == the commission basis) — a tip is not
+-- commissionable, so it's surfaced for visibility on the order but
+-- deliberately NOT folded into the existing commission/payout
+-- calculations (see the payout summary comment in db.js), which this
+-- round didn't touch.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_amount NUMERIC(10, 2);
+
+-- One rating per delivered order (not one per agent-customer pair like
+-- product_reviews/vendor_reviews) — a sender may use the same agent
+-- for many separate deliveries and should be able to rate each one.
+CREATE TABLE IF NOT EXISTS agent_reviews (
+    id          TEXT PRIMARY KEY,
+    agent_id    TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    customer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rating      INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment     TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (order_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_reviews_agent_id ON agent_reviews (agent_id);
+
+-- Self-service returns — distinct from the existing disputes table
+-- (disputes are the "something went wrong, Super Admin adjudicates"
+-- path; a return is the customer-initiated "I want to send this back"
+-- path on a purchase that otherwise arrived fine). One open request
+-- per purchase at a time; the vendor reviews it directly, no Super
+-- Admin step. refund_amount here is the same kind of real bookkeeping
+-- record disputes.refund_amount already is (see resolveDispute in
+-- db.js) — there's no payment gateway integrated yet to actually
+-- reverse a charge, only Mobile Money collections, so both this and
+-- the existing dispute refund path record the decision rather than
+-- move real money.
+CREATE TABLE IF NOT EXISTS return_requests (
+    id            TEXT PRIMARY KEY,
+    purchase_id   TEXT NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+    customer_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    vendor_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason        TEXT NOT NULL,
+    description   TEXT,
+    status        TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'approved', 'rejected', 'refunded')),
+    vendor_note   TEXT,
+    refund_amount NUMERIC(10, 2),
+    resolved_at   TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (purchase_id)
+);
+CREATE INDEX IF NOT EXISTS idx_return_requests_vendor_id ON return_requests (vendor_id);
+CREATE INDEX IF NOT EXISTS idx_return_requests_customer_id ON return_requests (customer_id);
+
+-- Scheduled/recurring "Send a Package" orders. A scheduled order is
+-- created with status='scheduled' (NOT 'pending') so it's invisible
+-- to getPendingOrders()/the live delivery-company accept queue until
+-- its time comes; a periodic sweep (see server.js) promotes it to
+-- 'pending' once scheduled_for is due, exactly like the app's
+-- existing periodic sweeps for Premium renewal reminders and
+-- low-stock checks. A recurring order re-schedules a fresh copy of
+-- itself, recurrence cycles ahead, at the moment the current one gets
+-- promoted — a simple, real mechanism, not a general-purpose cron.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS recurrence TEXT CHECK (recurrence IN ('daily', 'weekly'));
+
+-- Live in-app support chat — a platform support channel, distinct
+-- from the existing vendor<->customer conversations/messages tables
+-- (those require a vendor_id and are scoped to one vendor's own
+-- customers; support has neither). One thread per user account,
+-- staffed by any admin/super_admin — sender_role distinguishes who
+-- wrote each message within that single thread.
+CREATE TABLE IF NOT EXISTS support_messages (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sender_role TEXT NOT NULL CHECK (sender_role IN ('user', 'support')),
+    body        TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    read_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_support_messages_user_id ON support_messages (user_id, created_at);
+
+-- Real Web Push (VAPID) subscriptions — no third-party account
+-- required, unlike Firebase Cloud Messaging. One row per browser/
+-- device a person has granted push permission on; a user can have
+-- several (phone + laptop, etc).
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint    TEXT NOT NULL UNIQUE,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions (user_id);
+
+-- Two-factor authentication, rebuilt from scratch (see README — this
+-- was built and then deliberately removed twice before, both times
+-- because it added unwanted login friction; this round's explicit
+-- instruction was "remove all of the old ones and build it for real
+-- this time", scoped to SMS via the existing Twilio integration, for
+-- any role that opts in). Same code/hash/expiry shape as the existing
+-- password_resets table, kept as its own table since it's a distinct
+-- concern (a login-time challenge, not a password-recovery flow).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS two_factor_challenges (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash   TEXT NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_two_factor_challenges_user_id ON two_factor_challenges (user_id);
+-- Single-use, same reasoning as password_resets.used — a code that's
+-- already been redeemed (for login, or to confirm enabling 2FA) must
+-- not work a second time even if it hasn't expired yet.
+ALTER TABLE two_factor_challenges ADD COLUMN IF NOT EXISTS used BOOLEAN NOT NULL DEFAULT false;

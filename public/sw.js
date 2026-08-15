@@ -43,3 +43,41 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
+// Web Push (VAPID) — real background notifications, distinct from the
+// foreground-only Notification API used elsewhere in the app. See
+// server/push.js for the send side. This is the only place a push
+// message actually becomes a visible OS notification; everything the
+// server sends is a plain JSON payload of { title, body, url }.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (err) {
+    // Not valid JSON — fall back to a generic notification rather than
+    // dropping it silently.
+  }
+  const title = data.title || 'ONLib';
+  const options = {
+    body: data.body || '',
+    icon: '/assets/icon-192.png',
+    badge: '/assets/icon-192.png',
+    data: { url: data.url || '/' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Clicking the notification focuses an already-open tab if one exists,
+// rather than always opening a new one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
+});

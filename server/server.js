@@ -10,6 +10,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 const db = require('./db');
 const { notifyNewOrder, sendMessage, notifyNewVendorApplication, sendEmail, notifySubscriptionRenewalDue, notifyLowStock, notifyNewProductFromFollowedStore } = require('./notify');
+const { sendPushToUser, publicKey: VAPID_PUBLIC_KEY } = require('./push');
 const momo = require('./momo');
 const { parsePriceRowsFromText } = require('./pricePresetPdfParser');
 const DEFAULT_HOME_BANNERS = require('./seed-data/default-home-banners');
@@ -313,6 +314,21 @@ io.on('connection', (socket) => {
         senderId = customer.id;
         senderName = customer.businessName;
       }
+      // Scheduled/recurring "Send a Package" orders — optional. A
+      // future scheduled_for gets status='scheduled' instead of
+      // 'pending' so it stays invisible to delivery companies until a
+      // periodic sweep promotes it (see runScheduledOrderSweep below
+      // and the design comment in schema.sql). recurrence is only
+      // meaningful alongside a real scheduled_for.
+      let scheduledFor = null;
+      let recurrence = null;
+      if (payload.scheduledFor) {
+        scheduledFor = new Date(payload.scheduledFor);
+        if (isNaN(scheduledFor.getTime()) || scheduledFor.getTime() <= Date.now()) {
+          return ack && ack({ ok: false, error: 'Scheduled time must be in the future' });
+        }
+        if (['daily', 'weekly'].includes(payload.recurrence)) recurrence = payload.recurrence;
+      }
       const order = await db.createOrder({
         // Date.now() alone is NOT safe as a unique ID source — it has
         // only millisecond resolution, so two requests landing in the
@@ -327,12 +343,21 @@ io.on('connection', (socket) => {
         dropoffAddress: payload.dropoffAddress,
         itemDescription: payload.itemDescription,
         amount: null,
-        status: 'pending',
+        status: scheduledFor ? 'scheduled' : 'pending',
         placedByAdmin: isAdmin,
+        scheduledFor,
+        recurrence,
       });
-      orderRooms(order).forEach((r) => io.to(r).emit('order:created', order));
+      if (order.status === 'scheduled') {
+        // Not accept-ready yet — only the sender and admins need to
+        // know it exists; delivery companies don't see it until the
+        // sweep promotes it to 'pending' and broadcasts it for real.
+        io.to(`user:${order.senderId}`).to('admins').emit('order:created', order);
+      } else {
+        orderRooms(order).forEach((r) => io.to(r).emit('order:created', order));
+        notifyNewOrder(order); // fire-and-forget — never blocks the order response
+      }
       ack && ack({ ok: true, order });
-      notifyNewOrder(order); // fire-and-forget — never blocks the order response
     } catch (err) {
       console.error('order:create failed', err);
       ack && ack({ ok: false, error: 'Failed to create order' });
@@ -348,6 +373,14 @@ io.on('connection', (socket) => {
       if (!existing) return ack && ack({ ok: false, error: 'Order not found' });
       if (existing.senderId !== socket.user.id) {
         return ack && ack({ ok: false, error: 'You can only cancel your own orders' });
+      }
+      if (existing.status === 'scheduled') {
+        // Not due yet — no restock/atomic-accept concerns apply, so
+        // this is a simpler cancel than cancelOrderAndRestock below.
+        const order = await db.cancelScheduledOrder(id, socket.user.id);
+        if (!order) return ack && ack({ ok: false, error: 'This scheduled order was already cancelled or is no longer scheduled' });
+        io.to(`user:${order.senderId}`).to('admins').emit('order:updated', order);
+        return ack && ack({ ok: true, order });
       }
       if (existing.status !== 'pending') {
         return ack && ack({ ok: false, error: 'Only pending orders (not yet accepted by an agent) can be cancelled' });
@@ -376,6 +409,11 @@ io.on('connection', (socket) => {
     try {
       const order = await db.updateOrder(id, fields);
       orderRooms(order).forEach((r) => io.to(r).emit('order:updated', order));
+      if (order.status === 'picked-up') {
+        sendPushToUser(db, order.senderId, { title: 'Order picked up', body: `Your order ${order.id} is on its way.`, url: '/' }); // fire-and-forget
+      } else if (order.status === 'delivered') {
+        sendPushToUser(db, order.senderId, { title: 'Order delivered', body: `Your order ${order.id} has been delivered.`, url: '/' }); // fire-and-forget
+      }
       ack && ack({ ok: true, order });
     } catch (err) {
       console.error('order:update failed', err);
@@ -424,11 +462,16 @@ io.on('connection', (socket) => {
         acceptedBy: agent ? agent.name : (acceptedBy || 'Unknown'),
         paymentMethod: paymentMethod || null,
         deliveryCompanyId: agent ? agent.deliveryCompanyId : null,
+        // Real agent_id link (see schema.sql) — only set when a real
+        // agent record was resolved above, same condition acceptedBy's
+        // name snapshot already uses.
+        agentId: agent ? agent.id : null,
       });
       if (!order) {
         return ack && ack({ ok: false, error: 'This order was already accepted — someone got there first.' });
       }
       orderRooms(order).forEach((r) => io.to(r).emit('order:updated', order));
+      sendPushToUser(db, order.senderId, { title: 'Order accepted', body: `${order.acceptedBy} is on the way for order ${order.id}.`, url: '/' }); // fire-and-forget
       ack && ack({ ok: true, order });
     } catch (err) {
       console.error('order:accept failed', err);
@@ -818,6 +861,14 @@ app.post('/api/auth/register-delivery-company', authLimiter, async (req, res) =>
   }
 });
 
+// Shape shared by every route below that completes a real login
+// (plain login, 2FA verify, password reset) — kept as one function so
+// the fields returned to the frontend can't quietly drift apart
+// between the different ways a session can start.
+function publicUserShape(user) {
+  return { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason, twoFactorEnabled: user.twoFactorEnabled };
+}
+
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
@@ -828,12 +879,148 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (!match) return res.status(401).json({ error: 'Invalid email or password' });
     if (user.isDisabled) return res.status(403).json({ error: 'This account has been disabled. Contact support for help.' });
 
+    // Two-factor authentication (SMS via Twilio, opt-in, any role) —
+    // password alone isn't enough for this account; a fresh code goes
+    // out and the frontend must call /api/auth/2fa/verify with it
+    // before a real session token is issued. See schema.sql for the
+    // "rebuilt from scratch" note on why this exists as its own,
+    // deliberately simple table rather than reusing password_resets.
+    if (user.twoFactorEnabled && user.phone) {
+      const code = crypto.randomInt(100000, 1000000).toString(); // 6 digits
+      const codeHash = await hashPassword(code);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const challengeId = crypto.randomUUID();
+      await db.createTwoFactorChallenge({ id: challengeId, userId: user.id, codeHash, expiresAt });
+      const sent = await sendMessage(user.phone, `Your ONLib login code is: ${code}\nIt expires in 10 minutes. If you didn't try to log in, ignore this message.`);
+      if (!sent) console.warn(`[2fa] Could not deliver login code to ${user.phone} — is Twilio configured? (see server/notify.js)`);
+      return res.json({ requiresTwoFactor: true, challengeId });
+    }
+
     const sessionId = await recordLoginHistory(req, user.id);
     const token = signToken(user, sessionId);
-    res.json({ token, user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason } });
+    res.json({ token, user: publicUserShape(user) });
   } catch (err) {
     console.error('login failed', err);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Login, step 2 for a 2FA-enabled account: verify the code an
+// /api/auth/login response's challengeId asked for, then complete the
+// login exactly like a plain login would have.
+app.post('/api/auth/2fa/verify', authLimiter, async (req, res) => {
+  const { challengeId, code } = req.body || {};
+  if (!challengeId || !code) return res.status(400).json({ error: 'A verification code is required' });
+  try {
+    const challenge = await db.getTwoFactorChallenge(challengeId);
+    if (!challenge || challenge.used || new Date(challenge.expires_at) < new Date()) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+    const match = await comparePassword(code, challenge.code_hash);
+    if (!match) return res.status(400).json({ error: 'Invalid or expired code' });
+    const user = await db.getUserById(challenge.user_id);
+    if (!user) return res.status(400).json({ error: 'Invalid or expired code' });
+    if (user.isDisabled) return res.status(403).json({ error: 'This account has been disabled. Contact support for help.' });
+
+    await db.markTwoFactorChallengeUsed(challenge.id);
+    const sessionId = await recordLoginHistory(req, user.id);
+    const token = signToken(user, sessionId);
+    res.json({ token, user: publicUserShape(user) });
+  } catch (err) {
+    console.error('2fa verify failed', err);
+    res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
+
+// Lets someone re-request a code if the first one expired or never
+// arrived, without having to re-enter their password. Invalidates the
+// old challenge so only the newest code is ever valid at once.
+app.post('/api/auth/2fa/resend', authLimiter, async (req, res) => {
+  const { challengeId } = req.body || {};
+  if (!challengeId) return res.status(400).json({ error: 'challengeId is required' });
+  try {
+    const challenge = await db.getTwoFactorChallenge(challengeId);
+    if (!challenge || challenge.used) return res.status(400).json({ error: 'This login attempt has expired — please log in again' });
+    const user = await db.getUserById(challenge.user_id);
+    if (!user || !user.phone) return res.status(400).json({ error: 'This login attempt has expired — please log in again' });
+
+    await db.markTwoFactorChallengeUsed(challenge.id); // the old code no longer works
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const codeHash = await hashPassword(code);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const newChallengeId = crypto.randomUUID();
+    await db.createTwoFactorChallenge({ id: newChallengeId, userId: user.id, codeHash, expiresAt });
+    const sent = await sendMessage(user.phone, `Your ONLib login code is: ${code}\nIt expires in 10 minutes.`);
+    if (!sent) console.warn(`[2fa] Could not resend login code to ${user.phone}`);
+    res.json({ ok: true, challengeId: newChallengeId });
+  } catch (err) {
+    console.error('2fa resend failed', err);
+    res.status(500).json({ error: 'Failed to resend code' });
+  }
+});
+
+// ============================================================
+// Two-factor authentication — account settings (any authenticated
+// role can opt in, matching the user's explicit choice for this
+// round). Enabling requires proving the phone on file can actually
+// receive a code (not just trusting whatever number is stored);
+// disabling requires the account password, since turning this off is
+// the security-reducing direction — same "confirm with password"
+// bar as change-email/change-password above.
+// ============================================================
+
+app.post('/api/me/2fa/enable-request', requireAuth, async (req, res) => {
+  try {
+    const user = await db.getUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.phone) return res.status(400).json({ error: 'Add a phone number to your account before enabling two-factor authentication' });
+    if (user.twoFactorEnabled) return res.status(400).json({ error: 'Two-factor authentication is already enabled' });
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const codeHash = await hashPassword(code);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const challengeId = crypto.randomUUID();
+    await db.createTwoFactorChallenge({ id: challengeId, userId: user.id, codeHash, expiresAt });
+    const sent = await sendMessage(user.phone, `Your ONLib verification code is: ${code}\nIt expires in 10 minutes.`);
+    if (!sent) return res.status(502).json({ error: 'Could not send a verification code to your phone. Please try again shortly.' });
+    res.json({ ok: true, challengeId });
+  } catch (err) {
+    console.error('2fa enable-request failed', err);
+    res.status(500).json({ error: 'Failed to start two-factor setup' });
+  }
+});
+
+app.post('/api/me/2fa/enable-confirm', requireAuth, async (req, res) => {
+  const { challengeId, code } = req.body || {};
+  if (!challengeId || !code) return res.status(400).json({ error: 'A verification code is required' });
+  try {
+    const challenge = await db.getTwoFactorChallenge(challengeId);
+    if (!challenge || challenge.user_id !== req.user.id || challenge.used || new Date(challenge.expires_at) < new Date()) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+    const match = await comparePassword(code, challenge.code_hash);
+    if (!match) return res.status(400).json({ error: 'Invalid or expired code' });
+    await db.markTwoFactorChallengeUsed(challenge.id);
+    await db.setTwoFactorEnabled(req.user.id, true);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('2fa enable-confirm failed', err);
+    res.status(500).json({ error: 'Failed to enable two-factor authentication' });
+  }
+});
+
+app.post('/api/me/2fa/disable', requireAuth, async (req, res) => {
+  const { currentPassword } = req.body || {};
+  if (!currentPassword) return res.status(400).json({ error: 'Current password is required' });
+  try {
+    const user = await db.getUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const match = await comparePassword(currentPassword, user.passwordHash);
+    if (!match) return res.status(401).json({ error: 'Incorrect password' });
+    await db.setTwoFactorEnabled(req.user.id, false);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('2fa disable failed', err);
+    res.status(500).json({ error: 'Failed to disable two-factor authentication' });
   }
 });
 
@@ -2334,6 +2521,7 @@ app.get('/api/super-admin/payouts', requireAuth, requireSuperAdmin, async (req, 
 // on db.getPayoutSummary.
 // ============================================================
 const DISPUTE_CATEGORIES = ['wrong_item', 'damaged', 'never_arrived', 'overcharged', 'other'];
+const RETURN_REASONS = ['changed_mind', 'wrong_item', 'damaged', 'not_as_described', 'other'];
 
 app.get('/api/super-admin/disputes', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
@@ -3533,6 +3721,146 @@ app.get('/api/disputes/mine', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// Self-service returns — distinct from disputes (see schema.sql):
+// a customer requests directly, the vendor decides directly, no
+// Super Admin step. Refund is recorded the same way disputes.
+// refund_amount already is — a bookkeeping entry, not a real payment
+// reversal (no card/refund-capable gateway is integrated yet).
+// ============================================================
+
+// Customer requests a return on one of their own delivered purchases.
+app.post('/api/returns', requireAuth, async (req, res) => {
+  if (req.user.role !== 'sender') return res.status(403).json({ error: 'Only customers can request a return' });
+  const { purchaseId, reason, description } = req.body || {};
+  if (!purchaseId) return res.status(400).json({ error: 'purchaseId is required' });
+  const finalReason = RETURN_REASONS.includes(reason) ? reason : 'other';
+  try {
+    const purchase = await db.getPurchaseById(purchaseId);
+    if (!purchase || purchase.customerId !== req.user.id) return res.status(404).json({ error: 'Purchase not found' });
+    if (purchase.deliveryOrderId) {
+      const order = await db.getOrder(purchase.deliveryOrderId);
+      if (!order || order.status !== 'delivered') {
+        return res.status(400).json({ error: 'This purchase has not been delivered yet' });
+      }
+    }
+    const existing = await db.getReturnRequestByPurchase(purchaseId);
+    if (existing) return res.status(409).json({ error: 'A return has already been requested for this purchase' });
+    const returnRequest = await db.createReturnRequest({
+      id: crypto.randomUUID(),
+      purchaseId,
+      customerId: req.user.id,
+      vendorId: purchase.vendorId,
+      reason: finalReason,
+      description: description && description.trim() ? description.trim() : null,
+    });
+    res.json({ ok: true, returnRequest });
+  } catch (err) {
+    console.error('POST /api/returns failed', err);
+    res.status(500).json({ error: 'Failed to submit return request' });
+  }
+});
+
+// Customer's own return history/status.
+app.get('/api/returns/mine', requireAuth, async (req, res) => {
+  if (req.user.role !== 'sender') return res.status(403).json({ error: 'Only customers have returns' });
+  try {
+    const returnRequests = await db.getReturnRequestsForCustomer(req.user.id);
+    res.json({ returnRequests });
+  } catch (err) {
+    console.error('GET /api/returns/mine failed', err);
+    res.status(500).json({ error: 'Failed to load your returns' });
+  }
+});
+
+// Vendor's own review queue.
+app.get('/api/vendor/returns', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const status = ['requested', 'approved', 'rejected', 'refunded'].includes(req.query.status) ? req.query.status : undefined;
+    const returnRequests = await db.getReturnRequestsForVendor(req.user.id, { status });
+    res.json({ returnRequests });
+  } catch (err) {
+    console.error('GET /api/vendor/returns failed', err);
+    res.status(500).json({ error: 'Failed to load returns' });
+  }
+});
+
+// Vendor decides: approve or reject a requested return.
+app.put('/api/vendor/returns/:id/decision', requireAuth, requireVendor, async (req, res) => {
+  const { status, vendorNote } = req.body || {};
+  if (!['approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'status must be approved or rejected' });
+  try {
+    const existing = await db.getReturnRequestById(req.params.id);
+    if (!existing || existing.vendorId !== req.user.id) return res.status(404).json({ error: 'Return request not found' });
+    const updated = await db.resolveReturnRequest(req.params.id, { status, vendorNote: vendorNote || null });
+    if (!updated) return res.status(409).json({ error: 'This return was already decided' });
+    res.json({ ok: true, returnRequest: updated });
+  } catch (err) {
+    console.error('PUT /api/vendor/returns/:id/decision failed', err);
+    res.status(500).json({ error: 'Failed to update return request' });
+  }
+});
+
+// Vendor confirms a refund actually happened for an already-approved
+// return — a real bookkeeping record, same caveat as dispute refunds.
+app.put('/api/vendor/returns/:id/refund', requireAuth, requireVendor, async (req, res) => {
+  const { refundAmount } = req.body || {};
+  const numRefund = Number(refundAmount);
+  if (!Number.isFinite(numRefund) || numRefund <= 0) return res.status(400).json({ error: 'refundAmount must be a positive number' });
+  try {
+    const existing = await db.getReturnRequestById(req.params.id);
+    if (!existing || existing.vendorId !== req.user.id) return res.status(404).json({ error: 'Return request not found' });
+    const updated = await db.resolveReturnRequest(req.params.id, { status: 'refunded', vendorNote: existing.vendorNote, refundAmount: numRefund });
+    if (!updated) return res.status(409).json({ error: 'This return must be approved before it can be marked refunded' });
+    res.json({ ok: true, returnRequest: updated });
+  } catch (err) {
+    console.error('PUT /api/vendor/returns/:id/refund failed', err);
+    res.status(500).json({ error: 'Failed to record refund' });
+  }
+});
+
+// "Rate your delivery" — a star rating for the real agent who
+// delivered this order, plus an optional tip. Only the order's own
+// sender, only once the order is actually delivered, and only when a
+// real agent is linked (agent_id — see schema.sql; an order accepted
+// before that column existed has nothing to rate). One rating per
+// order, enforced by both this check and the UNIQUE(order_id)
+// constraint underneath it.
+app.post('/api/orders/:id/rate', requireAuth, async (req, res) => {
+  if (req.user.role !== 'sender') return res.status(403).json({ error: 'Only customers can rate a delivery' });
+  const { rating, comment, tipAmount } = req.body || {};
+  const numRating = Number(rating);
+  if (!Number.isInteger(numRating) || numRating < 1 || numRating > 5) {
+    return res.status(400).json({ error: 'Rating must be a whole number from 1 to 5' });
+  }
+  let numTip = null;
+  if (tipAmount !== undefined && tipAmount !== null && tipAmount !== '') {
+    numTip = Number(tipAmount);
+    if (!Number.isFinite(numTip) || numTip < 0) return res.status(400).json({ error: 'Tip must be a positive amount' });
+  }
+  try {
+    const order = await db.getOrder(req.params.id);
+    if (!order || order.senderId !== req.user.id) return res.status(404).json({ error: 'Order not found' });
+    if (order.status !== 'delivered') return res.status(400).json({ error: 'This order has not been delivered yet' });
+    if (!order.agentId) return res.status(400).json({ error: 'This delivery has no agent on file to rate' });
+    const existing = await db.getAgentReviewForOrder(order.id);
+    if (existing) return res.status(409).json({ error: 'You already rated this delivery' });
+    const review = await db.rateDelivery({
+      id: crypto.randomUUID(),
+      orderId: order.id,
+      agentId: order.agentId,
+      customerId: req.user.id,
+      rating: numRating,
+      comment: comment && comment.trim() ? comment.trim() : null,
+      tipAmount: numTip,
+    });
+    res.json({ ok: true, review });
+  } catch (err) {
+    console.error('POST /api/orders/:id/rate failed', err);
+    res.status(500).json({ error: 'Failed to submit rating' });
+  }
+});
+
 // Real customers — who has actually bought from this vendor, derived
 // from purchase records. Not a "leads" concept (no such data exists).
 app.get('/api/vendor/customers', requireAuth, requireVendor, async (req, res) => {
@@ -4172,10 +4500,131 @@ app.post('/api/conversations/:id/messages', requireAuth, async (req, res) => {
     io.to(`user:${conversation.customer_id}`).to(`vendor:${conversation.vendor_id}`).emit('message:new', {
       conversationId: req.params.id, message,
     });
+    // Push only to whichever participant didn't just send this.
+    const recipientId = req.user.id === conversation.customer_id ? conversation.vendor_id : conversation.customer_id;
+    sendPushToUser(db, recipientId, { title: 'New message', body: message.body, url: '/' }); // fire-and-forget
     res.json({ message });
   } catch (err) {
     console.error('POST /api/conversations/:id/messages failed', err);
     res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// ============================================================
+// Live in-app support chat — one thread per user account, platform-run
+// (not scoped to any one vendor, unlike the conversations above). See
+// the support_messages comment in schema.sql.
+// ============================================================
+
+// A user's own thread with support. Reading it marks support's
+// messages read, same pattern as GET /api/conversations/:id/messages.
+app.get('/api/support/messages', requireAuth, async (req, res) => {
+  try {
+    const messages = await db.getSupportMessages(req.user.id);
+    await db.markSupportMessagesRead(req.user.id, 'user');
+    res.json({ messages });
+  } catch (err) {
+    console.error('GET /api/support/messages failed', err);
+    res.status(500).json({ error: 'Failed to load your messages' });
+  }
+});
+
+app.post('/api/support/messages', requireAuth, async (req, res) => {
+  const { body } = req.body || {};
+  if (!body || !body.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+  try {
+    const message = await db.createSupportMessage({
+      id: crypto.randomUUID(), userId: req.user.id, senderRole: 'user', body: body.trim(),
+    });
+    // Real-time delivery to the user's own other tabs and to every
+    // connected admin/support staff member.
+    io.to(`user:${req.user.id}`).to('admins').emit('support:new', { userId: req.user.id, message });
+    res.json({ message });
+  } catch (err) {
+    console.error('POST /api/support/messages failed', err);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// Support inbox (admin-facing) — every user who has ever messaged
+// support, most-recently-active first.
+app.get('/api/admin/support/threads', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const threads = await db.getSupportThreadsForAdmin();
+    res.json({ threads });
+  } catch (err) {
+    console.error('GET /api/admin/support/threads failed', err);
+    res.status(500).json({ error: 'Failed to load support threads' });
+  }
+});
+
+// A specific user's thread, from the support side. Reading it marks
+// the user's messages read.
+app.get('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const messages = await db.getSupportMessages(req.params.userId);
+    await db.markSupportMessagesRead(req.params.userId, 'support');
+    res.json({ messages });
+  } catch (err) {
+    console.error('GET /api/admin/support/threads/:userId/messages failed', err);
+    res.status(500).json({ error: 'Failed to load thread' });
+  }
+});
+
+app.post('/api/admin/support/threads/:userId/messages', requireAuth, requireAdmin, async (req, res) => {
+  const { body } = req.body || {};
+  if (!body || !body.trim()) return res.status(400).json({ error: 'Message cannot be empty' });
+  try {
+    const user = await db.getUserById(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const message = await db.createSupportMessage({
+      id: crypto.randomUUID(), userId: req.params.userId, senderRole: 'support', body: body.trim(),
+    });
+    io.to(`user:${req.params.userId}`).to('admins').emit('support:new', { userId: req.params.userId, message });
+    sendPushToUser(db, req.params.userId, { title: 'New message from Support', body: message.body, url: '/' }); // fire-and-forget
+    res.json({ message });
+  } catch (err) {
+    console.error('POST /api/admin/support/threads/:userId/messages failed', err);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// ============================================================
+// Web Push (VAPID) — no third-party account needed. See push.js for
+// full setup instructions and the send side.
+// ============================================================
+
+// Public — the frontend needs this to call PushManager.subscribe().
+app.get('/api/push/vapid-public-key', (req, res) => {
+  if (!VAPID_PUBLIC_KEY) return res.status(503).json({ error: 'Push notifications are not configured on this server' });
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/push/subscribe', requireAuth, async (req, res) => {
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || !keys || !keys.p256dh || !keys.auth) {
+    return res.status(400).json({ error: 'A valid push subscription is required' });
+  }
+  try {
+    await db.upsertPushSubscription({
+      id: crypto.randomUUID(), userId: req.user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/push/subscribe failed', err);
+    res.status(500).json({ error: 'Failed to save push subscription' });
+  }
+});
+
+app.post('/api/push/unsubscribe', requireAuth, async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'endpoint is required' });
+  try {
+    await db.deletePushSubscriptionByEndpoint(endpoint);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/push/unsubscribe failed', err);
+    res.status(500).json({ error: 'Failed to remove push subscription' });
   }
 });
 
@@ -5247,6 +5696,55 @@ function startLowStockScheduler() {
   setInterval(runLowStockScan, LOW_STOCK_SCAN_INTERVAL_MS);
 }
 
+// Promotes due scheduled "Send a Package" orders to real, accept-ready
+// 'pending' orders — see the design comment on scheduled_for/recurrence
+// in schema.sql. Same in-process-interval reasoning as the two scans
+// above: a missed tick just means the order goes live a minute later
+// than scheduled, never earlier and never silently lost (getPendingOrders
+// still won't see it until this promotes it). Runs once a minute, not
+// once at startup like the other two, since a freshly-restarted server
+// has nothing due in the first second it's up.
+const SCHEDULED_ORDER_SWEEP_INTERVAL_MS = 60 * 1000;
+async function runScheduledOrderSweep() {
+  try {
+    const due = await db.getScheduledOrdersDue();
+    for (const order of due) {
+      const promoted = await db.promoteScheduledOrder(order.id);
+      if (!promoted) continue; // another tick already promoted it — stay safe, don't double-fire
+      orderRooms(promoted).forEach((r) => io.to(r).emit('order:created', promoted));
+      notifyNewOrder(promoted);
+      // A recurring order re-schedules a fresh copy of itself, cycled
+      // ahead from *this* occurrence's original scheduled_for (not
+      // "now"), so a late sweep tick never compounds drift into future
+      // occurrences.
+      if (order.recurrence) {
+        const nextScheduledFor = new Date(order.scheduledFor);
+        nextScheduledFor.setDate(nextScheduledFor.getDate() + (order.recurrence === 'weekly' ? 7 : 1));
+        const nextOrder = await db.createOrder({
+          id: `ORD-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
+          senderId: order.senderId,
+          senderName: order.senderName,
+          pickupAddress: order.pickupAddress,
+          dropoffAddress: order.dropoffAddress,
+          itemDescription: order.itemDescription,
+          amount: null,
+          status: 'scheduled',
+          placedByAdmin: order.placedByAdmin,
+          scheduledFor: nextScheduledFor,
+          recurrence: order.recurrence,
+        });
+        io.to(`user:${nextOrder.senderId}`).to('admins').emit('order:created', nextOrder);
+      }
+    }
+    if (due.length) console.log(`[scheduled-orders] Promoted ${due.length} scheduled order(s)`);
+  } catch (err) {
+    console.error('[scheduled-orders] Sweep failed', err);
+  }
+}
+function startScheduledOrderScheduler() {
+  setInterval(runScheduledOrderSweep, SCHEDULED_ORDER_SWEEP_INTERVAL_MS);
+}
+
 db.init()
   .then(migrateManageAgentToOnlib)
   .then(seedAdminIfConfigured)
@@ -5260,6 +5758,7 @@ db.init()
     server.listen(PORT, () => console.log(`Verta Delivery server listening on :${PORT}`));
     startPremiumReminderScheduler();
     startLowStockScheduler();
+    startScheduledOrderScheduler();
   })
   .catch((err) => {
     console.error('Failed to initialize database', err);
