@@ -3717,6 +3717,74 @@ app.get('/api/vendor/purchases', requireAuth, requireVendor, async (req, res) =>
   }
 });
 
+// The same approved-company list the Fleet Directory "Add Agent"
+// picker already uses — a vendor just needs to know who's available to
+// dispatch to, same list, same eligibility (approved, not disabled).
+app.get('/api/vendor/delivery-companies', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const deliveryCompanies = await db.getActiveDeliveryCompaniesForFleetPicker();
+    res.json({ deliveryCompanies });
+  } catch (err) {
+    console.error('GET /api/vendor/delivery-companies failed', err);
+    res.status(500).json({ error: 'Failed to load delivery companies' });
+  }
+});
+
+// Vendor dispatches a ready order to a specific delivery company — a
+// preference/highlight, not exclusive: the order stays in the open
+// pending-orders pool too (see schema.sql's comment on orders.
+// requested_delivery_company_id), so a company that doesn't respond
+// never blocks the order from being picked up some other way.
+app.post('/api/vendor/orders/:id/dispatch', requireAuth, requireVendor, async (req, res) => {
+  const { deliveryCompanyId } = req.body || {};
+  if (!deliveryCompanyId) return res.status(400).json({ error: 'A delivery company is required' });
+  try {
+    const eligible = await db.getActiveDeliveryCompaniesForFleetPicker();
+    if (!eligible.some(c => c.id === deliveryCompanyId)) {
+      return res.status(400).json({ error: 'That delivery company is not available' });
+    }
+    const order = await db.dispatchOrderToDeliveryCompany(req.params.id, req.user.id, deliveryCompanyId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found, not yours, or already accepted' });
+    }
+    // "admins" gets the normal order:updated everyone else already
+    // listens for; the targeted company gets its own room too, so its
+    // dashboard can highlight "Requested for you" without every other
+    // delivery company's UI needing to guess from the same broadcast.
+    orderRooms(order).forEach(r => io.to(r).emit('order:updated', order));
+    io.to(`delivery-company:${deliveryCompanyId}`).emit('order:dispatch-requested', order);
+    res.json({ ok: true, order });
+  } catch (err) {
+    console.error('POST /api/vendor/orders/:id/dispatch failed', err);
+    res.status(500).json({ error: 'Failed to dispatch order' });
+  }
+});
+
+// Vendor requests cancellation of their own not-yet-confirmed Mobile
+// Money purchase — see schema.sql's comment on vendor_cancel_requested.
+// This does NOT change payment_status or delete anything; it's a flag
+// the Super Admin sees on the exact same confirm/reject queue that
+// already exists (GET /api/super-admin/marketplace-payments/pending),
+// where Reject already does what "approve the cancellation" needs.
+app.post('/api/vendor/purchases/:id/request-cancel', requireAuth, requireVendor, async (req, res) => {
+  const { reason } = req.body || {};
+  try {
+    const purchase = await db.requestVendorPurchaseCancellation(req.params.id, req.user.id, reason);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Order not found, not yours, or no longer eligible for cancellation (already confirmed or rejected)' });
+    }
+    // Reuses the existing "a Mobile Money payment needs your attention"
+    // live event/badge (see updateMarketplacePaymentsBadges client-
+    // side) — a cancellation request is exactly that: something in the
+    // queue changed and a Super Admin should look.
+    io.to('admins').emit('marketplace_payment:new', { purchaseId: purchase.id });
+    res.json({ ok: true, purchase });
+  } catch (err) {
+    console.error('POST /api/vendor/purchases/:id/request-cancel failed', err);
+    res.status(500).json({ error: 'Failed to request cancellation' });
+  }
+});
+
 // Every purchase this vendor has ever received, unbounded — feeds the
 // vendor's own Monthly Report PDF (see generateVendorMonthlyReportPDF
 // client-side), which needs a real month's worth of data, not just the

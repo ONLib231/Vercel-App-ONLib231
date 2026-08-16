@@ -8906,6 +8906,57 @@
         </div>
     </div>
 
+    <!-- Vendor dispatches a ready order to a specific delivery company —
+         a preference, not exclusive (see schema.sql's comment on
+         orders.requested_delivery_company_id): the order stays visible
+         in the open pending-orders pool too. -->
+    <div class="modal-overlay" id="vendor-dispatch-order-modal">
+        <div class="modal" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3>📦 Send to Delivery</h3>
+                <button class="close-btn" id="close-vendor-dispatch-order-modal">&times;</button>
+            </div>
+            <p style="color:var(--slate-light); font-size:0.8125rem; margin-bottom:1rem;">This highlights the order for the company you pick — it still stays open for any approved delivery company to accept, so nothing gets stuck waiting on one company.</p>
+            <form id="vendor-dispatch-order-form">
+                <div class="form-group">
+                    <label class="form-label">Delivery Company</label>
+                    <select class="form-input" id="vendor-dispatch-company-select" required></select>
+                </div>
+                <div class="auth-error" id="vendor-dispatch-order-error" style="display:none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-vendor-dispatch-order-form">Cancel</button>
+                    <button type="submit" class="btn-small btn-success">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Vendor requests cancellation of their own not-yet-confirmed
+         Mobile Money order — see schema.sql's comment on
+         vendor_cancel_requested. This does not cancel anything by
+         itself; a Super Admin still decides via the existing Mobile
+         Money Payments confirm/reject queue. -->
+    <div class="modal-overlay" id="vendor-cancel-order-modal">
+        <div class="modal" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3>Request Cancellation</h3>
+                <button class="close-btn" id="close-vendor-cancel-order-modal">&times;</button>
+            </div>
+            <p style="color:var(--slate-light); font-size:0.8125rem; margin-bottom:1rem;">This doesn't cancel the order immediately — it flags it for Admin, who confirms or rejects it (same review already used for every Mobile Money payment).</p>
+            <form id="vendor-cancel-order-form">
+                <div class="form-group">
+                    <label class="form-label">Reason (optional)</label>
+                    <textarea class="form-input" id="vendor-cancel-order-reason-input" rows="3" placeholder="e.g. Out of stock, customer requested a different item, etc."></textarea>
+                </div>
+                <div class="auth-error" id="vendor-cancel-order-error" style="display:none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-vendor-cancel-order-form">Never Mind</button>
+                    <button type="submit" class="btn-small" style="background:#dc2626; color:white;">Request Cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Vendor decides a return request: approve or reject. Mirrors the
          Super Admin resolve-dispute-modal, minus the refund-amount step —
          a return's refund is confirmed separately, once approved, via
@@ -10585,6 +10636,26 @@
                 }
             });
 
+            // A vendor dispatched an order specifically to this company
+            // (see schema.sql's comment on orders.requested_delivery_
+            // company_id) — updates the cached order in place (it's
+            // already visible via order:created above; this just adds
+            // the highlight) or adds it if this company somehow missed
+            // the original order:created broadcast.
+            socket.on('order:dispatch-requested', (order) => {
+                if (!currentUser || currentUser.role !== 'delivery_company') return;
+                const normalized = normalizeOrder(order);
+                const idx = deliveryCompanyPendingOrdersCache.findIndex(o => o.id === normalized.id);
+                if (idx !== -1) deliveryCompanyPendingOrdersCache[idx] = normalized;
+                else deliveryCompanyPendingOrdersCache.unshift(normalized);
+                renderDeliveryCompanyPendingOrders();
+                sendLocalNotification('An order was sent to you', {
+                    body: `${normalized.pickupAddress} → ${normalized.dropoffAddress}`,
+                    requireInteraction: false,
+                    tag: `order-dispatch-requested-${normalized.id}`,
+                });
+            });
+
             // A new Mobile Money order needing confirmation — refreshes
             // the Payouts sidebar badge live, same "don't make a Super
             // Admin discover this by accident" fix as the badge itself.
@@ -11018,10 +11089,23 @@
                 renderEmptyState(container, 'No pending orders right now — new ones will show up here automatically.');
                 return;
             }
-            container.innerHTML = deliveryCompanyPendingOrdersCache.map(o => `
-                <div class="dc-card">
+            // Orders a vendor specifically dispatched to this company
+            // (see schema.sql's comment on orders.requested_delivery_
+            // company_id) surface first, with a visible highlight — it's
+            // still just a preference, any company can still accept any
+            // order below it, but this is the whole point of dispatching:
+            // making it easy for the intended company to notice.
+            const sorted = [...deliveryCompanyPendingOrdersCache].sort((a, b) => {
+                const aRequested = a.requestedDeliveryCompanyId === currentUser.id ? 1 : 0;
+                const bRequested = b.requestedDeliveryCompanyId === currentUser.id ? 1 : 0;
+                return bRequested - aRequested;
+            });
+            container.innerHTML = sorted.map(o => {
+                const requestedForUs = o.requestedDeliveryCompanyId === currentUser.id;
+                return `
+                <div class="dc-card"${requestedForUs ? ' style="border:2px solid var(--primary);"' : ''}>
                     <div class="dcust-order-card-top">
-                        <div class="dcust-order-card-id">${o.id}</div>
+                        <div class="dcust-order-card-id">${o.id} ${requestedForUs ? '<span class="payment-status-badge paid">🎯 Requested for you</span>' : ''}</div>
                         <button type="button" class="btn-small btn-success dc-accept-order-btn" data-id="${o.id}">Accept</button>
                     </div>
                     <div class="dcust-order-card-body">
@@ -11037,7 +11121,8 @@
                         </div>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
         function openDeliveryCompanyAcceptOrderModal(orderId) {
@@ -16694,19 +16779,24 @@
                     renderEmptyState(container, 'No pending Mobile Money payments.');
                     return;
                 }
+                // Vendor-requested cancellations (see schema.sql's comment
+                // on vendor_cancel_requested) surface at the top, not just
+                // as a flag buried in the row — this is the whole point of
+                // that flag: a Super Admin should see it without hunting.
+                const sorted = [...purchases].sort((a, b) => (b.vendorCancelRequested ? 1 : 0) - (a.vendorCancelRequested ? 1 : 0));
                 container.innerHTML = `<div style="overflow-x:auto;"><table class="settings-table"><thead><tr>
                     <th>Customer</th><th>Vendor</th><th>Provider</th><th>Reference</th><th>Amount</th><th>Requested</th><th></th>
-                </tr></thead><tbody>${purchases.map(p => `
-                    <tr>
+                </tr></thead><tbody>${sorted.map(p => `
+                    <tr${p.vendorCancelRequested ? ' style="background:#fef2f2;"' : ''}>
                         <td>${p.customerName || p.customerEmail}</td>
-                        <td>${p.vendorName}</td>
+                        <td>${p.vendorName}${p.vendorCancelRequested ? `<div style="color:#991b1b; font-weight:700; font-size:0.75rem; margin-top:0.25rem;">⚠️ Vendor requested cancellation${p.vendorCancelReason ? `: "${p.vendorCancelReason}"` : ''}</div>` : ''}</td>
                         <td>${getMomoProviderLabel(p.paymentProvider)}</td>
                         <td><strong>${p.paymentReference}</strong></td>
                         <td>$${Number(p.grandTotal).toFixed(2)}</td>
                         <td>${new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
                         <td style="display:flex; gap:0.4rem; white-space:nowrap;">
-                            <button type="button" class="btn-small btn-success confirm-marketplace-payment-btn" data-id="${p.id}">Confirm</button>
-                            <button type="button" class="btn-small btn-danger reject-marketplace-payment-btn" data-id="${p.id}">Reject</button>
+                            <button type="button" class="btn-small btn-success confirm-marketplace-payment-btn" data-id="${p.id}" title="${p.vendorCancelRequested ? 'Confirms the payment anyway, overriding the vendor request to cancel' : ''}">Confirm</button>
+                            <button type="button" class="btn-small btn-danger reject-marketplace-payment-btn" data-id="${p.id}" title="${p.vendorCancelRequested ? 'Approves the vendor request to cancel — voids the payment' : ''}">Reject</button>
                         </td>
                     </tr>
                 `).join('')}</tbody></table></div>`;
@@ -21837,18 +21927,38 @@
             const status = p.deliveryStatus || 'placed';
             const statusLabel = { pending: 'Processing', accepted: 'Processing', 'picked-up': 'Processing', delivered: 'Fulfilled', cancelled: 'Cancelled', placed: 'Placed' }[status] || 'Placed';
             const statusClass = { delivered: 'fulfilled', cancelled: 'cancelled' }[status] || 'processing';
+            // "Send to Delivery" only makes sense once a real delivery
+            // order exists and hasn't been accepted yet (status ===
+            // 'pending' on the ORDER, not the purchase) — dispatching an
+            // order nobody's accepted is meaningful; re-dispatching one
+            // already picked up isn't.
+            const canDispatch = status === 'pending';
+            const dispatchHtml = canDispatch ? (
+                p.requestedDeliveryCompanyId
+                    ? `<button type="button" class="btn-small btn-secondary vendor-order-dispatch-btn" data-id="${p.id}" data-order-id="${p.deliveryOrderId}" title="Sent to ${p.requestedDeliveryCompanyName || 'a delivery company'} — click to change">✓ Sent to ${p.requestedDeliveryCompanyName || 'a company'}</button>`
+                    : `<button type="button" class="btn-small btn-secondary vendor-order-dispatch-btn" data-id="${p.id}" data-order-id="${p.deliveryOrderId}">📦 Send to Delivery</button>`
+            ) : '';
+            // Cancellation request only makes sense before a Super Admin
+            // has confirmed or rejected the Mobile Money payment — see
+            // schema.sql's comment on vendor_cancel_requested.
+            const canRequestCancel = p.paymentMethod === 'momo_manual' && p.paymentStatus === 'pending';
+            const cancelHtml = canRequestCancel ? (
+                p.vendorCancelRequested
+                    ? `<span class="payment-status-badge pending" title="Waiting on Admin to confirm or reject this payment">Cancellation Requested</span>`
+                    : `<button type="button" class="btn-small vendor-order-cancel-btn" data-id="${p.id}" style="background:#fee2e2; color:#991b1b;">Request Cancellation</button>`
+            ) : '';
             return `
-                <div class="vendor-order-row" data-id="${p.id}">
+                <div class="vendor-order-row" data-id="${p.id}" style="flex-wrap:wrap;">
                     <div class="vendor-order-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div>
                     <div class="vendor-order-main">
                         <div class="vendor-order-id">${p.id}</div>
                         <div class="vendor-order-buyer">Buyer: ${p.customerName} ${paymentStatusBadgeHtml(p)}</div>
+                        ${(dispatchHtml || cancelHtml) ? `<div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">${dispatchHtml}${cancelHtml}</div>` : ''}
                     </div>
                     <div class="vendor-order-right">
                         <span class="vendor-order-status-pill ${statusClass}">${statusLabel}</span>
                         <div class="vendor-order-price">$${p.totalAmount.toFixed(2)}</div>
                     </div>
-                    <svg class="vendor-order-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </div>
             `;
         }
@@ -21863,6 +21973,81 @@
             }
             preview.innerHTML = purchases.slice(0, 3).map(vendorOrderRowHtml).join('');
             full.innerHTML = purchases.map(vendorOrderRowHtml).join('');
+        }
+
+        // ---- Vendor: dispatch an order to a delivery company ----------
+        let vendorDispatchOrderId = null;
+        async function openVendorDispatchModal(orderId) {
+            vendorDispatchOrderId = orderId;
+            const select = document.getElementById('vendor-dispatch-company-select');
+            const errorEl = document.getElementById('vendor-dispatch-order-error');
+            errorEl.style.display = 'none';
+            select.innerHTML = '<option>Loading…</option>';
+            document.getElementById('vendor-dispatch-order-modal').classList.add('active');
+            try {
+                const data = await apiFetch('/api/vendor/delivery-companies');
+                const companies = data.deliveryCompanies || [];
+                if (companies.length === 0) {
+                    select.innerHTML = '<option value="">No delivery companies available</option>';
+                    return;
+                }
+                select.innerHTML = companies.map(c => `<option value="${c.id}">${c.businessName}</option>`).join('');
+            } catch (err) {
+                select.innerHTML = '<option value="">Failed to load</option>';
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+        async function submitVendorDispatch(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('vendor-dispatch-order-error');
+            errorEl.style.display = 'none';
+            const deliveryCompanyId = document.getElementById('vendor-dispatch-company-select').value;
+            if (!deliveryCompanyId) {
+                errorEl.textContent = 'Choose a delivery company.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            try {
+                await apiFetch(`/api/vendor/orders/${vendorDispatchOrderId}/dispatch`, {
+                    method: 'POST',
+                    body: JSON.stringify({ deliveryCompanyId }),
+                });
+                showToast('Sent to delivery company', 'success');
+                document.getElementById('vendor-dispatch-order-modal').classList.remove('active');
+                loadVendorDashboard();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        // ---- Vendor: request cancellation of an unconfirmed Mobile
+        // Money order (see schema.sql's comment on vendor_cancel_requested
+        // for why this doesn't cancel anything by itself). ----
+        let vendorCancelPurchaseId = null;
+        function openVendorCancelModal(purchaseId) {
+            vendorCancelPurchaseId = purchaseId;
+            document.getElementById('vendor-cancel-order-reason-input').value = '';
+            document.getElementById('vendor-cancel-order-error').style.display = 'none';
+            document.getElementById('vendor-cancel-order-modal').classList.add('active');
+        }
+        async function submitVendorCancelRequest(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('vendor-cancel-order-error');
+            errorEl.style.display = 'none';
+            try {
+                await apiFetch(`/api/vendor/purchases/${vendorCancelPurchaseId}/request-cancel`, {
+                    method: 'POST',
+                    body: JSON.stringify({ reason: document.getElementById('vendor-cancel-order-reason-input').value.trim() }),
+                });
+                showToast('Cancellation requested — Admin will confirm or reject it', 'success');
+                document.getElementById('vendor-cancel-order-modal').classList.remove('active');
+                loadVendorDashboard();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
         }
 
         const MAX_EXTRA_PRODUCT_IMAGES = 4; // mirrors the server-side cap in server.js
@@ -22572,6 +22757,36 @@
             document.getElementById('cancel-resolve-return-form').addEventListener('click', closeResolveReturnModal);
             document.getElementById('close-resolve-return-decided-view').addEventListener('click', closeResolveReturnModal);
             document.getElementById('resolve-return-form').addEventListener('submit', handleResolveReturnFormSubmit);
+
+            // ---- Vendor: dispatch / cancellation-request buttons on the
+            // Orders list — delegated on both containers since preview
+            // and the full list are separate DOM trees rendered from the
+            // same data (see renderVendorOrders).
+            ['vendor-orders-preview', 'vendor-orders-container'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('click', (e) => {
+                    const dispatchBtn = e.target.closest('.vendor-order-dispatch-btn');
+                    if (dispatchBtn) { openVendorDispatchModal(dispatchBtn.dataset.orderId); return; }
+                    const cancelBtn = e.target.closest('.vendor-order-cancel-btn');
+                    if (cancelBtn) openVendorCancelModal(cancelBtn.dataset.id);
+                });
+            });
+            document.getElementById('close-vendor-dispatch-order-modal').addEventListener('click', () => {
+                document.getElementById('vendor-dispatch-order-modal').classList.remove('active');
+            });
+            document.getElementById('cancel-vendor-dispatch-order-form').addEventListener('click', () => {
+                document.getElementById('vendor-dispatch-order-modal').classList.remove('active');
+            });
+            document.getElementById('vendor-dispatch-order-form').addEventListener('submit', submitVendorDispatch);
+            document.getElementById('close-vendor-cancel-order-modal').addEventListener('click', () => {
+                document.getElementById('vendor-cancel-order-modal').classList.remove('active');
+            });
+            document.getElementById('cancel-vendor-cancel-order-form').addEventListener('click', () => {
+                document.getElementById('vendor-cancel-order-modal').classList.remove('active');
+            });
+            document.getElementById('vendor-cancel-order-form').addEventListener('submit', submitVendorCancelRequest);
+
             document.getElementById('close-mark-refunded-modal').addEventListener('click', closeMarkRefundedModal);
             document.getElementById('cancel-mark-refunded-form').addEventListener('click', closeMarkRefundedModal);
             document.getElementById('mark-refunded-form').addEventListener('submit', handleMarkRefundedFormSubmit);

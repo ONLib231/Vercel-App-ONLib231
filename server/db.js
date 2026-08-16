@@ -33,6 +33,11 @@ function rowToOrder(r) {
     pickedUpAt: r.picked_up_at,
     deliveredAt: r.delivered_at,
     deliveryCompanyId: r.delivery_company_id,
+    // Vendor-directed dispatch preference — see schema.sql's comment on
+    // orders.requested_delivery_company_id. Purely a signal, doesn't
+    // restrict who can accept.
+    requestedDeliveryCompanyId: r.requested_delivery_company_id || null,
+    dispatchRequestedAt: r.dispatch_requested_at || null,
     // Real, collision-safe agent link (see the schema.sql comment on
     // orders.agent_id) — null for any order accepted before this
     // column existed, or one an admin accepted with no matching agent
@@ -220,6 +225,12 @@ function rowToPurchase(r) {
     paymentReference: r.payment_reference || null,
     paymentConfirmedBy: r.payment_confirmed_by || null,
     paymentConfirmedAt: r.payment_confirmed_at || null,
+    // See schema.sql's comment on vendor_cancel_requested — a flag the
+    // vendor sets, read by the Super Admin's existing Mobile Money
+    // confirm/reject queue rather than a separate approval screen.
+    vendorCancelRequested: !!r.vendor_cancel_requested,
+    vendorCancelReason: r.vendor_cancel_reason || null,
+    vendorCancelRequestedAt: r.vendor_cancel_requested_at || null,
   };
 }
 
@@ -2396,15 +2407,24 @@ const db = {
 
   async getPurchasesByVendor(vendorId, limit = 50) {
     const { rows } = await pool.query(`
-      SELECT p.*, u.business_name AS customer_name, o.status AS delivery_status
+      SELECT p.*, u.business_name AS customer_name, o.status AS delivery_status,
+        o.requested_delivery_company_id, o.dispatch_requested_at, dc.business_name AS requested_delivery_company_name
       FROM purchases p
       JOIN users u ON u.id = p.customer_id
       LEFT JOIN orders o ON o.id = p.delivery_order_id
+      LEFT JOIN users dc ON dc.id = o.requested_delivery_company_id
       WHERE p.vendor_id = $1
       ORDER BY p.created_at DESC
       LIMIT $2
     `, [vendorId, limit]);
-    return rows.map(r => ({ ...rowToPurchase(r), customerName: r.customer_name, deliveryStatus: r.delivery_status }));
+    return rows.map(r => ({
+      ...rowToPurchase(r),
+      customerName: r.customer_name,
+      deliveryStatus: r.delivery_status,
+      requestedDeliveryCompanyId: r.requested_delivery_company_id || null,
+      requestedDeliveryCompanyName: r.requested_delivery_company_name || null,
+      dispatchRequestedAt: r.dispatch_requested_at || null,
+    }));
   },
 
   // Unbounded version of the above, used only for the vendor's own
@@ -2522,6 +2542,43 @@ const db = {
       customerPhone: r.customer_phone,
       vendorName: r.vendor_name,
     }));
+  },
+
+  // Vendor requests cancellation of a not-yet-confirmed Mobile Money
+  // purchase — see schema.sql's comment on vendor_cancel_requested for
+  // why this is a flag on the existing purchase rather than a new
+  // status/approval flow. Scoped to payment_method = 'momo_manual' AND
+  // payment_status = 'pending' in the WHERE clause itself (not just
+  // checked by the caller) so this can never silently "succeed" against
+  // a purchase that's already been confirmed, rejected, or was never a
+  // Mobile Money purchase to begin with — the UPDATE just matches zero
+  // rows and the caller treats that as not-found/not-eligible.
+  async requestVendorPurchaseCancellation(purchaseId, vendorId, reason) {
+    const { rows } = await pool.query(`
+      UPDATE purchases
+      SET vendor_cancel_requested = true, vendor_cancel_reason = $1, vendor_cancel_requested_at = now()
+      WHERE id = $2 AND vendor_id = $3 AND payment_method = 'momo_manual' AND payment_status = 'pending'
+      RETURNING *
+    `, [reason || null, purchaseId, vendorId]);
+    return rows[0] ? rowToPurchase(rows[0]) : null;
+  },
+
+  // Vendor dispatches a ready-for-delivery order to a specific
+  // delivery company — see schema.sql's comment on orders.
+  // requested_delivery_company_id. WHERE o.id = $2 AND pu.vendor_id =
+  // $3 AND o.status = 'pending' guards this the same way: a vendor can
+  // only dispatch their own order, and only while it's still
+  // unaccepted (dispatching an already-accepted order would just be
+  // confusing, not meaningful).
+  async dispatchOrderToDeliveryCompany(orderId, vendorId, deliveryCompanyId) {
+    const { rows } = await pool.query(`
+      UPDATE orders o
+      SET requested_delivery_company_id = $1, dispatch_requested_at = now()
+      FROM purchases pu
+      WHERE o.id = $2 AND pu.delivery_order_id = o.id AND pu.vendor_id = $3 AND o.status = 'pending'
+      RETURNING o.*
+    `, [deliveryCompanyId, orderId, vendorId]);
+    return rows[0] ? rowToOrder(rows[0]) : null;
   },
 
   // ---- Self-service returns — distinct from disputes, see the

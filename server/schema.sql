@@ -1258,3 +1258,32 @@ WHERE NOT EXISTS (SELECT 1 FROM momo_providers WHERE id = 'orange_money');
 INSERT INTO momo_providers (id, label, phone, sort_order)
 SELECT 'lonestar_mtn', 'Lonestar Cell MTN', COALESCE((SELECT business_phone FROM settings WHERE id = 'business'), '+231880465612'), 2
 WHERE NOT EXISTS (SELECT 1 FROM momo_providers WHERE id = 'lonestar_mtn');
+
+-- Vendor-directed dispatch — a vendor can point a ready-for-delivery
+-- marketplace order at a specific delivery company as a preference,
+-- WITHOUT pulling it out of the open pending-orders pool (any company
+-- can still accept it first — see acceptOrderAtomic, unchanged). This
+-- is purely a "please look at this one" signal: requested_delivery_
+-- company_id doesn't restrict who CAN accept, it's read by the
+-- targeted company's UI to highlight/prioritize that order and by a
+-- targeted push notification. Sortable by dispatch_requested_at
+-- because a vendor's own Orders tab needs to show "just now" vs.
+-- "sent 2 hours ago, still not picked up" at a glance.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS requested_delivery_company_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS dispatch_requested_at TIMESTAMPTZ;
+
+-- Vendor-requested cancellation of a not-yet-confirmed Mobile Money
+-- purchase — scoped to purchases (not orders), because a Mobile Money
+-- purchase's delivery order doesn't exist yet at this stage (see
+-- confirmMomoPaymentAndCreateOrder — the order is only created once a
+-- Super Admin confirms payment). This is deliberately NOT a new status
+-- enum or a separate approval queue: it's a flag read by the exact
+-- same Super Admin "Mobile Money Payments" confirm/reject queue that
+-- already exists — Reject already does everything "approve the
+-- vendor's cancellation" needs (voids payment, restocks items);
+-- Confirm already does everything "deny the vendor's cancellation and
+-- proceed anyway" needs. One flag, zero new admin UI surface, one
+-- existing decision point.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_requested BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_reason TEXT;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_requested_at TIMESTAMPTZ;
