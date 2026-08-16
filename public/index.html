@@ -6957,7 +6957,7 @@
                                 <input type="radio" name="checkout-payment-method" value="cod" checked>
                                 <span>Pay on Delivery</span>
                             </label>
-                            <label class="payment-method-option">
+                            <label class="payment-method-option" id="checkout-momo-manual-option">
                                 <input type="radio" name="checkout-payment-method" value="momo_manual">
                                 <span>Pay with Mobile Money</span>
                             </label>
@@ -6973,16 +6973,11 @@
                          gateway integration for either network. -->
                     <div class="form-group" id="checkout-momo-provider-group" style="display:none;">
                         <label class="form-label">Mobile Money Provider</label>
-                        <div class="payment-method-options" id="checkout-momo-provider-options">
-                            <label class="payment-method-option">
-                                <input type="radio" name="checkout-momo-provider" value="orange_money" checked>
-                                <span>🟠 Orange Money</span>
-                            </label>
-                            <label class="payment-method-option">
-                                <input type="radio" name="checkout-momo-provider" value="lonestar_mtn">
-                                <span>🟡 Lonestar Cell MTN</span>
-                            </label>
-                        </div>
+                        <!-- Populated by renderMomoProviderOptions() from the
+                             real, Super-Admin-managed provider list (see
+                             publicPlatformConfig.momoProviders) — no longer
+                             a hardcoded 2-option list. -->
+                        <div class="payment-method-options" id="checkout-momo-provider-options"></div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Pickup Address (vendor/store)</label>
@@ -9062,6 +9057,18 @@
                 <div class="auth-error" id="platform-settings-error" style="display:none;"></div>
                 <button type="submit" class="btn-primary" id="platform-settings-save-btn" style="width:100%;">Save Platform Settings</button>
             </form>
+
+            <!-- Mobile Money Providers — separate from the form above
+                 (its own CRUD endpoints, not part of the settings
+                 upsert), so each row saves independently rather than
+                 needing the whole Platform Settings form re-submitted. -->
+            <div style="border-top:1px solid var(--border); margin-top:1.5rem; padding-top:1.5rem;">
+                <h4 style="font-weight:700; margin-bottom:0.375rem;">📱 Mobile Money Providers</h4>
+                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:1rem;">Each provider has its own receiving phone number — customers pay directly to whichever one they pick at checkout.</p>
+                <div id="momo-providers-list"></div>
+                <button type="button" class="btn-small btn-secondary" id="momo-provider-add-btn" style="margin-top:0.5rem;">+ Add Provider</button>
+                <div class="auth-error" id="momo-providers-error" style="display:none; margin-top:0.75rem;"></div>
+            </div>
         </div>
     </div>
 
@@ -10387,7 +10394,7 @@
         // rather than requireAuth's /api/state. defaultDeliveryFee is
         // included here mainly so it's available without a Super Admin
         // session for anywhere a suggested amount might help.
-        let publicPlatformConfig = { maintenanceMode: false, maintenanceMessage: null, serviceArea: null, defaultDeliveryFee: null, serviceFee: 0.10, momoSendToPhone: '+231880465612' };
+        let publicPlatformConfig = { maintenanceMode: false, maintenanceMessage: null, serviceArea: null, defaultDeliveryFee: null, serviceFee: 0.10, momoProviders: [] };
 
         async function loadPublicConfig() {
             try {
@@ -10399,11 +10406,12 @@
                     serviceArea: config.serviceArea || null,
                     defaultDeliveryFee: config.defaultDeliveryFee !== undefined ? config.defaultDeliveryFee : null,
                     serviceFee: config.serviceFee !== undefined && config.serviceFee !== null ? Number(config.serviceFee) : 0.10,
-                    // The platform's own Mobile Money number — shown on
-                    // the "Pay with Mobile Money" checkout flow's Step 3
-                    // reference screen and Order History's Payment
-                    // Information section.
-                    momoSendToPhone: config.momoSendToPhone || '+231880465612',
+                    // Real, Super-Admin-managed Mobile Money providers —
+                    // each with its own receiving phone number. Drives
+                    // the checkout provider radio list (see
+                    // renderMomoProviderOptions) instead of a hardcoded
+                    // 2-option list sharing one number.
+                    momoProviders: Array.isArray(config.momoProviders) ? config.momoProviders : [],
                 };
             } catch (err) {
                 console.error('Failed to load public config', err);
@@ -15428,6 +15436,31 @@
             });
             document.getElementById('platform-settings-form').addEventListener('submit', handlePlatformSettingsSubmit);
 
+            // ---- Mobile Money Providers ----
+            document.getElementById('momo-provider-add-btn').addEventListener('click', async () => {
+                const errorEl = document.getElementById('momo-providers-error');
+                errorEl.style.display = 'none';
+                try {
+                    await apiFetch('/api/super-admin/momo-providers', {
+                        method: 'POST',
+                        body: JSON.stringify({ label: 'New Provider', phone: '' }),
+                    });
+                    loadMomoProvidersPanel();
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
+                }
+            });
+            document.getElementById('momo-providers-list').addEventListener('click', (e) => {
+                const row = e.target.closest('.momo-provider-row');
+                if (!row) return;
+                if (e.target.classList.contains('momo-provider-save-btn')) saveMomoProviderRow(row);
+                if (e.target.classList.contains('momo-provider-delete-btn')) {
+                    const label = row.querySelector('.momo-provider-label-input').value;
+                    deleteMomoProviderRow(row.dataset.id, label);
+                }
+            });
+
             // ---- Help & Support ----
             document.getElementById('open-help-support-btn').addEventListener('click', () => {
                 renderHelpSupport();
@@ -16619,7 +16652,7 @@
                     <tr>
                         <td>${p.customerName || p.customerEmail}</td>
                         <td>${p.vendorName}</td>
-                        <td>${MOMO_PROVIDER_LABELS[p.paymentProvider] || 'Mobile Money'}</td>
+                        <td>${getMomoProviderLabel(p.paymentProvider)}</td>
                         <td><strong>${p.paymentReference}</strong></td>
                         <td>$${Number(p.grandTotal).toFixed(2)}</td>
                         <td>${new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
@@ -17719,6 +17752,84 @@
                 document.getElementById('ps-service-area-input').value = s.serviceArea || '';
                 document.getElementById('ps-maintenance-mode-input').checked = !!s.maintenanceMode;
                 document.getElementById('ps-maintenance-message-input').value = s.maintenanceMessage || '';
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+            loadMomoProvidersPanel();
+        }
+
+        // ---- Mobile Money Providers (Super Admin) --------------------
+        // Each row edits/saves independently (its own PUT call on blur/
+        // change), not as part of the Platform Settings form submit —
+        // so adding a new provider or fixing one number never risks
+        // clobbering an in-progress edit to another.
+        let momoProvidersCache = [];
+
+        async function loadMomoProvidersPanel() {
+            const container = document.getElementById('momo-providers-list');
+            const errorEl = document.getElementById('momo-providers-error');
+            errorEl.style.display = 'none';
+            try {
+                const data = await apiFetch('/api/super-admin/momo-providers');
+                momoProvidersCache = data.providers || [];
+                renderMomoProvidersPanel();
+            } catch (err) {
+                container.innerHTML = '';
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        function renderMomoProvidersPanel() {
+            const container = document.getElementById('momo-providers-list');
+            if (momoProvidersCache.length === 0) {
+                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.875rem;">No Mobile Money providers yet — customers will only see Pay on Delivery at checkout until you add one.</p>';
+                return;
+            }
+            container.innerHTML = momoProvidersCache.map(p => `
+                <div class="momo-provider-row" data-id="${p.id}" style="display:flex; align-items:center; gap:0.625rem; border:1px solid var(--border); border-radius:0.625rem; padding:0.75rem; margin-bottom:0.625rem; ${p.isEnabled ? '' : 'opacity:0.55;'}">
+                    <input type="text" class="form-input momo-provider-label-input" value="${p.label.replace(/"/g, '&quot;')}" placeholder="Provider name" style="flex:1;">
+                    <input type="text" class="form-input momo-provider-phone-input" value="${p.phone.replace(/"/g, '&quot;')}" placeholder="Receiving phone number" style="flex:1;">
+                    <label style="display:flex; align-items:center; gap:0.375rem; font-size:0.8125rem; white-space:nowrap;">
+                        <input type="checkbox" class="momo-provider-enabled-input" ${p.isEnabled ? 'checked' : ''}> Enabled
+                    </label>
+                    <button type="button" class="btn-small btn-secondary momo-provider-save-btn">Save</button>
+                    <button type="button" class="btn-small momo-provider-delete-btn" style="background:#fee2e2; color:#991b1b;">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        async function saveMomoProviderRow(row) {
+            const id = row.dataset.id;
+            const errorEl = document.getElementById('momo-providers-error');
+            errorEl.style.display = 'none';
+            const label = row.querySelector('.momo-provider-label-input').value.trim();
+            const phone = row.querySelector('.momo-provider-phone-input').value.trim();
+            const isEnabled = row.querySelector('.momo-provider-enabled-input').checked;
+            if (!label || !phone) {
+                errorEl.textContent = 'Provider name and phone number are both required.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            try {
+                await apiFetch(`/api/super-admin/momo-providers/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ label, phone, isEnabled }),
+                });
+                showToast('Provider saved', 'success');
+                loadMomoProvidersPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        async function deleteMomoProviderRow(id, label) {
+            if (!confirm(`Remove "${label}" as a Mobile Money provider? Customers won't be able to pick it at checkout anymore.`)) return;
+            try {
+                await apiFetch(`/api/super-admin/momo-providers/${id}`, { method: 'DELETE' });
+                showToast('Provider removed', 'success');
+                loadMomoProvidersPanel();
             } catch (err) {
                 showToast(err.message, 'error');
             }
@@ -19514,7 +19625,7 @@
                 return '<span class="payment-status-badge pending">Payment Pending</span>';
             }
             if (purchase.paymentMethod === 'momo_manual') {
-                const providerLabel = MOMO_PROVIDER_LABELS[purchase.paymentProvider] || 'Mobile Money';
+                const providerLabel = getMomoProviderLabel(purchase.paymentProvider);
                 if (purchase.paymentStatus === 'successful') return `<span class="payment-status-badge paid">✓ Paid via ${providerLabel}</span>`;
                 if (purchase.paymentStatus === 'failed') return '<span class="payment-status-badge failed">Payment Not Confirmed</span>';
                 return '<span class="payment-status-badge pending">Payment Pending</span>';
@@ -19529,7 +19640,7 @@
         // the payment_reference comment in schema.sql for the full flow.
         function paymentInfoSectionHtml(purchase) {
             if (purchase.paymentMethod !== 'momo_manual') return '';
-            const providerLabel = MOMO_PROVIDER_LABELS[purchase.paymentProvider] || 'Mobile Money';
+            const providerLabel = getMomoProviderLabel(purchase.paymentProvider);
             const pending = purchase.paymentStatus === 'pending';
             return `
                 <div class="mp-purchase-payment-info">
@@ -19543,7 +19654,7 @@
                         </span>
                     </div>
                     ${pending ? `
-                        <p class="mp-purchase-payment-info-hint">Send payment to <strong>${publicPlatformConfig.momoSendToPhone}</strong> and include this reference. We'll confirm once received.</p>
+                        <p class="mp-purchase-payment-info-hint">Send payment to <strong>${getMomoProviderPhone(purchase.paymentProvider) || 'the number shown at checkout'}</strong> and include this reference. We'll confirm once received.</p>
                         <button type="button" class="btn-small btn-secondary cancel-momo-manual-btn" data-purchase-id="${purchase.id}" style="margin-top:0.625rem;">Cancel Order</button>
                     ` : ''}
                 </div>
@@ -24417,7 +24528,13 @@
             document.getElementById('checkout-momo-reference-page').style.display = 'none';
             document.querySelector('input[name="checkout-payment-method"][value="cod"]').checked = true;
             document.getElementById('checkout-momo-provider-group').style.display = 'none';
-            document.querySelector('input[name="checkout-momo-provider"][value="orange_money"]').checked = true;
+            renderMomoProviderOptions();
+            // Mobile Money as a whole is only offered when there's at
+            // least one real enabled provider to pay through — no point
+            // showing a payment method that has nothing to select once
+            // you choose it.
+            const hasMomoProviders = (publicPlatformConfig.momoProviders || []).length > 0;
+            document.getElementById('checkout-momo-manual-option').style.display = hasMomoProviders ? 'flex' : 'none';
             updateCheckoutSummary();
 
             // Real auto-populate from the vendor's own stored store
@@ -24486,7 +24603,35 @@
         // Shared between the checkout provider picker, the Step 3
         // reference screen, and the Order History Payment Information
         // section — one place to change if a provider is ever renamed.
-        const MOMO_PROVIDER_LABELS = { orange_money: 'Orange Money', lonestar_mtn: 'Lonestar Cell MTN' };
+        // Real, Super-Admin-managed labels (see publicPlatformConfig.
+        // momoProviders) — falls back to a readable version of the raw
+        // id for a purchase whose provider was later disabled/deleted,
+        // so old Order History entries never show a blank label.
+        function getMomoProviderLabel(id) {
+            const p = (publicPlatformConfig.momoProviders || []).find(mp => mp.id === id);
+            if (p) return p.label;
+            if (!id) return 'Mobile Money';
+            return id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }
+        function getMomoProviderPhone(id) {
+            const p = (publicPlatformConfig.momoProviders || []).find(mp => mp.id === id);
+            return p ? p.phone : null;
+        }
+        // Builds the checkout's Mobile Money provider radio list from the
+        // real enabled-provider list instead of two hardcoded options —
+        // an empty list here (Super Admin hasn't configured any yet, or
+        // disabled them all) falls back to Pay on Delivery only, handled
+        // by the caller in openCheckoutModal.
+        function renderMomoProviderOptions() {
+            const container = document.getElementById('checkout-momo-provider-options');
+            const providers = publicPlatformConfig.momoProviders || [];
+            container.innerHTML = providers.map((p, idx) => `
+                <label class="payment-method-option">
+                    <input type="radio" name="checkout-momo-provider" value="${p.id}" ${idx === 0 ? 'checked' : ''}>
+                    <span>📱 ${p.label}</span>
+                </label>
+            `).join('');
+        }
 
         // Step 2: Billing & Confirmation — a real Subtotal/Service Fee/
         // Total breakdown (plus the selected Mobile Money provider, once
@@ -24505,7 +24650,7 @@
             let providerRow = '';
             if (paymentMethod === 'momo_manual') {
                 const provider = document.querySelector('input[name="checkout-momo-provider"]:checked').value;
-                providerRow = `<div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;"><span>Provider</span><strong>${MOMO_PROVIDER_LABELS[provider]}</strong></div>`;
+                providerRow = `<div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;"><span>Provider</span><strong>${getMomoProviderLabel(provider)}</strong></div>`;
             }
             document.getElementById('checkout-summary').innerHTML = `
                 <div style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.625rem;">${itemCount} item(s)</div>

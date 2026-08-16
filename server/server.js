@@ -1040,7 +1040,7 @@ app.post('/api/me/2fa/disable', requireAuth, async (req, res) => {
 // account), not just users who are already signed in.
 app.get('/api/config', async (req, res) => {
   try {
-    const [settings, platformSettings] = await Promise.all([db.getSettings(), db.getPlatformSettings()]);
+    const [settings, platformSettings, momoProviders] = await Promise.all([db.getSettings(), db.getPlatformSettings(), db.getEnabledMomoProviders()]);
     res.json({
       googleClientId: GOOGLE_CLIENT_ID || null,
       privacyPolicy: settings.privacyPolicy || null,
@@ -1058,17 +1058,16 @@ app.get('/api/config', async (req, res) => {
       // same "guest should see it before hitting a wall" reasoning as
       // the fields above.
       serviceFee: platformSettings.serviceFee,
-      // The platform's own Mobile Money number — shown on the manual
-      // Mobile Money checkout flow's "Send Payment To" instructions
-      // (see /api/marketplace/checkout/momo-manual below). Reuses the
-      // existing Super-Admin-editable Business Phone setting rather
-      // than adding a second, separate "payments phone" field — same
-      // number Contact Us/support already show elsewhere in this file.
-      momoSendToPhone: settings.businessPhone || '+231880465612',
+      // Real, Super-Admin-managed Mobile Money providers (see
+      // momo_providers in schema.sql) — each with its own receiving
+      // phone number, not one shared number stretched across every
+      // provider regardless of network. Only enabled ones ship here;
+      // the checkout radio list is built from exactly this array.
+      momoProviders: momoProviders.map(p => ({ id: p.id, label: p.label, phone: p.phone })),
     });
   } catch (err) {
     console.error('GET /api/config failed', err);
-    res.json({ googleClientId: GOOGLE_CLIENT_ID || null, privacyPolicy: null, termsOfService: null, serviceArea: null, defaultDeliveryFee: null, maintenanceMode: false, maintenanceMessage: null, serviceFee: 0.10, momoSendToPhone: '+231880465612' });
+    res.json({ googleClientId: GOOGLE_CLIENT_ID || null, privacyPolicy: null, termsOfService: null, serviceArea: null, defaultDeliveryFee: null, maintenanceMode: false, maintenanceMessage: null, serviceFee: 0.10, momoProviders: [] });
   }
 });
 
@@ -1368,6 +1367,86 @@ app.put('/api/admin/settings', requireAuth, requireAdmin, requireFeature('busine
   } catch (err) {
     console.error('PUT /api/admin/settings failed', err);
     res.status(500).json({ error: 'Failed to save settings' });
+  }
+});
+
+// ============================================================
+// Mobile Money providers (Super Admin) — full CRUD for the list that
+// powers the checkout provider radio options (see /api/config's
+// momoProviders and POST /api/marketplace/checkout/momo-manual above).
+// requireSuperAdmin, not requireAdmin — this controls where real
+// customer payments get sent, same trust level as Payouts/Commission.
+// ============================================================
+app.get('/api/super-admin/momo-providers', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const providers = await db.getAllMomoProviders();
+    res.json({ providers });
+  } catch (err) {
+    console.error('GET /api/super-admin/momo-providers failed', err);
+    res.status(500).json({ error: 'Failed to load Mobile Money providers' });
+  }
+});
+
+app.post('/api/super-admin/momo-providers', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { label, phone } = req.body || {};
+  if (!label || !label.trim()) return res.status(400).json({ error: 'A provider name is required' });
+  // Phone isn't required at creation — a brand-new provider is created
+  // disabled (see db.createMomoProvider) regardless of what's sent
+  // here, so an admin can add the row first and fill in the real
+  // number before turning it on, rather than being blocked from
+  // creating the row at all until they have the number handy.
+  try {
+    const providers = await db.getAllMomoProviders();
+    // Deterministic, human-diffable id from the label (e.g. "M-Pesa" ->
+    // "m_pesa") rather than a random UUID, matching orange_money/
+    // lonestar_mtn's existing style — this id is what gets stored on
+    // every purchase.payment_provider going forward, so it's worth it
+    // being readable in the database, not just in the UI.
+    let baseId = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'provider';
+    let id = baseId;
+    let suffix = 2;
+    while (providers.some(p => p.id === id)) { id = `${baseId}_${suffix}`; suffix += 1; }
+    const provider = await db.createMomoProvider({ id, label: label.trim(), phone: phone ? phone.trim() : '', sortOrder: providers.length });
+    await logAudit(req, 'momo_provider.create', { targetType: 'momo_provider', targetId: provider.id, targetLabel: provider.label });
+    res.json({ ok: true, provider });
+  } catch (err) {
+    console.error('POST /api/super-admin/momo-providers failed', err);
+    res.status(500).json({ error: 'Failed to add Mobile Money provider' });
+  }
+});
+
+app.put('/api/super-admin/momo-providers/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { label, phone, isEnabled, sortOrder } = req.body || {};
+  if (label !== undefined && !label.trim()) return res.status(400).json({ error: 'A provider name is required' });
+  if (phone !== undefined && !phone.trim()) return res.status(400).json({ error: 'A receiving phone number is required' });
+  try {
+    const provider = await db.updateMomoProvider(req.params.id, {
+      label: label !== undefined ? label.trim() : undefined,
+      phone: phone !== undefined ? phone.trim() : undefined,
+      isEnabled,
+      sortOrder,
+    });
+    if (!provider) return res.status(404).json({ error: 'Provider not found' });
+    await logAudit(req, 'momo_provider.update', { targetType: 'momo_provider', targetId: provider.id, targetLabel: provider.label });
+    res.json({ ok: true, provider });
+  } catch (err) {
+    console.error('PUT /api/super-admin/momo-providers/:id failed', err);
+    res.status(500).json({ error: 'Failed to update Mobile Money provider' });
+  }
+});
+
+app.delete('/api/super-admin/momo-providers/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    // Purchases already made through this provider keep their real
+    // payment_provider id regardless (see getMomoProviderLabel's
+    // client-side fallback for a deleted provider's label) — deleting
+    // it here only removes it from future checkout options.
+    await db.deleteMomoProvider(req.params.id);
+    await logAudit(req, 'momo_provider.delete', { targetType: 'momo_provider', targetId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/super-admin/momo-providers/:id failed', err);
+    res.status(500).json({ error: 'Failed to delete Mobile Money provider' });
   }
 });
 
@@ -4866,7 +4945,7 @@ app.post('/api/marketplace/checkout/momo-manual', requireAuth, async (req, res) 
   if (req.user.role !== 'sender') {
     return res.status(403).json({ error: 'Only customers can check out' });
   }
-  const [settings, platformSettings] = await Promise.all([db.getSettings(), db.getPlatformSettings()]);
+  const platformSettings = await db.getPlatformSettings();
   if (platformSettings.maintenanceMode) {
     return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
   }
@@ -4877,8 +4956,13 @@ app.post('/api/marketplace/checkout/momo-manual', requireAuth, async (req, res) 
   if (!pickupAddress || !dropoffAddress) {
     return res.status(400).json({ error: 'Pickup and dropoff addresses are required' });
   }
-  if (!['orange_money', 'lonestar_mtn'].includes(provider)) {
-    return res.status(400).json({ error: 'Choose Orange Money or Lonestar Cell MTN' });
+  // Real, Super-Admin-managed provider — not a hardcoded 2-value check,
+  // so a newly added provider works at checkout the moment it's saved,
+  // and a disabled/removed one is rejected here too (not just hidden
+  // client-side).
+  const momoProvider = await db.getMomoProviderById(provider);
+  if (!momoProvider || !momoProvider.isEnabled) {
+    return res.status(400).json({ error: 'That Mobile Money provider is not available right now' });
   }
   try {
     const result = await db.checkout({
@@ -4904,10 +4988,11 @@ app.post('/api/marketplace/checkout/momo-manual', requireAuth, async (req, res) 
       purchaseId: result.purchaseId,
       paymentReference: result.paymentReference,
       grandTotal: result.grandTotal,
-      // Same source of truth as /api/config's momoSendToPhone — fetched
-      // fresh here rather than trusting the frontend's cached copy, in
-      // case a Super Admin changed it since the page loaded.
-      sendToPhone: settings.businessPhone || '+231880465612',
+      // That specific provider's own receiving number (see
+      // momo_providers in schema.sql) — fetched fresh above rather than
+      // trusting the frontend's cached copy, in case a Super Admin
+      // changed it since the page loaded.
+      sendToPhone: momoProvider.phone,
     });
   } catch (err) {
     console.error('POST /api/marketplace/checkout/momo-manual failed', err);

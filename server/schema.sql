@@ -1225,3 +1225,36 @@ CREATE INDEX IF NOT EXISTS idx_two_factor_challenges_user_id ON two_factor_chall
 -- already been redeemed (for login, or to confirm enabling 2FA) must
 -- not work a second time even if it hasn't expired yet.
 ALTER TABLE two_factor_challenges ADD COLUMN IF NOT EXISTS used BOOLEAN NOT NULL DEFAULT false;
+
+-- Mobile Money providers for the manual/reference-code checkout flow
+-- (see POST /api/marketplace/checkout/momo-manual) — Super-Admin-
+-- managed, so a new provider (or a changed receiving number) doesn't
+-- need a code deploy. Each provider has its OWN receiving phone
+-- number: the old design sent every provider's payment to one shared
+-- settings.business_phone number regardless of which network the
+-- customer actually chose, which silently broke any provider that
+-- wasn't on that number's network. sort_order controls display order
+-- in the checkout radio list; is_enabled lets a Super Admin take a
+-- provider offline (e.g. their line is down) without deleting its
+-- history — a purchase already made through it keeps its
+-- payment_provider value regardless.
+CREATE TABLE IF NOT EXISTS momo_providers (
+    id          TEXT PRIMARY KEY,
+    label       TEXT NOT NULL,
+    phone       TEXT NOT NULL,
+    is_enabled  BOOLEAN NOT NULL DEFAULT true,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Seeds the two providers the app already had hardcoded, using the
+-- existing shared business phone as both their starting numbers so
+-- checkout doesn't go from "works (wrong number)" to "no providers at
+-- all" the moment this migration runs — a Super Admin can then correct
+-- each one to its real number from the new management UI.
+INSERT INTO momo_providers (id, label, phone, sort_order)
+SELECT 'orange_money', 'Orange Money', COALESCE((SELECT business_phone FROM settings WHERE id = 'business'), '+231880465612'), 1
+WHERE NOT EXISTS (SELECT 1 FROM momo_providers WHERE id = 'orange_money');
+INSERT INTO momo_providers (id, label, phone, sort_order)
+SELECT 'lonestar_mtn', 'Lonestar Cell MTN', COALESCE((SELECT business_phone FROM settings WHERE id = 'business'), '+231880465612'), 2
+WHERE NOT EXISTS (SELECT 1 FROM momo_providers WHERE id = 'lonestar_mtn');

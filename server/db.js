@@ -1303,6 +1303,66 @@ const db = {
     return this.getSettings();
   },
 
+  // ---- Mobile Money providers (Super Admin managed) --------------------
+  // See schema.sql's comment on momo_providers for why this replaced the
+  // old hardcoded 2-provider list + single shared settings.businessPhone.
+
+  rowToMomoProvider(r) {
+    return {
+      id: r.id,
+      label: r.label,
+      phone: r.phone,
+      isEnabled: r.is_enabled,
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  },
+
+  // Full list, any status — for the Super Admin management screen.
+  async getAllMomoProviders() {
+    const { rows } = await pool.query('SELECT * FROM momo_providers ORDER BY sort_order ASC, created_at ASC');
+    return rows.map(this.rowToMomoProvider);
+  },
+
+  // Enabled only, for the customer-facing checkout radio list.
+  async getEnabledMomoProviders() {
+    const { rows } = await pool.query('SELECT * FROM momo_providers WHERE is_enabled = true ORDER BY sort_order ASC, created_at ASC');
+    return rows.map(this.rowToMomoProvider);
+  },
+
+  async getMomoProviderById(id) {
+    const { rows } = await pool.query('SELECT * FROM momo_providers WHERE id = $1', [id]);
+    return rows[0] ? this.rowToMomoProvider(rows[0]) : null;
+  },
+
+  async createMomoProvider({ id, label, phone, sortOrder }) {
+    const { rows } = await pool.query(
+      `INSERT INTO momo_providers (id, label, phone, sort_order, is_enabled) VALUES ($1, $2, $3, $4, false) RETURNING *`,
+      [id, label, phone || '', sortOrder || 0]
+    );
+    return this.rowToMomoProvider(rows[0]);
+  },
+
+  async updateMomoProvider(id, { label, phone, isEnabled, sortOrder }) {
+    const sets = [];
+    const values = [];
+    let i = 1;
+    if (label !== undefined) { sets.push(`label = $${i}`); values.push(label); i += 1; }
+    if (phone !== undefined) { sets.push(`phone = $${i}`); values.push(phone); i += 1; }
+    if (isEnabled !== undefined) { sets.push(`is_enabled = $${i}`); values.push(isEnabled); i += 1; }
+    if (sortOrder !== undefined) { sets.push(`sort_order = $${i}`); values.push(sortOrder); i += 1; }
+    if (sets.length === 0) return this.getMomoProviderById(id);
+    sets.push('updated_at = now()');
+    values.push(id);
+    const { rows } = await pool.query(`UPDATE momo_providers SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, values);
+    return rows[0] ? this.rowToMomoProvider(rows[0]) : null;
+  },
+
+  async deleteMomoProvider(id) {
+    await pool.query('DELETE FROM momo_providers WHERE id = $1', [id]);
+  },
+
   // ---- Login history ---------------------------------------------------
 
   async recordLogin({ id, userId, ipAddress, device, browser }) {
