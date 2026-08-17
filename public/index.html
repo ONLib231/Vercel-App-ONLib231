@@ -21947,13 +21947,23 @@
                     ? `<span class="payment-status-badge pending" title="Waiting on Admin to confirm or reject this payment">Cancellation Requested</span>`
                     : `<button type="button" class="btn-small vendor-order-cancel-btn" data-id="${p.id}" style="background:#fee2e2; color:#991b1b;">Request Cancellation</button>`
             ) : '';
+            // A payment Admin already rejected is a closed matter — no
+            // more approval needed, just let the vendor clean it off
+            // their own list (see schema.sql's comment on
+            // vendor_dismissed). This is what actually removes a
+            // "Payment Not Confirmed" row from Recent Orders and stops
+            // it inflating Total Orders/Revenue for good.
+            const canDismiss = p.paymentStatus === 'failed';
+            const dismissHtml = canDismiss
+                ? `<button type="button" class="btn-small vendor-order-dismiss-btn" data-id="${p.id}" style="background:#fee2e2; color:#991b1b;">🗑️ Delete</button>`
+                : '';
             return `
                 <div class="vendor-order-row" data-id="${p.id}" style="flex-wrap:wrap;">
                     <div class="vendor-order-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div>
                     <div class="vendor-order-main">
                         <div class="vendor-order-id">${p.id}</div>
                         <div class="vendor-order-buyer">Buyer: ${p.customerName} ${paymentStatusBadgeHtml(p)}</div>
-                        ${(dispatchHtml || cancelHtml) ? `<div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">${dispatchHtml}${cancelHtml}</div>` : ''}
+                        ${(dispatchHtml || cancelHtml || dismissHtml) ? `<div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">${dispatchHtml}${cancelHtml}${dismissHtml}</div>` : ''}
                     </div>
                     <div class="vendor-order-right">
                         <span class="vendor-order-status-pill ${statusClass}">${statusLabel}</span>
@@ -22047,6 +22057,20 @@
             } catch (err) {
                 errorEl.textContent = err.message;
                 errorEl.style.display = 'block';
+            }
+        }
+
+        // A rejected Mobile Money order is a closed matter (Admin
+        // already decided) — this just removes it from the vendor's own
+        // view/stats, see schema.sql's comment on vendor_dismissed.
+        async function dismissVendorOrder(purchaseId) {
+            if (!confirm('Remove this order from your dashboard? It was never paid for, so this only cleans up your records — it won\u2019t affect the customer or Admin.')) return;
+            try {
+                await apiFetch(`/api/vendor/purchases/${purchaseId}/dismiss`, { method: 'POST' });
+                showToast('Order removed', 'success');
+                loadVendorDashboard();
+            } catch (err) {
+                showToast(err.message, 'error');
             }
         }
 
@@ -22769,7 +22793,9 @@
                     const dispatchBtn = e.target.closest('.vendor-order-dispatch-btn');
                     if (dispatchBtn) { openVendorDispatchModal(dispatchBtn.dataset.orderId); return; }
                     const cancelBtn = e.target.closest('.vendor-order-cancel-btn');
-                    if (cancelBtn) openVendorCancelModal(cancelBtn.dataset.id);
+                    if (cancelBtn) { openVendorCancelModal(cancelBtn.dataset.id); return; }
+                    const dismissBtn = e.target.closest('.vendor-order-dismiss-btn');
+                    if (dismissBtn) dismissVendorOrder(dismissBtn.dataset.id);
                 });
             });
             document.getElementById('close-vendor-dispatch-order-modal').addEventListener('click', () => {

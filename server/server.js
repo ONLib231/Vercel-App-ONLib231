@@ -3785,6 +3785,24 @@ app.post('/api/vendor/purchases/:id/request-cancel', requireAuth, requireVendor,
   }
 });
 
+// Vendor dismisses an already-rejected Mobile Money purchase from
+// their own Orders view/stats — see schema.sql's comment on
+// vendor_dismissed. No admin round-trip: the payment decision (reject)
+// already happened, this only affects what the vendor sees.
+app.post('/api/vendor/purchases/:id/dismiss', requireAuth, requireVendor, async (req, res) => {
+  try {
+    const purchase = await db.dismissVendorPurchase(req.params.id, req.user.id);
+    if (!purchase) {
+      return res.status(404).json({ error: 'Order not found, not yours, or not a rejected payment' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/vendor/purchases/:id/dismiss failed', err);
+    res.status(500).json({ error: 'Failed to remove order' });
+  }
+});
+
+
 // Every purchase this vendor has ever received, unbounded — feeds the
 // vendor's own Monthly Report PDF (see generateVendorMonthlyReportPDF
 // client-side), which needs a real month's worth of data, not just the

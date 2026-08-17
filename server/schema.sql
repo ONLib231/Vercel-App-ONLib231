@@ -1287,3 +1287,14 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS dispatch_requested_at TIMESTAMPTZ;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_requested BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_reason TEXT;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_requested_at TIMESTAMPTZ;
+
+-- Once a Mobile Money payment is REJECTED (payment_status = 'failed'),
+-- the decision is already final — nothing for a Super Admin to
+-- re-approve. A vendor can dismiss that dead record from their own
+-- Orders view/stats without another approval round-trip; the row
+-- itself is kept (audit trail, matches how nothing else in this app
+-- hard-deletes purchase history), just hidden from that vendor's own
+-- list. Scoped to payment_status = 'failed' only in every query that
+-- uses this — a vendor can never dismiss a live/pending/successful
+-- order this way.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_dismissed BOOLEAN NOT NULL DEFAULT false;

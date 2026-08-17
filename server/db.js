@@ -2413,7 +2413,7 @@ const db = {
       JOIN users u ON u.id = p.customer_id
       LEFT JOIN orders o ON o.id = p.delivery_order_id
       LEFT JOIN users dc ON dc.id = o.requested_delivery_company_id
-      WHERE p.vendor_id = $1
+      WHERE p.vendor_id = $1 AND p.vendor_dismissed = false
       ORDER BY p.created_at DESC
       LIMIT $2
     `, [vendorId, limit]);
@@ -2425,6 +2425,19 @@ const db = {
       requestedDeliveryCompanyName: r.requested_delivery_company_name || null,
       dispatchRequestedAt: r.dispatch_requested_at || null,
     }));
+  },
+
+  // A rejected Mobile Money payment is a closed matter — see
+  // schema.sql's comment on vendor_dismissed. Scoped to payment_status
+  // = 'failed' in the WHERE clause itself so a vendor can never dismiss
+  // a live order this way, not even by guessing an id.
+  async dismissVendorPurchase(purchaseId, vendorId) {
+    const { rows } = await pool.query(`
+      UPDATE purchases SET vendor_dismissed = true
+      WHERE id = $1 AND vendor_id = $2 AND payment_status = 'failed'
+      RETURNING *
+    `, [purchaseId, vendorId]);
+    return rows[0] ? rowToPurchase(rows[0]) : null;
   },
 
   // Unbounded version of the above, used only for the vendor's own
@@ -2811,17 +2824,22 @@ const db = {
       SELECT COALESCE(SUM(total_amount), 0)::numeric AS total_sales, COUNT(*)::int AS total_orders
       FROM purchases
       WHERE vendor_id = $1 AND created_at > now() - ($2 || ' days')::interval
+        AND (payment_method = 'cod' OR payment_status = 'successful')
     `, [vendorId, days]);
     return { totalSales: Number(rows[0].total_sales), totalOrders: rows[0].total_orders };
   },
 
   // Real day-by-day revenue for the Sales Overview line chart — no
-  // fabricated curve, actual sums grouped by day.
+  // fabricated curve, actual sums grouped by day. Same "cod or
+  // confirmed" filter as getVendorSalesOverview above — a still-
+  // unconfirmed or rejected Mobile Money payment was never real
+  // revenue, so it shouldn't shape this chart either.
   async getVendorDailySales(vendorId, days = 30) {
     const { rows } = await pool.query(`
       SELECT date_trunc('day', created_at) AS day, COALESCE(SUM(total_amount), 0)::numeric AS total
       FROM purchases
       WHERE vendor_id = $1 AND created_at > now() - ($2 || ' days')::interval
+        AND (payment_method = 'cod' OR payment_status = 'successful')
       GROUP BY day
       ORDER BY day ASC
     `, [vendorId, days]);
@@ -4224,8 +4242,8 @@ const db = {
   async getVendorCustomers(vendorId) {
     const { rows } = await pool.query(`
       SELECT u.id, u.business_name, u.email, u.phone,
-        COUNT(p.id)::int AS order_count,
-        COALESCE(SUM(p.total_amount), 0)::numeric AS total_spent,
+        COUNT(p.id) FILTER (WHERE p.payment_method = 'cod' OR p.payment_status = 'successful')::int AS order_count,
+        COALESCE(SUM(p.total_amount) FILTER (WHERE p.payment_method = 'cod' OR p.payment_status = 'successful'), 0)::numeric AS total_spent,
         MAX(p.created_at) AS last_order_at
       FROM purchases p
       JOIN users u ON u.id = p.customer_id
@@ -4265,7 +4283,7 @@ const db = {
   // which showed unrelated Delivery-service order/agent numbers.
   async getMarketplacePlatformStats() {
     const [purchaseTotals, pendingCount] = await Promise.all([
-      pool.query("SELECT COUNT(*)::int AS total_orders, COALESCE(SUM(total_amount), 0)::numeric AS total_revenue FROM purchases"),
+      pool.query("SELECT COUNT(*)::int AS total_orders, COALESCE(SUM(total_amount), 0)::numeric AS total_revenue FROM purchases WHERE payment_method = 'cod' OR payment_status = 'successful'"),
       pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role = 'vendor' AND approval_status = 'pending'"),
     ]);
     return {
@@ -4281,12 +4299,15 @@ const db = {
   // a restaurant order and a store order are the same DB row shape
   // (both a "purchases" row, both possibly linked to a delivery order)
   // but are two distinct lines of business to an admin reading a
-  // dashboard.
+  // dashboard. Same "cod or confirmed" filter as every other order/
+  // revenue query in this file — a still-pending or rejected Mobile
+  // Money purchase was never real revenue.
   async getBusinessOverviewStats() {
     const [byType, vendorCounts, pendingCount] = await Promise.all([
       pool.query(`
         SELECT u.vendor_type, COUNT(p.*)::int AS total_orders, COALESCE(SUM(p.total_amount), 0)::numeric AS total_revenue
         FROM purchases p JOIN users u ON u.id = p.vendor_id
+        WHERE p.payment_method = 'cod' OR p.payment_status = 'successful'
         GROUP BY u.vendor_type
       `),
       pool.query("SELECT vendor_type, COUNT(*)::int AS count FROM users WHERE role = 'vendor' AND approval_status = 'approved' GROUP BY vendor_type"),
@@ -4385,12 +4406,16 @@ const db = {
   // delivery company; see the comment on the disputes table in
   // schema.sql for the full reasoning). Never recalculates past
   // payouts; only used to show current standing (gross earned
-  // all-time, net of refunds, vs. already paid out all-time).
+  // all-time, net of refunds, vs. already paid out all-time). Vendor
+  // gross is filtered to `payment_method = 'cod' OR payment_status =
+  // 'successful'` — a still-pending or rejected Mobile Money purchase
+  // was never actually received, so it can't be gross earnings owed to
+  // that vendor.
   async getPayoutSummary() {
     const [vendorRows, companyRows, vendorRevenue, deliveryRevenue, vendorRefunds, deliveryRefunds, paidOut, platformSettings, premiumVendorIds] = await Promise.all([
       pool.query("SELECT id, business_name, email, commission_rate_override FROM users WHERE role = 'vendor' AND approval_status = 'approved' ORDER BY business_name"),
       pool.query("SELECT id, business_name, email, commission_rate_override FROM users WHERE role = 'delivery_company' AND approval_status = 'approved' ORDER BY business_name"),
-      pool.query("SELECT vendor_id, COALESCE(SUM(total_amount), 0)::numeric AS gross FROM purchases GROUP BY vendor_id"),
+      pool.query("SELECT vendor_id, COALESCE(SUM(total_amount), 0)::numeric AS gross FROM purchases WHERE payment_method = 'cod' OR payment_status = 'successful' GROUP BY vendor_id"),
       pool.query("SELECT delivery_company_id, COALESCE(SUM(amount), 0)::numeric AS gross FROM orders WHERE status = 'delivered' AND delivery_company_id IS NOT NULL GROUP BY delivery_company_id"),
       pool.query(
         `SELECT pur.vendor_id AS vendor_id, COALESCE(SUM(d.refund_amount), 0)::numeric AS refunded
