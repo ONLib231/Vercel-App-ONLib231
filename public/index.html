@@ -15378,6 +15378,10 @@
                 if (e.target.classList.contains('toggle-disabled-btn')) {
                     toggleAccountDisabled(e.target.dataset.id, e.target.dataset.name, e.target.dataset.disabled === 'true', loadVendors);
                 }
+                const resetBtn = e.target.closest('.reset-vendor-password-btn');
+                if (resetBtn) openResetCustomerPasswordModal(resetBtn.dataset.id, resetBtn.dataset.name, 'vendors');
+                const deleteBtn = e.target.closest('.delete-vendor-btn');
+                if (deleteBtn) deleteVendorWithConfirm(deleteBtn.dataset.id, deleteBtn.dataset.name);
             });
             document.getElementById('close-vendor-review-modal').addEventListener('click', () => {
                 document.getElementById('vendor-review-modal').classList.remove('active');
@@ -16008,6 +16012,22 @@
             }
         }
 
+        // Same real, irreversible delete as deleteCustomerWithConfirm
+        // above, scoped to DELETE /api/super-admin/vendors/:id instead.
+        async function deleteVendorWithConfirm(id, name) {
+            const confirmed = confirm(
+                `Permanently delete "${name}"?\n\nThis deletes their entire vendor account — every product, purchase, review, and promotion. This cannot be undone.`
+            );
+            if (!confirmed) return;
+            try {
+                await apiFetch(`/api/super-admin/vendors/${id}`, { method: 'DELETE' });
+                showToast('Vendor deleted', 'success');
+                await loadVendors();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
         // Shared by Customers, Vendors, Delivery Companies, and Manage
         // Agent — real account suspension, not deletion. onSuccess
         // refreshes whichever panel called it.
@@ -16032,9 +16052,15 @@
         }
 
         let resetPasswordTargetId = null;
+        // Which endpoint family to hit — 'customers' or 'vendors', both
+        // now real PUT /api/super-admin/<type>/:id/password routes with
+        // identical shape. Same modal DOM either way; only the label
+        // text and the request URL change.
+        let resetPasswordTargetType = 'customers';
 
-        function openResetCustomerPasswordModal(id, name) {
+        function openResetCustomerPasswordModal(id, name, targetType) {
             resetPasswordTargetId = id;
+            resetPasswordTargetType = targetType || 'customers';
             document.getElementById('reset-customer-password-target-name').textContent = `Set a new password for ${name}.`;
             document.getElementById('reset-customer-password-form').reset();
             document.getElementById('reset-customer-password-error').style.display = 'none';
@@ -16055,11 +16081,11 @@
             submitBtn.textContent = 'Resetting…';
             try {
                 const password = document.getElementById('reset-customer-password-input').value;
-                await apiFetch(`/api/super-admin/customers/${resetPasswordTargetId}/password`, {
+                await apiFetch(`/api/super-admin/${resetPasswordTargetType}/${resetPasswordTargetId}/password`, {
                     method: 'PUT',
                     body: JSON.stringify({ password }),
                 });
-                showToast('Password reset — share the new one with the customer directly', 'success');
+                showToast(`Password reset — share the new one with the ${resetPasswordTargetType === 'vendors' ? 'vendor' : 'customer'} directly`, 'success');
                 closeResetCustomerPasswordModal();
             } catch (err) {
                 errorEl.textContent = err.message;
@@ -16124,7 +16150,9 @@
                             <td style="white-space:nowrap; display:flex; gap:0.5rem;">
                                 ${v.approvalStatus === 'pending' ? `<button type="button" class="btn-small btn-secondary review-vendor-btn" data-id="${v.id}">Review</button>` : ''}
                                 <button type="button" class="btn-small btn-secondary enter-vendor-dashboard-btn" data-id="${v.id}" title="Open this vendor's real dashboard for support/oversight">Enter Dashboard</button>
+                                <button type="button" class="btn-small reset-vendor-password-btn" data-id="${v.id}" data-name="${v.businessName.replace(/"/g, '&quot;')}">Reset Password</button>
                                 <button type="button" class="btn-small toggle-disabled-btn" data-id="${v.id}" data-name="${v.businessName.replace(/"/g, '&quot;')}" data-disabled="${v.isDisabled}" style="background:${v.isDisabled ? '#dcfce7' : '#fef3c7'}; color:${v.isDisabled ? '#15803d' : '#92400e'};">${v.isDisabled ? 'Enable' : 'Disable'}</button>
+                                <button type="button" class="btn-small delete-vendor-btn" style="background:#fee2e2; color:#991b1b;" data-id="${v.id}" data-name="${v.businessName.replace(/"/g, '&quot;')}">Delete</button>
                             </td>
                         </tr>`;
                     });

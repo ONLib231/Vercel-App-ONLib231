@@ -1874,6 +1874,43 @@ app.post('/api/super-admin/vendors', requireAuth, requireSuperAdmin, async (req,
   }
 });
 
+// Real, irreversible delete — cascades to the vendor's entire product,
+// purchase, and review history. requireSuperAdmin only; the frontend
+// requires a typed confirmation before ever calling this — same
+// pattern as DELETE /api/super-admin/customers/:id.
+app.delete('/api/super-admin/vendors/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const deleted = await db.deleteVendor(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Vendor not found' });
+    await logAudit(req, 'vendor.delete', { targetType: 'user', targetId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/super-admin/vendors/:id failed', err);
+    res.status(500).json({ error: 'Failed to delete vendor' });
+  }
+});
+
+// Same deliberately separate reset-password action as
+// PUT /api/super-admin/customers/:id/password — its own explicit
+// confirmation step on the frontend, not bundled into general editing.
+app.put('/api/super-admin/vendors/:id/password', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { password } = req.body || {};
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  try {
+    const target = await db.getUserById(req.params.id);
+    if (!target || target.role !== 'vendor') return res.status(404).json({ error: 'Vendor not found' });
+    const passwordHash = await hashPassword(password);
+    await db.updateUserPassword(req.params.id, passwordHash);
+    await logAudit(req, 'vendor.password_reset', { targetType: 'user', targetId: target.id, targetLabel: target.businessName });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PUT /api/super-admin/vendors/:id/password failed', err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
 // Staff accounts ("Manage Agent" role = 'admin') — real multi-account
 // CRUD for the Super Admin Console's "Staff" tab. Historically there was
 // only ever one such account, found on every boot by looking up a fixed

@@ -1586,6 +1586,19 @@ const db = {
     return rows.length > 0;
   },
 
+  // Same real, irreversible, cascading delete as deleteCustomer above,
+  // scoped to role = 'vendor' instead — a vendor's products, purchases,
+  // reviews, promotions, etc. all reference users(id) with the same
+  // cascade behavior products/purchases already rely on elsewhere in
+  // this file.
+  async deleteVendor(id) {
+    const { rows } = await pool.query(
+      `DELETE FROM users WHERE id = $1 AND role = 'vendor' RETURNING id`,
+      [id]
+    );
+    return rows.length > 0;
+  },
+
   // ---- Vendors (real vendor accounts — Super Admin oversight) --------
   // NOTE: this app is still single-tenant for ORDER data — there is no
   // per-vendor isolation of orders/agents/expenses yet, those stay one
