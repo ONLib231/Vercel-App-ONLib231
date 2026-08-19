@@ -5756,17 +5756,21 @@
                     </div>
                 </section>
 
-                <!-- Available Orders + Recent Deliveries — for Manage Agent
-                     this stays inline right here (their operational home
-                     dashboard, unchanged). For Super Admin it gets
+                <!-- Available Orders + Recent Deliveries + the Revenue/Order
+                     Status charts — for Manage Agent this stays inline
+                     right here (their operational home dashboard,
+                     unchanged). For Super Admin the whole group gets
                      physically relocated (the live DOM node, not a clone —
                      so ids stay unique and no listeners are lost) into
                      #orders-modal-body at login, per Super Admin's request
                      to move this off the Dashboard/Overview page into its
-                     own "Orders" section (sidebar + More sheet). See the
-                     role-detection JS that toggles isSuperAdmin for the
-                     move logic, and #admin-orders-inline-anchor below for
-                     where it comes back for Manage Agent. -->
+                     own "Orders" section (sidebar + More sheet) — charts
+                     included, per their follow-up request to move those
+                     along with it too. See the role-detection JS that
+                     toggles isSuperAdmin for the move logic, and
+                     #admin-orders-inline-anchor below for where it comes
+                     back for Manage Agent. -->
+                <div id="admin-orders-section-content">
                 <div class="admin-two-col" id="admin-orders-block">
                     <div class="admin-two-col-main">
                         <section class="orders-section" id="available-orders-section">
@@ -5826,18 +5830,6 @@
                     </div>
                 </div>
 
-                <!-- Empty anchor marking where #admin-orders-block gets
-                     reinserted for Manage Agent (see above). Never shown
-                     itself — purely a DOM position marker. -->
-                <div id="admin-orders-inline-anchor" style="display:none;"></div>
-
-                <!-- Revenue/Order Status charts stay on the Dashboard for
-                     BOTH roles unconditionally — only Available Orders and
-                     Recent Deliveries move for Super Admin, per their
-                     request. Pulled out of .admin-two-col-main (where it
-                     used to sit right under Available Orders) into its own
-                     full-width row so it renders correctly whichever role
-                     #admin-orders-block currently sits with. -->
                 <div class="admin-charts-row">
                     <section class="orders-section admin-chart-card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -5851,6 +5843,12 @@
                         <div id="order-status-legend" class="order-status-legend"></div>
                     </section>
                 </div>
+                </div>
+
+                <!-- Empty anchor marking where #admin-orders-section-content
+                     gets reinserted for Manage Agent (see above). Never
+                     shown itself — purely a DOM position marker. -->
+                <div id="admin-orders-inline-anchor" style="display:none;"></div>
                 </div>
 
                 <!-- Super Admin's real landing view — platform oversight,
@@ -8409,8 +8407,9 @@
          Moved out of the Dashboard/Overview page at Super Admin's request
          so Platform Overview isn't buried under the delivery-ops queue.
          #orders-modal-body starts empty; the real content
-         (#admin-orders-block, defined inline in #admin-operational-view)
-         gets physically relocated in here for Super Admin at login — see
+         (#admin-orders-section-content, defined inline in
+         #admin-operational-view) gets physically relocated in here for
+         Super Admin at login — see
          the isSuperAdmin role-detection JS. Manage Agent never opens this
          modal (their nav entry to it stays hidden) — they keep seeing the
          same content inline on Overview, unchanged. -->
@@ -8949,8 +8948,12 @@
         </div>
     </div>
 
-    <!-- Resolve Dispute (Super Admin only) — the one decision point:
-         refund (requires a positive amount) or reject (no refund).
+    <!-- Resolve Dispute (Super Admin only) — the decision point: refund
+         (requires a positive amount), reject (no refund), or void (for
+         a dispute with a purchase attached — removes that purchase
+         from every revenue total but keeps it visible in history, see
+         schema.sql's comment on purchases.excluded_from_revenue; this
+         is how a vendor's own deletion/void request gets approved).
          Either way a resolution note is required — the customer sees
          it, same reasoning as the vendor/delivery-company
          rejection-reason feature. -->
@@ -8964,9 +8967,10 @@
             <form id="resolve-dispute-form">
                 <div class="form-group">
                     <label class="form-label">Decision</label>
-                    <div style="display:flex; gap:1rem;">
+                    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
                         <label class="auth-checkbox-label" style="margin:0;"><input type="radio" name="resolve-dispute-decision" value="refund" checked> Issue a refund</label>
                         <label class="auth-checkbox-label" style="margin:0;"><input type="radio" name="resolve-dispute-decision" value="reject"> Reject — no refund</label>
+                        <label class="auth-checkbox-label" style="margin:0;" id="resolve-dispute-void-option"><input type="radio" name="resolve-dispute-decision" value="void"> Void — remove from revenue</label>
                     </div>
                 </div>
                 <div class="form-group" id="resolve-dispute-refund-amount-group">
@@ -8974,6 +8978,7 @@
                     <input type="number" class="form-input" id="resolve-dispute-refund-amount-input" min="0.01" step="0.01" placeholder="e.g. 12.50">
                     <p class="settings-hint">Recorded against the relevant vendor/delivery company's payout balance — it isn't an automatic payment reversal, since this app has no live payment processor integration.</p>
                 </div>
+                <p class="settings-hint" id="resolve-dispute-void-hint" style="display:none;">The purchase stays visible everywhere in order history — this only stops it counting toward the vendor's and the platform's revenue totals. The delivery company still keeps its delivery fee either way.</p>
                 <div class="form-group">
                     <label class="form-label">Resolution Note (the customer will see this)</label>
                     <textarea class="form-input" id="resolve-dispute-note-input" rows="3" required placeholder="e.g. Confirmed the item arrived damaged — refunding in full."></textarea>
@@ -9041,6 +9046,34 @@
                 <div class="modal-footer">
                     <button type="button" class="btn-small btn-secondary" id="cancel-vendor-cancel-order-form">Never Mind</button>
                     <button type="submit" class="btn-small" style="background:#dc2626; color:white;">Request Cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Vendor asks Super Admin to void an order's revenue — e.g. a
+         customer sent it back. Folds into the same Disputes queue
+         Super Admin already reviews (see resolve-dispute-modal's new
+         "Void" option) — this only opens the request, it doesn't
+         change anything by itself. Nothing is ever deleted: the order
+         stays in every order history exactly as it is today, it just
+         stops counting toward revenue once Admin approves. -->
+    <div class="modal-overlay" id="vendor-request-deletion-modal">
+        <div class="modal" style="max-width: 440px;">
+            <div class="modal-header">
+                <h3>Request Deletion</h3>
+                <button class="close-btn" id="close-vendor-request-deletion-modal">&times;</button>
+            </div>
+            <p style="color:var(--slate-light); font-size:0.8125rem; margin-bottom:1rem;">This doesn't delete or cancel anything by itself — it sends Super Admin a request to void this order so it stops counting toward your revenue (e.g. the customer sent it back). The order stays visible in your history either way, and the delivery company keeps its delivery fee regardless of Admin's decision.</p>
+            <form id="vendor-request-deletion-form">
+                <div class="form-group">
+                    <label class="form-label">Reason</label>
+                    <textarea class="form-input" id="vendor-request-deletion-reason-input" rows="3" required placeholder="e.g. Customer returned the item on 8/15, no longer paid for."></textarea>
+                </div>
+                <div class="auth-error" id="vendor-request-deletion-error" style="display:none;"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-small btn-secondary" id="cancel-vendor-request-deletion-form">Never Mind</button>
+                    <button type="submit" class="btn-small" id="vendor-request-deletion-submit-btn" style="background:#dc2626; color:white;">Send Request</button>
                 </div>
             </form>
         </div>
@@ -13165,11 +13198,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 if (ordersNavBtn) ordersNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
                 const moreOrdersBtn = document.getElementById('admin-more-orders');
                 if (moreOrdersBtn) moreOrdersBtn.style.display = isSuperAdmin ? 'flex' : 'none';
-                // Physically relocate the live #admin-orders-block node
-                // (not a clone — ids stay unique, no listeners lost)
-                // between its inline home and the Orders modal, based on
-                // role. Idempotent — safe to run on every login.
-                const ordersBlock = document.getElementById('admin-orders-block');
+                // Physically relocate the live #admin-orders-section-content
+                // node (Available Orders + Recent Deliveries + the Revenue/
+                // Order Status charts — not a clone, so ids stay unique and
+                // no listeners are lost) between its inline home and the
+                // Orders modal, based on role. Idempotent — safe to run on
+                // every login.
+                const ordersBlock = document.getElementById('admin-orders-section-content');
                 const ordersModalBody = document.getElementById('orders-modal-body');
                 const ordersInlineAnchor = document.getElementById('admin-orders-inline-anchor');
                 if (ordersBlock && ordersModalBody && ordersInlineAnchor) {
@@ -14968,7 +15003,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     // (scroll to it), but moved into its own Orders modal
                     // for Super Admin (open that instead) — see the
                     // isSuperAdmin role-detection JS that relocates
-                    // #admin-orders-block.
+                    // #admin-orders-section-content.
                     if (currentUser && currentUser.role === 'super_admin') {
                         document.getElementById('open-orders-btn').click();
                     } else {
@@ -15956,8 +15991,9 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('resolve-dispute-form').addEventListener('submit', handleResolveDisputeFormSubmit);
             document.querySelectorAll('input[name="resolve-dispute-decision"]').forEach(radio => {
                 radio.addEventListener('change', () => {
-                    const isRefund = document.querySelector('input[name="resolve-dispute-decision"]:checked').value === 'refund';
-                    document.getElementById('resolve-dispute-refund-amount-group').style.display = isRefund ? 'block' : 'none';
+                    const decision = document.querySelector('input[name="resolve-dispute-decision"]:checked').value;
+                    document.getElementById('resolve-dispute-refund-amount-group').style.display = decision === 'refund' ? 'block' : 'none';
+                    document.getElementById('resolve-dispute-void-hint').style.display = decision === 'void' ? 'block' : 'none';
                 });
             });
 
@@ -18091,7 +18127,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
 
         function disputeSummaryHtml(d) {
             return `
-                <div><strong>${d.customerName}</strong> (${d.customerEmail})</div>
+                <div><strong>${d.customerName}</strong> (${d.customerEmail})${d.initiatedBy === 'vendor' ? ' <span style="background:#e0e7ff; color:#3730a3; padding:0.1875rem 0.5rem; border-radius:9999px; font-size:0.6875rem; font-weight:700;">Filed by vendor</span>' : ''}</div>
                 <div style="margin-top:0.375rem;">${DISPUTE_CATEGORY_LABELS[d.category] || d.category} — ${d.purchase ? `purchase from ${d.purchase.vendorName}, $${d.purchase.amount.toFixed(2)}` : d.order ? `order: ${d.order.itemDescription}${d.order.amount !== null ? `, $${d.order.amount.toFixed(2)}` : ''}` : ''}</div>
                 <div style="margin-top:0.5rem; color:var(--slate);">${d.description}</div>
             `;
@@ -18106,6 +18142,12 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('resolve-dispute-form').reset();
             document.getElementById('resolve-dispute-error').style.display = 'none';
             document.getElementById('resolve-dispute-refund-amount-group').style.display = 'block';
+            document.getElementById('resolve-dispute-void-hint').style.display = 'none';
+            // Void only makes sense for a dispute with a purchase
+            // attached (see the server-side check in PUT
+            // /api/super-admin/disputes/:id/resolve) — an order-only
+            // dispute (a Delivery Company matter) has nothing to void.
+            document.getElementById('resolve-dispute-void-option').style.display = dispute.purchase ? 'inline-flex' : 'none';
             document.getElementById('resolve-dispute-form').style.display = 'block';
             document.getElementById('resolve-dispute-decided-view').style.display = 'none';
             document.getElementById('resolve-dispute-modal').classList.add('active');
@@ -18117,12 +18159,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
         function viewDisputeModal(id) {
             const dispute = disputesCache.find(d => d.id === id);
             if (!dispute) return;
-            document.getElementById('resolve-dispute-modal-title').textContent = dispute.status === 'resolved' ? 'Resolved Dispute' : 'Rejected Dispute';
+            const wasVoided = dispute.status === 'resolved' && dispute.purchase && dispute.purchase.excludedFromRevenue;
+            document.getElementById('resolve-dispute-modal-title').textContent = wasVoided ? 'Voided Purchase' : dispute.status === 'resolved' ? 'Resolved Dispute' : 'Rejected Dispute';
             document.getElementById('resolve-dispute-summary').innerHTML = disputeSummaryHtml(dispute);
             document.getElementById('resolve-dispute-form').style.display = 'none';
             document.getElementById('resolve-dispute-decided-view').style.display = 'block';
             document.getElementById('resolve-dispute-decided-content').innerHTML = `
-                <div>${DISPUTE_STATUS_PILLS[dispute.status] || dispute.status}</div>
+                <div>${wasVoided ? '<span style="background:#f3f4f6; color:#374151; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Voided — excluded from revenue</span>' : (DISPUTE_STATUS_PILLS[dispute.status] || dispute.status)}</div>
                 <div style="margin-top:0.75rem; background:var(--bg-light); border-radius:0.625rem; padding:0.875rem 1rem;">
                     ${dispute.resolutionNote || ''}
                     ${dispute.refundAmount ? `<div style="margin-top:0.5rem; font-weight:700; color:#15803d;">Refunded: $${dispute.refundAmount.toFixed(2)}</div>` : ''}
@@ -20758,6 +20801,9 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             never_arrived: 'Never arrived',
             overcharged: 'Overcharged',
             other: 'Something else',
+            // Vendor-initiated (see initiatedBy) — never shown as an
+            // option to a customer filing their own dispute.
+            vendor_return: 'Vendor return / void request',
         };
 
         const DISPUTE_STATUS_PILLS = {
@@ -22691,13 +22737,31 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             const dismissHtml = canDismiss
                 ? `<button type="button" class="btn-small vendor-order-dismiss-btn" data-id="${p.id}" style="background:#fee2e2; color:#991b1b;">🗑️ Delete</button>`
                 : '';
+            // "Request Deletion" — a vendor asking Super Admin to void
+            // this order's revenue (e.g. the customer sent it back).
+            // Only offered for a purchase that actually counts toward
+            // revenue today (same "cod or confirmed" test every revenue
+            // query in db.js uses) and isn't already voided or waiting
+            // on a still-open request. Nothing is deleted here or ever
+            // — see PUT /api/super-admin/disputes/:id/resolve's 'void'
+            // decision and schema.sql's comment on
+            // purchases.excluded_from_revenue.
+            const countsTowardRevenue = p.paymentMethod === 'cod' || p.paymentStatus === 'successful';
+            const canRequestDeletion = countsTowardRevenue && !p.excludedFromRevenue && p.deletionRequestStatus !== 'open';
+            const deletionHtml = p.excludedFromRevenue
+                ? `<span class="payment-status-badge" style="background:#f3f4f6; color:#4b5563;" title="${(p.excludedFromRevenueReason || '').replace(/"/g, '&quot;')}">Voided (not counted)</span>`
+                : p.deletionRequestStatus === 'open'
+                    ? `<span class="payment-status-badge pending" title="Waiting on Admin to review">Deletion Requested</span>`
+                    : canRequestDeletion
+                        ? `<button type="button" class="btn-small vendor-order-request-deletion-btn" data-id="${p.id}" style="background:#fee2e2; color:#991b1b;">🗑️ Request Deletion</button>`
+                        : '';
             return `
                 <div class="vendor-order-row" data-id="${p.id}" style="flex-wrap:wrap;">
                     <div class="vendor-order-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div>
                     <div class="vendor-order-main">
                         <div class="vendor-order-id">${p.id}</div>
                         <div class="vendor-order-buyer">Buyer: ${p.customerName} ${paymentStatusBadgeHtml(p)}</div>
-                        ${(dispatchHtml || cancelHtml || dismissHtml) ? `<div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">${dispatchHtml}${cancelHtml}${dismissHtml}</div>` : ''}
+                        ${(dispatchHtml || cancelHtml || dismissHtml || deletionHtml) ? `<div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">${dispatchHtml}${cancelHtml}${dismissHtml}${deletionHtml}</div>` : ''}
                     </div>
                     <div class="vendor-order-right">
                         <span class="vendor-order-status-pill ${statusClass}">${statusLabel}</span>
@@ -22791,6 +22855,48 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             } catch (err) {
                 errorEl.textContent = err.message;
                 errorEl.style.display = 'block';
+            }
+        }
+
+        // ---- Vendor: request Super Admin void this order's revenue
+        // (e.g. a customer sent it back) — folds into the same
+        // Disputes queue Super Admin already reviews, see
+        // schema.sql's comment on purchases.excluded_from_revenue.
+        // Nothing changes here by itself; this only opens the request. ----
+        let vendorRequestDeletionPurchaseId = null;
+        function openVendorRequestDeletionModal(purchaseId) {
+            vendorRequestDeletionPurchaseId = purchaseId;
+            document.getElementById('vendor-request-deletion-reason-input').value = '';
+            document.getElementById('vendor-request-deletion-error').style.display = 'none';
+            document.getElementById('vendor-request-deletion-modal').classList.add('active');
+        }
+        async function submitVendorRequestDeletion(e) {
+            e.preventDefault();
+            const errorEl = document.getElementById('vendor-request-deletion-error');
+            const submitBtn = document.getElementById('vendor-request-deletion-submit-btn');
+            errorEl.style.display = 'none';
+            const reason = document.getElementById('vendor-request-deletion-reason-input').value.trim();
+            if (!reason) {
+                errorEl.textContent = 'Please explain why this order should be voided';
+                errorEl.style.display = 'block';
+                return;
+            }
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Sending…';
+            try {
+                await apiFetch(`/api/vendor/purchases/${vendorRequestDeletionPurchaseId}/request-deletion`, {
+                    method: 'POST',
+                    body: JSON.stringify({ reason }),
+                });
+                showToast('Request sent — Admin will review it', 'success');
+                document.getElementById('vendor-request-deletion-modal').classList.remove('active');
+                loadVendorDashboard();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Send Request';
             }
         }
 
@@ -23530,7 +23636,9 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     const cancelBtn = e.target.closest('.vendor-order-cancel-btn');
                     if (cancelBtn) { openVendorCancelModal(cancelBtn.dataset.id); return; }
                     const dismissBtn = e.target.closest('.vendor-order-dismiss-btn');
-                    if (dismissBtn) dismissVendorOrder(dismissBtn.dataset.id);
+                    if (dismissBtn) { dismissVendorOrder(dismissBtn.dataset.id); return; }
+                    const requestDeletionBtn = e.target.closest('.vendor-order-request-deletion-btn');
+                    if (requestDeletionBtn) openVendorRequestDeletionModal(requestDeletionBtn.dataset.id);
                 });
             });
             document.getElementById('close-vendor-dispatch-order-modal').addEventListener('click', () => {
@@ -23547,6 +23655,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 document.getElementById('vendor-cancel-order-modal').classList.remove('active');
             });
             document.getElementById('vendor-cancel-order-form').addEventListener('submit', submitVendorCancelRequest);
+            document.getElementById('close-vendor-request-deletion-modal').addEventListener('click', () => {
+                document.getElementById('vendor-request-deletion-modal').classList.remove('active');
+            });
+            document.getElementById('cancel-vendor-request-deletion-form').addEventListener('click', () => {
+                document.getElementById('vendor-request-deletion-modal').classList.remove('active');
+            });
+            document.getElementById('vendor-request-deletion-form').addEventListener('submit', submitVendorRequestDeletion);
 
             document.getElementById('close-mark-refunded-modal').addEventListener('click', closeMarkRefundedModal);
             document.getElementById('cancel-mark-refunded-form').addEventListener('click', closeMarkRefundedModal);

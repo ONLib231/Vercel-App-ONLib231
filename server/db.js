@@ -246,6 +246,15 @@ function rowToPurchase(r) {
     vendorCancelRequested: !!r.vendor_cancel_requested,
     vendorCancelReason: r.vendor_cancel_reason || null,
     vendorCancelRequestedAt: r.vendor_cancel_requested_at || null,
+    // "Void it, keep it" — set only once a Super Admin approves a
+    // vendor's (or, generically, a customer's) deletion/void request;
+    // see schema.sql's comment on this column and
+    // db.excludePurchaseFromRevenue. The row itself is never touched
+    // beyond these three fields — order history shows it exactly as
+    // before, it just stops being summed into any revenue total.
+    excludedFromRevenue: !!r.excluded_from_revenue,
+    excludedFromRevenueReason: r.excluded_from_revenue_reason || null,
+    excludedFromRevenueAt: r.excluded_from_revenue_at || null,
   };
 }
 
@@ -432,6 +441,11 @@ function rowToDispute(r) {
     resolvedBy: r.resolved_by,
     resolvedAt: r.resolved_at,
     createdAt: r.created_at,
+    // 'customer' (the original, still-default flow) or 'vendor' — a
+    // vendor asking Super Admin to void one of their own purchases,
+    // see schema.sql's comment on this column.
+    initiatedBy: r.initiated_by || 'customer',
+    vendorId: r.vendor_id || null,
   };
 }
 
@@ -2745,11 +2759,20 @@ const db = {
   async getPurchasesByVendor(vendorId, limit = 50) {
     const { rows } = await pool.query(`
       SELECT p.*, u.business_name AS customer_name, o.status AS delivery_status,
-        o.requested_delivery_company_id, o.dispatch_requested_at, dc.business_name AS requested_delivery_company_name
+        o.requested_delivery_company_id, o.dispatch_requested_at, dc.business_name AS requested_delivery_company_name,
+        vdr.status AS deletion_request_status
       FROM purchases p
       JOIN users u ON u.id = p.customer_id
       LEFT JOIN orders o ON o.id = p.delivery_order_id
       LEFT JOIN users dc ON dc.id = o.requested_delivery_company_id
+      -- This vendor's own most recent deletion/void request against
+      -- this purchase, if any — lets the Orders list show "Deletion
+      -- Requested" / disable the button instead of letting a vendor
+      -- file a second request while one's still pending.
+      LEFT JOIN LATERAL (
+        SELECT status FROM disputes WHERE purchase_id = p.id AND initiated_by = 'vendor'
+        ORDER BY created_at DESC LIMIT 1
+      ) vdr ON true
       WHERE p.vendor_id = $1 AND p.vendor_dismissed = false
       ORDER BY p.created_at DESC
       LIMIT $2
@@ -2761,6 +2784,7 @@ const db = {
       requestedDeliveryCompanyId: r.requested_delivery_company_id || null,
       requestedDeliveryCompanyName: r.requested_delivery_company_name || null,
       dispatchRequestedAt: r.dispatch_requested_at || null,
+      deletionRequestStatus: r.deletion_request_status || null,
     }));
   },
 
@@ -3162,6 +3186,7 @@ const db = {
       FROM purchases
       WHERE vendor_id = $1 AND created_at > now() - ($2 || ' days')::interval
         AND (payment_method = 'cod' OR payment_status = 'successful')
+        AND NOT excluded_from_revenue
     `, [vendorId, days]);
     return { totalSales: Number(rows[0].total_sales), totalOrders: rows[0].total_orders };
   },
@@ -3177,6 +3202,7 @@ const db = {
       FROM purchases
       WHERE vendor_id = $1 AND created_at > now() - ($2 || ' days')::interval
         AND (payment_method = 'cod' OR payment_status = 'successful')
+        AND NOT excluded_from_revenue
       GROUP BY day
       ORDER BY day ASC
     `, [vendorId, days]);
@@ -4586,8 +4612,8 @@ const db = {
   async getVendorCustomers(vendorId) {
     const { rows } = await pool.query(`
       SELECT u.id, u.business_name, u.email, u.phone,
-        COUNT(p.id) FILTER (WHERE p.payment_method = 'cod' OR p.payment_status = 'successful')::int AS order_count,
-        COALESCE(SUM(p.total_amount) FILTER (WHERE p.payment_method = 'cod' OR p.payment_status = 'successful'), 0)::numeric AS total_spent,
+        COUNT(p.id) FILTER (WHERE (p.payment_method = 'cod' OR p.payment_status = 'successful') AND NOT p.excluded_from_revenue)::int AS order_count,
+        COALESCE(SUM(p.total_amount) FILTER (WHERE (p.payment_method = 'cod' OR p.payment_status = 'successful') AND NOT p.excluded_from_revenue), 0)::numeric AS total_spent,
         MAX(p.created_at) AS last_order_at
       FROM purchases p
       JOIN users u ON u.id = p.customer_id
@@ -4627,7 +4653,7 @@ const db = {
   // which showed unrelated Delivery-service order/agent numbers.
   async getMarketplacePlatformStats() {
     const [purchaseTotals, pendingCount] = await Promise.all([
-      pool.query("SELECT COUNT(*)::int AS total_orders, COALESCE(SUM(total_amount), 0)::numeric AS total_revenue FROM purchases WHERE payment_method = 'cod' OR payment_status = 'successful'"),
+      pool.query("SELECT COUNT(*)::int AS total_orders, COALESCE(SUM(total_amount), 0)::numeric AS total_revenue FROM purchases WHERE (payment_method = 'cod' OR payment_status = 'successful') AND NOT excluded_from_revenue"),
       pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role = 'vendor' AND approval_status = 'pending'"),
     ]);
     return {
@@ -4651,7 +4677,7 @@ const db = {
       pool.query(`
         SELECT u.vendor_type, COUNT(p.*)::int AS total_orders, COALESCE(SUM(p.total_amount), 0)::numeric AS total_revenue
         FROM purchases p JOIN users u ON u.id = p.vendor_id
-        WHERE p.payment_method = 'cod' OR p.payment_status = 'successful'
+        WHERE (p.payment_method = 'cod' OR p.payment_status = 'successful') AND NOT p.excluded_from_revenue
         GROUP BY u.vendor_type
       `),
       pool.query("SELECT vendor_type, COUNT(*)::int AS count FROM users WHERE role = 'vendor' AND approval_status = 'approved' GROUP BY vendor_type"),
@@ -4759,7 +4785,12 @@ const db = {
     const [vendorRows, companyRows, vendorRevenue, deliveryRevenue, vendorRefunds, deliveryRefunds, paidOut, platformSettings, premiumVendorIds] = await Promise.all([
       pool.query("SELECT id, business_name, email, commission_rate_override FROM users WHERE role = 'vendor' AND approval_status = 'approved' ORDER BY business_name"),
       pool.query("SELECT id, business_name, email, commission_rate_override FROM users WHERE role = 'delivery_company' AND approval_status = 'approved' ORDER BY business_name"),
-      pool.query("SELECT vendor_id, COALESCE(SUM(total_amount), 0)::numeric AS gross FROM purchases WHERE payment_method = 'cod' OR payment_status = 'successful' GROUP BY vendor_id"),
+      // NOT excluded_from_revenue only applies here — never to the
+      // deliveryRevenue query right below, which sums a completely
+      // separate table/column (orders.amount). A voided purchase never
+      // affects what a delivery company earned delivering it — see
+      // schema.sql's comment on purchases.excluded_from_revenue.
+      pool.query("SELECT vendor_id, COALESCE(SUM(total_amount), 0)::numeric AS gross FROM purchases WHERE (payment_method = 'cod' OR payment_status = 'successful') AND NOT excluded_from_revenue GROUP BY vendor_id"),
       pool.query("SELECT delivery_company_id, COALESCE(SUM(amount), 0)::numeric AS gross FROM orders WHERE status = 'delivered' AND delivery_company_id IS NOT NULL GROUP BY delivery_company_id"),
       pool.query(
         `SELECT pur.vendor_id AS vendor_id, COALESCE(SUM(d.refund_amount), 0)::numeric AS refunded
@@ -4880,7 +4911,8 @@ const db = {
       const [purchasesRes, refundRes] = await Promise.all([
         pool.query(
           `SELECT total_amount, service_fee, payment_method, payment_status
-           FROM purchases WHERE vendor_id = $1 AND created_at >= $2 AND created_at < $3`,
+           FROM purchases WHERE vendor_id = $1 AND created_at >= $2 AND created_at < $3
+             AND NOT excluded_from_revenue`,
           [recipientId, periodStart, periodEnd]
         ),
         pool.query(
@@ -5017,7 +5049,8 @@ const db = {
         cust.business_name AS customer_name, cust.email AS customer_email,
         o.item_description AS order_item_description, o.amount AS order_amount, o.status AS order_status,
         o.delivery_company_id AS order_delivery_company_id, dc.business_name AS delivery_company_name,
-        pur.total_amount AS purchase_amount, pur.vendor_id AS purchase_vendor_id, v.business_name AS vendor_name
+        pur.total_amount AS purchase_amount, pur.vendor_id AS purchase_vendor_id, v.business_name AS vendor_name,
+        pur.excluded_from_revenue AS purchase_excluded_from_revenue
       FROM disputes d
       JOIN users cust ON cust.id = d.customer_id
       LEFT JOIN orders o ON o.id = d.order_id
@@ -5043,15 +5076,25 @@ const db = {
         amount: r.purchase_amount !== null && r.purchase_amount !== undefined ? Number(r.purchase_amount) : null,
         vendorId: r.purchase_vendor_id,
         vendorName: r.vendor_name,
+        // Lets the UI show "Voided" for a dispute resolved with
+        // decision === 'void' instead of an ambiguous "Resolved, no
+        // refund" (which a plain reject already shows differently via
+        // status === 'rejected' — void's status is 'resolved', same as
+        // a refund, so this is what actually distinguishes the two).
+        excludedFromRevenue: !!r.purchase_excluded_from_revenue,
       } : null,
     };
   },
 
-  async createDispute({ id, orderId, purchaseId, customerId, category, description }) {
+  // initiatedBy/vendorId default to the original customer-filed shape
+  // ('customer'/null) — a vendor-initiated deletion request (see POST
+  // /api/vendor/purchases/:id/request-deletion) is the only caller
+  // that ever passes 'vendor'/a real vendorId.
+  async createDispute({ id, orderId, purchaseId, customerId, category, description, initiatedBy, vendorId }) {
     const { rows } = await pool.query(
-      `INSERT INTO disputes (id, order_id, purchase_id, customer_id, category, description)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [id, orderId || null, purchaseId || null, customerId, category, description]
+      `INSERT INTO disputes (id, order_id, purchase_id, customer_id, category, description, initiated_by, vendor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [id, orderId || null, purchaseId || null, customerId, category, description, initiatedBy || 'customer', vendorId || null]
     );
     return rowToDispute(rows[0]);
   },
@@ -5140,6 +5183,25 @@ const db = {
       [status, resolutionNote, refundAmount, resolvedBy || null, id]
     );
     return rowToDispute(rows[0]);
+  },
+
+  // "Void it, keep it" — called only from the 'void' branch of PUT
+  // /api/super-admin/disputes/:id/resolve, once a Super Admin approves
+  // a vendor's (or any) deletion request. The purchase row itself is
+  // never deleted or hidden — it stays in every order history exactly
+  // as it always has; this just flags it so every revenue query in
+  // this file (search "excluded_from_revenue" below) stops summing it
+  // in. Deliberately scoped to the purchases table alone — never
+  // touches orders/delivery_fee, so a delivery company keeps whatever
+  // it already earned delivering the order, regardless of why the
+  // vendor's own product revenue is later voided.
+  async excludePurchaseFromRevenue(purchaseId, { reason } = {}) {
+    const { rows } = await pool.query(
+      `UPDATE purchases SET excluded_from_revenue = true, excluded_from_revenue_reason = $2, excluded_from_revenue_at = now()
+       WHERE id = $1 RETURNING *`,
+      [purchaseId, reason || null]
+    );
+    return rows[0] ? rowToPurchase(rows[0]) : null;
   },
 
   // ---- Audit log ------------------------------------------------------

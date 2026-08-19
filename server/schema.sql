@@ -1395,3 +1395,57 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(10,2);
 -- ordinary single-vendor checkout (the normal case, unaffected).
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS checkout_batch_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_purchases_checkout_batch_id ON purchases (checkout_batch_id) WHERE checkout_batch_id IS NOT NULL;
+
+-- ============================================================
+-- Vendor-initiated "delete this order from revenue" requests, for
+-- correcting revenue when a customer sends an order back. Folded
+-- into the SAME disputes queue Super Admin already uses for customer
+-- complaints (see the disputes table above) rather than a new screen
+-- — distinguished from an ordinary customer complaint by
+-- initiated_by. A vendor can never void their own revenue directly;
+-- only Super Admin decides, exactly like any other dispute. And per
+-- the same "nothing gets truly deleted" philosophy already used
+-- everywhere else in this app (vendor_dismissed, vendor_cancel_
+-- requested, disputes.status itself), approving one of these never
+-- deletes the purchase row — it stays in every order history exactly
+-- as before, just flagged so it stops counting toward revenue (see
+-- purchases.excluded_from_revenue below).
+-- ============================================================
+
+-- 'customer' (the existing, original behavior — a customer reporting
+-- a problem) or 'vendor' (this new flow — a vendor asking Super Admin
+-- to void one of their own purchases). customer_id on the row above
+-- still gets set either way (to the purchase's real customer, even
+-- for a vendor-initiated request) so every existing customer_id-keyed
+-- query keeps working unchanged; initiated_by is what the UI/routes
+-- actually branch on.
+ALTER TABLE disputes ADD COLUMN IF NOT EXISTS initiated_by TEXT NOT NULL DEFAULT 'customer' CHECK (initiated_by IN ('customer', 'vendor'));
+-- Set only for a vendor-initiated request — lets Super Admin's queue
+-- and this vendor's own dispute list (GET /api/vendor/disputes,
+-- already existed, read-only) both filter/join without having to go
+-- through purchases.vendor_id every time.
+ALTER TABLE disputes ADD COLUMN IF NOT EXISTS vendor_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_disputes_vendor_id ON disputes (vendor_id, created_at DESC) WHERE vendor_id IS NOT NULL;
+
+-- Widen the category CHECK to add the new vendor-initiated category.
+-- Constraint name confirmed against a real Postgres instance the same
+-- way users_role_check/vendor_subscriptions_check were (unnamed
+-- column CHECK -> Postgres auto-names it <table>_<column>_check).
+ALTER TABLE disputes DROP CONSTRAINT IF EXISTS disputes_category_check;
+ALTER TABLE disputes ADD CONSTRAINT disputes_category_check CHECK (category IN ('wrong_item', 'damaged', 'never_arrived', 'overcharged', 'other', 'vendor_return'));
+
+-- "Void it, keep it" — set only once a Super Admin approves a
+-- vendor's deletion request (or, generically, any dispute with a
+-- purchase attached — see PUT /api/super-admin/disputes/:id/resolve's
+-- 'void' decision in server.js). The purchase row is never touched
+-- beyond these three columns: it stays visible in the vendor's Orders
+-- list, the customer's Order History, and every report exactly as
+-- before — every revenue query in db.js just adds
+-- "AND NOT excluded_from_revenue" so it stops being counted. This
+-- deliberately does NOT touch orders.amount/orders.delivery_fee (a
+-- completely separate table/column) — the delivery company already
+-- did the delivery work and keeps that fee no matter why the vendor's
+-- own product revenue is later voided.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue_reason TEXT;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue_at TIMESTAMPTZ;

@@ -2969,7 +2969,7 @@ app.get('/api/super-admin/payouts', requireAuth, requireSuperAdmin, async (req, 
 // resolving a dispute can move money — see the refund-netting comment
 // on db.getPayoutSummary.
 // ============================================================
-const DISPUTE_CATEGORIES = ['wrong_item', 'damaged', 'never_arrived', 'overcharged', 'other'];
+const DISPUTE_CATEGORIES = ['wrong_item', 'damaged', 'never_arrived', 'overcharged', 'other', 'vendor_return'];
 const RETURN_REASONS = ['changed_mind', 'wrong_item', 'damaged', 'not_as_described', 'other'];
 
 app.get('/api/super-admin/disputes', requireAuth, requireSuperAdmin, async (req, res) => {
@@ -2988,14 +2988,21 @@ app.get('/api/super-admin/disputes', requireAuth, requireSuperAdmin, async (req,
 
 // The one resolution step. decision === 'refund' requires a positive
 // refundAmount and moves the dispute to 'resolved'; decision ===
-// 'reject' forces refundAmount to null and moves it to 'rejected'.
-// resolutionNote is required either way — shown back to the customer,
-// same reasoning as the vendor/delivery-company rejection-reason
-// feature: they should always know why, not just what happened.
+// 'reject' forces refundAmount to null and moves it to 'rejected';
+// decision === 'void' also moves it to 'resolved' (no refund amount)
+// but additionally flags the linked purchase as excluded from revenue
+// — see db.excludePurchaseFromRevenue. 'void' is how a vendor's
+// deletion request (POST /api/vendor/purchases/:id/request-deletion,
+// folded into this same queue via initiated_by) gets approved, though
+// it's allowed generically for any dispute with a purchase attached,
+// not gated to vendor-initiated ones specifically. resolutionNote is
+// required in every case — shown back to the customer, same reasoning
+// as the vendor/delivery-company rejection-reason feature: they
+// should always know why, not just what happened.
 app.put('/api/super-admin/disputes/:id/resolve', requireAuth, requireSuperAdmin, async (req, res) => {
   const { decision, refundAmount, resolutionNote } = req.body || {};
-  if (!['refund', 'reject'].includes(decision)) {
-    return res.status(400).json({ error: 'decision must be "refund" or "reject"' });
+  if (!['refund', 'reject', 'void'].includes(decision)) {
+    return res.status(400).json({ error: 'decision must be "refund", "reject", or "void"' });
   }
   if (!resolutionNote || !resolutionNote.trim()) {
     return res.status(400).json({ error: 'A resolution note is required — the customer will see this' });
@@ -3011,13 +3018,25 @@ app.put('/api/super-admin/disputes/:id/resolve', requireAuth, requireSuperAdmin,
     const existing = await db.getDisputeById(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Dispute not found' });
     if (existing.status !== 'open') return res.status(409).json({ error: `This dispute was already ${existing.status}` });
+    if (decision === 'void' && !existing.purchaseId) {
+      return res.status(400).json({ error: 'Only a marketplace purchase can be voided — this dispute has no purchase attached' });
+    }
     const dispute = await db.resolveDispute(req.params.id, {
-      status: decision === 'refund' ? 'resolved' : 'rejected',
+      status: decision === 'reject' ? 'rejected' : 'resolved',
       resolutionNote: resolutionNote.trim(),
       refundAmount: finalRefundAmount,
       resolvedBy: req.user.id,
     });
     if (!dispute) return res.status(409).json({ error: 'This dispute was already resolved' });
+    if (decision === 'void') {
+      // "Void it, keep it" — the purchase row stays exactly where it
+      // is, in every order history, forever; this only stops it
+      // counting toward vendor/Super-Admin revenue from here on. Never
+      // touches orders/delivery_fee — a delivery company already did
+      // the delivery work and keeps that fee no matter why the
+      // vendor's own product revenue is later voided.
+      await db.excludePurchaseFromRevenue(existing.purchaseId, { reason: resolutionNote.trim() });
+    }
     await logAudit(req, 'dispute.resolve', {
       targetType: 'dispute', targetId: dispute.id, targetLabel: existing.customerName,
       details: { decision, refundAmount: finalRefundAmount, resolutionNote: resolutionNote.trim() },
@@ -4139,6 +4158,48 @@ app.post('/api/vendor/purchases/:id/request-cancel', requireAuth, requireVendor,
   } catch (err) {
     console.error('POST /api/vendor/purchases/:id/request-cancel failed', err);
     res.status(500).json({ error: 'Failed to request cancellation' });
+  }
+});
+
+// Vendor-initiated "please void this order's revenue" request — e.g.
+// a customer sent the item back and it shouldn't count toward this
+// vendor's (or the platform's) revenue anymore. This does NOT delete
+// or void anything by itself: it only opens a dispute in the SAME
+// queue Super Admin already reviews customer complaints in (see
+// PUT /api/super-admin/disputes/:id/resolve's 'void' decision above),
+// distinguished from an ordinary complaint by initiated_by/vendor_id.
+// Ownership is verified server-side, and a second open request
+// against the same purchase is blocked — same reasoning as the
+// alreadyOpen check in POST /api/disputes below.
+app.post('/api/vendor/purchases/:id/request-deletion', requireAuth, requireVendor, async (req, res) => {
+  const { reason } = req.body || {};
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ error: 'Please explain why this order should be voided' });
+  }
+  try {
+    const purchase = await db.getPurchaseById(req.params.id);
+    if (!purchase || purchase.vendorId !== req.user.id) return res.status(404).json({ error: 'Order not found' });
+    if (purchase.excludedFromRevenue) return res.status(409).json({ error: 'This order has already been voided' });
+    const existing = await db.getDisputesForVendor(req.user.id);
+    const alreadyOpen = existing.some(d => d.status === 'open' && d.purchaseId === purchase.id);
+    if (alreadyOpen) return res.status(409).json({ error: 'There is already an open request for this order' });
+    const dispute = await db.createDispute({
+      id: crypto.randomUUID(),
+      purchaseId: purchase.id,
+      customerId: purchase.customerId,
+      category: 'vendor_return',
+      description: reason.trim(),
+      initiatedBy: 'vendor',
+      vendorId: req.user.id,
+    });
+    await logAudit(req, 'purchase.request-deletion', {
+      targetType: 'purchase', targetId: purchase.id, targetLabel: purchase.id,
+      details: { reason: reason.trim() },
+    });
+    res.json({ ok: true, dispute });
+  } catch (err) {
+    console.error('POST /api/vendor/purchases/:id/request-deletion failed', err);
+    res.status(500).json({ error: 'Failed to submit request' });
   }
 });
 
