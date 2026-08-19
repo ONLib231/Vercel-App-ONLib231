@@ -205,13 +205,20 @@ function rowToPurchase(r) {
     // the vendor's gross revenue (see getPayoutSummary) — grandTotal
     // is what the customer actually paid/owes.
     serviceFee: r.service_fee !== null && r.service_fee !== undefined ? Number(r.service_fee) : 0,
+    // Real delivery fee, snapshotted from the vendor's assigned zone at
+    // checkout time (see schema.sql's comment on delivery_zones) —
+    // same "never recompute from a value that might have changed
+    // since" posture as serviceFee above.
+    deliveryFee: r.delivery_fee !== null && r.delivery_fee !== undefined ? Number(r.delivery_fee) : 0,
+    checkoutBatchId: r.checkout_batch_id || null,
     // Real coupon discount, snapshotted at checkout (see db.checkout())
     // — never recomputed from the coupon's current settings later.
     discountAmount: r.discount_amount !== null && r.discount_amount !== undefined ? Number(r.discount_amount) : 0,
     couponCode: r.coupon_code || null,
     grandTotal: Number(r.total_amount)
       - (r.discount_amount !== null && r.discount_amount !== undefined ? Number(r.discount_amount) : 0)
-      + (r.service_fee !== null && r.service_fee !== undefined ? Number(r.service_fee) : 0),
+      + (r.service_fee !== null && r.service_fee !== undefined ? Number(r.service_fee) : 0)
+      + (r.delivery_fee !== null && r.delivery_fee !== undefined ? Number(r.delivery_fee) : 0),
     deliveryOrderId: r.delivery_order_id,
     createdAt: r.created_at,
     paymentMethod: r.payment_method,
@@ -479,6 +486,10 @@ function rowToUser(r) {
     vendorType: r.vendor_type || 'store',
     avgPrepTimeMinutes: r.avg_prep_time_minutes,
     profileImageUrl: r.profile_image_url,
+    // Real, Super-Admin-assigned zone (see schema.sql's comment on
+    // delivery_zones) — only meaningful for role = 'vendor', null on
+    // every other role.
+    deliveryZoneId: r.delivery_zone_id || null,
     isDisabled: r.is_disabled,
     disabledFeatures: r.disabled_features || [],
     commissionRateOverride: r.commission_rate_override !== null && r.commission_rate_override !== undefined ? Number(r.commission_rate_override) : null,
@@ -499,6 +510,38 @@ function rowToUser(r) {
 // from inside an already-open transaction (client), not the pool
 // directly, so it commits/rolls back atomically with whatever else the
 // caller is doing.
+// Creates the linked delivery order for one just-confirmed Mobile
+// Money purchase (row already has payment_status = 'successful' at
+// this point) — extracted so confirmMomoPaymentAndCreateOrder can run
+// it once for the purchase that was directly confirmed and again for
+// each sibling in the same checkout_batch_id, without duplicating the
+// order-creation logic. Returns null if this purchase never stashed a
+// pending pickup/dropoff (already had a delivery order, or never
+// needed one).
+async function createDeliveryOrderForConfirmedPurchaseInTx(client, purchase) {
+  if (!purchase.pending_pickup_address || !purchase.pending_dropoff_address) return null;
+  const { rows: itemRows } = await client.query(
+    'SELECT product_name, quantity, selected_color, selected_size FROM purchase_items WHERE purchase_id = $1', [purchase.id]
+  );
+  const itemSummary = itemRows.map(li => {
+    const variantBits = [li.selected_color, li.selected_size].filter(Boolean).join(', ');
+    return `${li.quantity}x ${li.product_name}${variantBits ? ` (${variantBits})` : ''}`;
+  }).join(', ');
+  const { rows: custRows } = await client.query('SELECT business_name FROM users WHERE id = $1', [purchase.customer_id]);
+  const deliveryOrderId = `ORD-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString('hex').toUpperCase()}M`;
+  await client.query(
+    `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, delivery_fee)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', false, $8)`,
+    [deliveryOrderId, purchase.customer_id, custRows[0] ? custRows[0].business_name : 'Customer',
+      purchase.pending_pickup_address, purchase.pending_dropoff_address, `Marketplace order: ${itemSummary}`, null, purchase.delivery_fee || 0]
+  );
+  await client.query(
+    `UPDATE purchases SET delivery_order_id = $1, pending_pickup_address = NULL, pending_dropoff_address = NULL WHERE id = $2`,
+    [deliveryOrderId, purchase.id]
+  );
+  return deliveryOrderId;
+}
+
 async function restockPurchaseItemsInTx(client, purchaseId) {
   const { rows: items } = await client.query(
     'SELECT product_id, quantity, selected_color, selected_size FROM purchase_items WHERE purchase_id = $1', [purchaseId]
@@ -969,6 +1012,15 @@ const db = {
   // for the automated MTN path above, which nobody manually approved.
   // payment_confirmed_at is stamped either way, since "when did this
   // resolve" is meaningful regardless of mechanism.
+  // Confirms one purchase, creates its linked delivery order (if it
+  // doesn't have one yet), and — when this purchase is part of a
+  // multi-vendor checkout batch (see schema.sql's comment on
+  // checkout_batch_id) — cascades the same confirmation to every
+  // sibling purchase in that batch. A batch shares ONE payment
+  // reference/one combined Mobile Money payment across several
+  // vendors, so confirming that one payment has to resolve every
+  // vendor's piece of it together, not leave the others stranded
+  // in 'pending' forever.
   async confirmMomoPaymentAndCreateOrder(purchaseId, confirmedBy = null) {
     const client = await pool.connect();
     try {
@@ -983,37 +1035,32 @@ const db = {
         return null;
       }
       const purchase = purchaseRows[0];
+      const deliveryOrderId = await createDeliveryOrderForConfirmedPurchaseInTx(client, purchase);
 
-      let deliveryOrderId = null;
-      if (purchase.pending_pickup_address && purchase.pending_dropoff_address) {
-        const { rows: itemRows } = await client.query(
-          'SELECT product_name, quantity, selected_color, selected_size FROM purchase_items WHERE purchase_id = $1', [purchaseId]
+      // Cascade to the rest of this batch, if any — same confirm logic,
+      // just without re-touching the purchase we already confirmed
+      // above. A plain single-vendor checkout has no checkout_batch_id
+      // at all, so this loop is simply empty for it (unchanged
+      // behavior).
+      const siblingOrderIds = [];
+      if (purchase.checkout_batch_id) {
+        const { rows: siblings } = await client.query(
+          `UPDATE purchases SET payment_status = 'successful', payment_confirmed_by = $2, payment_confirmed_at = now()
+           WHERE checkout_batch_id = $1 AND id != $3 AND payment_status = 'pending' RETURNING *`,
+          [purchase.checkout_batch_id, confirmedBy, purchaseId]
         );
-        // Same variant-in-summary treatment as checkout()'s COD path —
-        // this is the Mobile Money path's equivalent moment of creating
-        // the real delivery order, so it needs the same fix or a
-        // color/size picked at checkout silently vanishes from what the
-        // delivery agent/vendor actually sees.
-        const itemSummary = itemRows.map(li => {
-          const variantBits = [li.selected_color, li.selected_size].filter(Boolean).join(', ');
-          return `${li.quantity}x ${li.product_name}${variantBits ? ` (${variantBits})` : ''}`;
-        }).join(', ');
-        const { rows: custRows } = await client.query('SELECT business_name FROM users WHERE id = $1', [purchase.customer_id]);
-        deliveryOrderId = `ORD-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString('hex').toUpperCase()}M`;
-        await client.query(
-          `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', false)`,
-          [deliveryOrderId, purchase.customer_id, custRows[0] ? custRows[0].business_name : 'Customer',
-            purchase.pending_pickup_address, purchase.pending_dropoff_address, `Marketplace order: ${itemSummary}`, null]
-        );
-        await client.query(
-          `UPDATE purchases SET delivery_order_id = $1, pending_pickup_address = NULL, pending_dropoff_address = NULL WHERE id = $2`,
-          [deliveryOrderId, purchaseId]
-        );
+        for (const sibling of siblings) {
+          const siblingOrderId = await createDeliveryOrderForConfirmedPurchaseInTx(client, sibling);
+          if (siblingOrderId) siblingOrderIds.push(siblingOrderId);
+        }
       }
 
       await client.query('COMMIT');
-      return { purchase: rowToPurchase({ ...purchase, delivery_order_id: deliveryOrderId, payment_status: 'successful' }), deliveryOrderId };
+      return {
+        purchase: rowToPurchase({ ...purchase, delivery_order_id: deliveryOrderId, payment_status: 'successful' }),
+        deliveryOrderId,
+        siblingOrderIds,
+      };
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -1059,6 +1106,29 @@ const db = {
           [purchaseRows[0].delivery_order_id]
         );
       }
+
+      // Cascade to the rest of the batch, if any — one combined
+      // payment covers every vendor in it, so if it's being voided,
+      // none of them got paid, not just this one (same reasoning as
+      // the confirm-side cascade in confirmMomoPaymentAndCreateOrder).
+      if (purchaseRows[0].checkout_batch_id) {
+        const { rows: siblings } = await client.query(
+          `UPDATE purchases SET payment_status = 'failed'
+           WHERE checkout_batch_id = $1 AND id != $2 AND payment_status = 'pending' RETURNING *`,
+          [purchaseRows[0].checkout_batch_id, purchaseId]
+        );
+        for (const sibling of siblings) {
+          await restockPurchaseItemsInTx(client, sibling.id);
+          if (sibling.coupon_id) {
+            await client.query('UPDATE coupons SET uses_count = GREATEST(uses_count - 1, 0) WHERE id = $1', [sibling.coupon_id]);
+            await client.query('DELETE FROM coupon_redemptions WHERE purchase_id = $1', [sibling.id]);
+          }
+          if (sibling.delivery_order_id) {
+            await client.query(`UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending'`, [sibling.delivery_order_id]);
+          }
+        }
+      }
+
       await client.query('COMMIT');
       return rowToPurchase(purchaseRows[0]);
     } catch (err) {
@@ -1372,6 +1442,68 @@ const db = {
 
   async deleteMomoProvider(id) {
     await pool.query('DELETE FROM momo_providers WHERE id = $1', [id]);
+  },
+
+  // ---- Delivery Zones (Super Admin managed) -----------------------------
+  // See schema.sql's comment on delivery_zones — a real, admin-defined
+  // substitute for geolocation this app doesn't have.
+
+  rowToDeliveryZone(r) {
+    return {
+      id: r.id,
+      name: r.name,
+      fee: Number(r.fee),
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  },
+
+  async getAllDeliveryZones() {
+    const { rows } = await pool.query('SELECT * FROM delivery_zones ORDER BY sort_order ASC, created_at ASC');
+    return rows.map(this.rowToDeliveryZone);
+  },
+
+  async getDeliveryZoneById(id) {
+    const { rows } = await pool.query('SELECT * FROM delivery_zones WHERE id = $1', [id]);
+    return rows[0] ? this.rowToDeliveryZone(rows[0]) : null;
+  },
+
+  async createDeliveryZone({ id, name, fee, sortOrder }) {
+    const { rows } = await pool.query(
+      `INSERT INTO delivery_zones (id, name, fee, sort_order) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id, name, fee, sortOrder || 0]
+    );
+    return this.rowToDeliveryZone(rows[0]);
+  },
+
+  async updateDeliveryZone(id, { name, fee, sortOrder }) {
+    const sets = [];
+    const values = [];
+    let i = 1;
+    if (name !== undefined) { sets.push(`name = $${i}`); values.push(name); i += 1; }
+    if (fee !== undefined) { sets.push(`fee = $${i}`); values.push(fee); i += 1; }
+    if (sortOrder !== undefined) { sets.push(`sort_order = $${i}`); values.push(sortOrder); i += 1; }
+    if (sets.length === 0) return this.getDeliveryZoneById(id);
+    sets.push('updated_at = now()');
+    values.push(id);
+    const { rows } = await pool.query(`UPDATE delivery_zones SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, values);
+    return rows[0] ? this.rowToDeliveryZone(rows[0]) : null;
+  },
+
+  async deleteDeliveryZone(id) {
+    // Vendors assigned to a deleted zone fall back to no zone (delivery
+    // fee 0 / "not set") via the FK's ON DELETE SET NULL — never left
+    // pointing at a zone that no longer exists.
+    await pool.query('DELETE FROM delivery_zones WHERE id = $1', [id]);
+  },
+
+  async setVendorDeliveryZone(vendorId, zoneId) {
+    const { rows } = await pool.query(
+      `UPDATE users SET delivery_zone_id = $1 WHERE id = $2 AND role = 'vendor' RETURNING id`,
+      [zoneId || null, vendorId]
+    );
+    return rows.length > 0;
   },
 
   // ---- Login history ---------------------------------------------------
@@ -1817,7 +1949,7 @@ const db = {
   async getActiveProductsForStorefront() {
     const { rows } = await pool.query(`
       SELECT p.*, u.business_name AS vendor_name, u.phone AS vendor_phone, u.store_address AS vendor_store_address,
-        u.featured_until AS vendor_featured_until,
+        u.featured_until AS vendor_featured_until, u.delivery_zone_id AS vendor_delivery_zone_id,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         COALESCE(sold.units_sold, 0)::int AS units_sold,
@@ -1841,7 +1973,7 @@ const db = {
         ORDER BY product_id, ends_at ASC
       ) promo ON promo.product_id = p.id
       WHERE p.is_active = true AND p.stock_quantity > 0 AND u.vendor_type = 'store'
-      GROUP BY p.id, u.business_name, u.phone, u.store_address, u.featured_until, sold.units_sold, promo.discount_percent, promo.ends_at
+      GROUP BY p.id, u.business_name, u.phone, u.store_address, u.featured_until, u.delivery_zone_id, sold.units_sold, promo.discount_percent, promo.ends_at
       ORDER BY
         (p.featured_until IS NOT NULL AND p.featured_until > now()) DESC,
         (u.featured_until IS NOT NULL AND u.featured_until > now()) DESC,
@@ -1856,6 +1988,11 @@ const db = {
         vendorName: r.vendor_name,
         vendorPhone: r.vendor_phone,
         vendorStoreAddress: r.vendor_store_address,
+        // Real, admin-assigned zone id (see schema.sql's comment on
+        // delivery_zones) — the frontend looks up its fee from the
+        // public /api/delivery-zones list rather than this query
+        // embedding the fee redundantly on every single product row.
+        vendorDeliveryZoneId: r.vendor_delivery_zone_id || null,
         avgRating: Number(r.avg_rating),
         reviewCount: r.review_count,
         unitsSold: r.units_sold,
@@ -1878,6 +2015,7 @@ const db = {
   async getRestaurantMenu(vendorId) {
     const { rows } = await pool.query(`
       SELECT p.*, u.business_name AS vendor_name, u.phone AS vendor_phone, u.store_address AS vendor_store_address,
+        u.delivery_zone_id AS vendor_delivery_zone_id,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         promo.discount_percent, promo.ends_at AS promo_ends_at
@@ -1891,7 +2029,7 @@ const db = {
         ORDER BY product_id, ends_at ASC
       ) promo ON promo.product_id = p.id
       WHERE p.is_active = true AND p.vendor_id = $1 AND u.vendor_type = 'restaurant'
-      GROUP BY p.id, u.business_name, u.phone, u.store_address, promo.discount_percent, promo.ends_at
+      GROUP BY p.id, u.business_name, u.phone, u.store_address, u.delivery_zone_id, promo.discount_percent, promo.ends_at
       ORDER BY p.created_at DESC
     `, [vendorId]);
     return rows.map(r => {
@@ -1903,6 +2041,7 @@ const db = {
         vendorName: r.vendor_name,
         vendorPhone: r.vendor_phone,
         vendorStoreAddress: r.vendor_store_address,
+        vendorDeliveryZoneId: r.vendor_delivery_zone_id || null,
         avgRating: Number(r.avg_rating),
         reviewCount: r.review_count,
         originalPrice,
@@ -2208,7 +2347,8 @@ const db = {
   async checkout({
     customerId, customerName, vendorId, items, pickupAddress, dropoffAddress, createDeliveryOrder,
     paymentMethod = 'cod', paymentStatus = 'not_applicable', momoReferenceId = null, momoPhone = null,
-    paymentProvider = null, couponCode = null,
+    paymentProvider = null, couponCode = null, deliveryFee = 0, externalPaymentReference = null,
+    checkoutBatchId = null, skipReferenceGeneration = false,
   }) {
     const client = await pool.connect();
     try {
@@ -2223,8 +2363,20 @@ const db = {
       // slipping through a race between two simultaneous checkouts,
       // this loop is just what keeps that backstop from ever actually
       // firing in practice (900,000 possible codes, checked before use).
-      let paymentReference = null;
-      if (paymentMethod === 'momo_manual') {
+      let paymentReference = externalPaymentReference;
+      // A multi-vendor checkout batch shares ONE reference across all
+      // its purchases (so the customer sends one payment, once) — the
+      // orchestrator (see the /api/marketplace/checkout/multi routes)
+      // generates it once via the FIRST vendor group's ordinary
+      // checkout() call, then passes skipReferenceGeneration: true for
+      // every other vendor group in that same batch, since
+      // payment_reference has a real uniqueness constraint (see
+      // schema.sql) — those sibling purchases store no reference of
+      // their own and are matched via checkout_batch_id instead. An
+      // ordinary single-vendor checkout (the normal, unaffected case)
+      // never sets skipReferenceGeneration, so it generates its own
+      // reference exactly as before.
+      if (paymentMethod === 'momo_manual' && !paymentReference && !skipReferenceGeneration) {
         for (let attempt = 0; attempt < 10; attempt++) {
           const candidate = `REF-${crypto.randomInt(100000, 1000000)}`;
           const { rows: existing } = await client.query('SELECT 1 FROM purchases WHERE payment_reference = $1', [candidate]);
@@ -2360,9 +2512,9 @@ const db = {
           return `${li.quantity}x ${li.productName}${variantBits ? ` (${variantBits})` : ''}`;
         }).join(', ');
         await client.query(
-          `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', false)`,
-          [deliveryOrderId, customerId, customerName, pickupAddress, dropoffAddress, `Marketplace order: ${itemSummary}`, null]
+          `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, delivery_fee)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', false, $8)`,
+          [deliveryOrderId, customerId, customerName, pickupAddress, dropoffAddress, `Marketplace order: ${itemSummary}`, null, deliveryFee]
         );
       }
 
@@ -2383,9 +2535,9 @@ const db = {
       const serviceFee = feeRes.rows[0] ? Number(feeRes.rows[0].service_fee) : 0;
 
       await client.query(
-        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, payment_provider, payment_reference, pending_pickup_address, pending_dropoff_address, coupon_id, coupon_code, discount_amount)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, paymentProvider, paymentReference, pendingPickupAddress, pendingDropoffAddress, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount]
+        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, payment_provider, payment_reference, pending_pickup_address, pending_dropoff_address, coupon_id, coupon_code, discount_amount, delivery_fee, checkout_batch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, paymentProvider, paymentReference, pendingPickupAddress, pendingDropoffAddress, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount, deliveryFee, checkoutBatchId]
       );
       for (const li of lineItems) {
         await client.query(
@@ -2408,8 +2560,8 @@ const db = {
       }
 
       await client.query('COMMIT');
-      const grandTotal = Math.round((totalAmount - discountAmount + serviceFee) * 100) / 100;
-      return { purchaseId, deliveryOrderId, totalAmount, serviceFee, discountAmount, couponCode: coupon ? coupon.code : null, grandTotal, paymentMethod, paymentStatus, paymentProvider, paymentReference };
+      const grandTotal = Math.round((totalAmount - discountAmount + serviceFee + deliveryFee) * 100) / 100;
+      return { purchaseId, deliveryOrderId, totalAmount, serviceFee, deliveryFee, discountAmount, couponCode: coupon ? coupon.code : null, grandTotal, paymentMethod, paymentStatus, paymentProvider, paymentReference, checkoutBatchId };
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

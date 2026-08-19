@@ -1298,3 +1298,39 @@ ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_cancel_requested_at TIMEST
 -- uses this — a vendor can never dismiss a live/pending/successful
 -- order this way.
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS vendor_dismissed BOOLEAN NOT NULL DEFAULT false;
+
+-- Delivery Zones — Super-Admin-defined (name + flat fee), each vendor
+-- assigned to one. This is a deliberate, honest substitute for real
+-- geolocation: this app has no paid geo/mapping service (see the
+-- login_history comment elsewhere in this file for the same
+-- reasoning), so "zone" is real structured data an admin assigns, not
+-- something inferred from coordinates this app doesn't have.
+CREATE TABLE IF NOT EXISTS delivery_zones (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    fee        NUMERIC(10,2) NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS delivery_zone_id TEXT REFERENCES delivery_zones(id) ON DELETE SET NULL;
+
+-- Real delivery fee charged to the customer at checkout — snapshotted
+-- at checkout time (same "never trust a stale value later" pattern as
+-- purchases.service_fee), so a zone's fee changing afterward never
+-- rewrites what a customer already paid. purchases.delivery_fee is
+-- the amount actually charged (added into what the customer pays);
+-- orders.delivery_fee mirrors it onto the linked delivery order for
+-- the delivery side of the record — separate from orders.amount
+-- (the courier's payout, set independently by an Admin/agent flow
+-- that predates this feature and isn't necessarily the same number).
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(10,2);
+
+-- Groups multiple purchases created from ONE multi-vendor checkout
+-- action together — e.g. so a Mobile Money customer sends ONE payment
+-- covering every vendor in that checkout, using ONE shared reference
+-- code, instead of a separate reference per vendor. NULL for an
+-- ordinary single-vendor checkout (the normal case, unaffected).
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS checkout_batch_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_purchases_checkout_batch_id ON purchases (checkout_batch_id) WHERE checkout_batch_id IS NOT NULL;

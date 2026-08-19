@@ -6950,7 +6950,7 @@
                 <button class="close-btn" id="close-checkout-modal">&times;</button>
             </div>
             <div id="checkout-form-page">
-                <p style="margin-bottom: 1.25rem; color: var(--slate-light);">
+                <p style="margin-bottom: 1.25rem; color: var(--slate-light);" id="checkout-disclaimer-text">
                     Checking out creates a real delivery order for these items — same tracking as any other order.
                 </p>
                 <form id="checkout-form">
@@ -9132,6 +9132,19 @@
                 <button type="button" class="btn-small btn-secondary" id="momo-provider-add-btn" style="margin-top:0.5rem;">+ Add Provider</button>
                 <div class="auth-error" id="momo-providers-error" style="display:none; margin-top:0.75rem;"></div>
             </div>
+
+            <!-- Delivery Zones — same real, admin-defined substitute for
+                 geolocation described in schema.sql's comment on
+                 delivery_zones. Assign each vendor to one from the
+                 Vendors table (see the zone dropdown added to
+                 loadVendors' row template). -->
+            <div style="border-top:1px solid var(--border); margin-top:1.5rem; padding-top:1.5rem;">
+                <h4 style="font-weight:700; margin-bottom:0.375rem;">📍 Delivery Zones</h4>
+                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:1rem;">Each zone has its own flat delivery fee. Assign vendors to a zone from the Vendors panel — checkout charges the real fee for every vendor in a customer's cart, combined.</p>
+                <div id="delivery-zones-list"></div>
+                <button type="button" class="btn-small btn-secondary" id="delivery-zone-add-btn" style="margin-top:0.5rem;">+ Add Zone</button>
+                <div class="auth-error" id="delivery-zones-error" style="display:none; margin-top:0.75rem;"></div>
+            </div>
         </div>
     </div>
 
@@ -10479,6 +10492,44 @@
             } catch (err) {
                 console.error('Failed to load public config', err);
             }
+            try {
+                const zonesData = await apiFetch('/api/delivery-zones');
+                deliveryZonesCache = zonesData.zones || [];
+            } catch (err) {
+                console.error('Failed to load delivery zones', err);
+                deliveryZonesCache = [];
+            }
+        }
+
+        // Real, Super-Admin-defined delivery zones (see schema.sql's
+        // comment on delivery_zones) — a vendor with no zone assigned
+        // has no real fee to charge, so this returns 0 rather than
+        // guessing/defaulting to something fabricated.
+        let deliveryZonesCache = [];
+        function getVendorZoneFee(vendorDeliveryZoneId) {
+            const zone = deliveryZonesCache.find(z => z.id === vendorDeliveryZoneId);
+            return zone ? zone.fee : 0;
+        }
+        function getVendorZoneName(vendorDeliveryZoneId) {
+            const zone = deliveryZonesCache.find(z => z.id === vendorDeliveryZoneId);
+            return zone ? zone.name : null;
+        }
+
+        // Groups cart lines by vendor — the real unit every multi-vendor
+        // fee/checkout calculation works from (see /api/marketplace/
+        // checkout/multi and .../multi/momo-manual).
+        function groupCartByVendor() {
+            const groups = new Map();
+            cart.forEach(c => {
+                if (!groups.has(c.vendorId)) {
+                    groups.set(c.vendorId, {
+                        vendorId: c.vendorId, vendorName: c.vendorName, vendorStoreAddress: c.vendorStoreAddress,
+                        vendorDeliveryZoneId: c.vendorDeliveryZoneId, items: [],
+                    });
+                }
+                groups.get(c.vendorId).items.push(c);
+            });
+            return Array.from(groups.values());
         }
 
         // Purely informational banner — shown to every role (including
@@ -15383,6 +15434,20 @@
                 const deleteBtn = e.target.closest('.delete-vendor-btn');
                 if (deleteBtn) deleteVendorWithConfirm(deleteBtn.dataset.id, deleteBtn.dataset.name);
             });
+            document.getElementById('vendors-modal-content').addEventListener('change', async (e) => {
+                const select = e.target.closest('.vendor-zone-select');
+                if (!select) return;
+                try {
+                    await apiFetch(`/api/super-admin/vendors/${select.dataset.id}/delivery-zone`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ zoneId: select.value || null }),
+                    });
+                    showToast('Delivery zone updated', 'success');
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    loadVendors();
+                }
+            });
             document.getElementById('close-vendor-review-modal').addEventListener('click', () => {
                 document.getElementById('vendor-review-modal').classList.remove('active');
             });
@@ -15574,6 +15639,31 @@
                 if (e.target.classList.contains('momo-provider-delete-btn')) {
                     const label = row.querySelector('.momo-provider-label-input').value;
                     deleteMomoProviderRow(row.dataset.id, label);
+                }
+            });
+
+            // ---- Delivery Zones ----
+            document.getElementById('delivery-zone-add-btn').addEventListener('click', async () => {
+                const errorEl = document.getElementById('delivery-zones-error');
+                errorEl.style.display = 'none';
+                try {
+                    await apiFetch('/api/super-admin/delivery-zones', {
+                        method: 'POST',
+                        body: JSON.stringify({ name: 'New Zone', fee: 0 }),
+                    });
+                    loadDeliveryZonesPanel();
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
+                }
+            });
+            document.getElementById('delivery-zones-list').addEventListener('click', (e) => {
+                const row = e.target.closest('.delivery-zone-row');
+                if (!row) return;
+                if (e.target.classList.contains('delivery-zone-save-btn')) saveDeliveryZoneRow(row);
+                if (e.target.classList.contains('delivery-zone-delete-btn')) {
+                    const name = row.querySelector('.delivery-zone-name-input').value;
+                    deleteDeliveryZoneRow(row.dataset.id, name);
                 }
             });
 
@@ -16139,12 +16229,18 @@
                         };
                         return map[status] || status;
                     };
-                    html += '<div style="overflow-x: auto;"><table class="settings-table"><thead><tr><th>Business</th><th>Type</th><th>Email</th><th>Since</th><th>Status</th><th></th></tr></thead><tbody>';
+                    html += '<div style="overflow-x: auto;"><table class="settings-table"><thead><tr><th>Business</th><th>Type</th><th>Email</th><th>Zone</th><th>Since</th><th>Status</th><th></th></tr></thead><tbody>';
                     vendors.forEach(v => {
                         html += `<tr${v.isDisabled ? ' style="opacity:0.55;"' : ''}>
                             <td style="font-weight:700;">${v.businessName}${v.isDisabled ? ' <span style="background:#fee2e2; color:#991b1b; padding:0.125rem 0.5rem; border-radius:9999px; font-size:0.6875rem; font-weight:700;">Disabled</span>' : ''}</td>
                             <td>${v.vendorType === 'restaurant' ? '<span style="background:#fde68a; color:#92400e; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Restaurant</span>' : '<span style="background:#e0e7ff; color:#4338ca; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Store</span>'}</td>
                             <td>${v.email}</td>
+                            <td>
+                                <select class="form-input vendor-zone-select" data-id="${v.id}" style="padding:0.3rem 0.5rem; font-size:0.8125rem;">
+                                    <option value="">— No zone —</option>
+                                    ${deliveryZonesCache.map(z => `<option value="${z.id}" ${v.deliveryZoneId === z.id ? 'selected' : ''}>${z.name} ($${z.fee.toFixed(2)})</option>`).join('')}
+                                </select>
+                            </td>
                             <td>${new Date(v.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                             <td>${statusPill(v.approvalStatus, v.rejectionReason)}</td>
                             <td style="white-space:nowrap; display:flex; gap:0.5rem;">
@@ -17922,6 +18018,7 @@
                 showToast(err.message, 'error');
             }
             loadMomoProvidersPanel();
+            loadDeliveryZonesPanel();
         }
 
         // ---- Mobile Money Providers (Super Admin) --------------------
@@ -17996,6 +18093,81 @@
                 await apiFetch(`/api/super-admin/momo-providers/${id}`, { method: 'DELETE' });
                 showToast('Provider removed', 'success');
                 loadMomoProvidersPanel();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // ---- Delivery Zones (Super Admin) — same pattern as Mobile
+        // Money Providers above. See schema.sql's comment on
+        // delivery_zones for why this is a real, admin-defined
+        // substitute for geolocation.
+        let deliveryZonesPanelCache = [];
+
+        async function loadDeliveryZonesPanel() {
+            const container = document.getElementById('delivery-zones-list');
+            const errorEl = document.getElementById('delivery-zones-error');
+            errorEl.style.display = 'none';
+            try {
+                const data = await apiFetch('/api/super-admin/delivery-zones');
+                deliveryZonesPanelCache = data.zones || [];
+                renderDeliveryZonesPanel();
+            } catch (err) {
+                container.innerHTML = '';
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        function renderDeliveryZonesPanel() {
+            const container = document.getElementById('delivery-zones-list');
+            if (deliveryZonesPanelCache.length === 0) {
+                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.875rem;">No delivery zones yet — vendors have no real fee to charge until you add one.</p>';
+                return;
+            }
+            container.innerHTML = deliveryZonesPanelCache.map(z => `
+                <div class="delivery-zone-row" data-id="${z.id}" style="display:flex; align-items:center; gap:0.625rem; border:1px solid var(--border); border-radius:0.625rem; padding:0.75rem; margin-bottom:0.625rem;">
+                    <input type="text" class="form-input delivery-zone-name-input" value="${z.name.replace(/"/g, '&quot;')}" placeholder="Zone name" style="flex:1;">
+                    <div style="display:flex; align-items:center; gap:0.375rem;">
+                        <span style="color:var(--slate-light);">$</span>
+                        <input type="number" class="form-input delivery-zone-fee-input" value="${z.fee}" min="0" step="0.01" placeholder="Fee" style="width:90px;">
+                    </div>
+                    <button type="button" class="btn-small btn-secondary delivery-zone-save-btn">Save</button>
+                    <button type="button" class="btn-small delivery-zone-delete-btn" style="background:#fee2e2; color:#991b1b;">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        async function saveDeliveryZoneRow(row) {
+            const id = row.dataset.id;
+            const errorEl = document.getElementById('delivery-zones-error');
+            errorEl.style.display = 'none';
+            const name = row.querySelector('.delivery-zone-name-input').value.trim();
+            const fee = Number(row.querySelector('.delivery-zone-fee-input').value);
+            if (!name || !Number.isFinite(fee) || fee < 0) {
+                errorEl.textContent = 'Zone name and a valid fee are both required.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            try {
+                await apiFetch(`/api/super-admin/delivery-zones/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name, fee }),
+                });
+                showToast('Zone saved', 'success');
+                loadDeliveryZonesPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        async function deleteDeliveryZoneRow(id, name) {
+            if (!confirm(`Remove "${name}"? Any vendor assigned to it will have no zone (no delivery fee) until reassigned.`)) return;
+            try {
+                await apiFetch(`/api/super-admin/delivery-zones/${id}`, { method: 'DELETE' });
+                showToast('Zone removed', 'success');
+                loadDeliveryZonesPanel();
             } catch (err) {
                 showToast(err.message, 'error');
             }
@@ -24484,11 +24656,6 @@
                 showToast('Sorry, this product is out of stock.', 'error');
                 return;
             }
-            const existingVendor = cart.length > 0 ? cart[0].vendorId : null;
-            if (existingVendor && existingVendor !== product.vendorId) {
-                showToast('Your cart can only have items from one vendor at a time — checkout or clear your cart first.', 'error');
-                return;
-            }
             const quantity = opts.quantity || 1;
             const color = opts.color || null;
             const size = opts.size || null;
@@ -24511,6 +24678,11 @@
                 productId: product.id, name: product.name, price: product.price, vendorId: product.vendorId,
                 vendorName: product.vendorName, vendorStoreAddress: product.vendorStoreAddress, quantity,
                 stockQuantity: availableStock, selectedColor: color, selectedSize: size,
+                // Real, admin-assigned zone (see schema.sql's comment on
+                // delivery_zones) — carried on the cart line so checkout
+                // can group by vendor and compute a real per-vendor
+                // delivery fee without a second round-trip.
+                vendorDeliveryZoneId: product.vendorDeliveryZoneId || null,
             });
             clearCouponIfCartChanged();
             updateCartCount();
@@ -24554,7 +24726,13 @@
             const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
             const serviceFee = publicPlatformConfig.serviceFee || 0;
             const discount = appliedCoupon ? appliedCoupon.discountAmount : 0;
-            const total = subtotal - discount + serviceFee;
+            const vendorGroups = groupCartByVendor();
+            const isMultiVendor = vendorGroups.length > 1;
+            // Real per-vendor fee from that vendor's assigned zone (see
+            // getVendorZoneFee) — summed for the combined Delivery Fee
+            // line, never a flat guess.
+            const deliveryFeeTotal = vendorGroups.reduce((sum, g) => sum + getVendorZoneFee(g.vendorDeliveryZoneId), 0);
+            const total = subtotal - discount + serviceFee + deliveryFeeTotal;
             container.innerHTML = cart.map(c => {
                 const variantLine = [c.selectedColor ? `Color: ${c.selectedColor}` : '', c.selectedSize ? `Size: ${c.selectedSize}` : ''].filter(Boolean).join(' · ');
                 return `
@@ -24586,10 +24764,22 @@
                         <div class="auth-error" id="cart-coupon-error" style="display:none; margin-bottom:0.5rem;"></div>
                     `}
                 </div>
+                ${isMultiVendor ? `
+                    <div style="background:var(--bg-light); border-radius:0.625rem; padding:0.75rem 0.875rem; margin-bottom:0.75rem;">
+                        <div style="font-weight:700; font-size:0.8125rem; margin-bottom:0.5rem;">Delivery fee by vendor</div>
+                        ${vendorGroups.map(g => `
+                            <div style="display:flex; justify-content:space-between; font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.25rem;">
+                                <span>${g.vendorName}${getVendorZoneName(g.vendorDeliveryZoneId) ? ` (${getVendorZoneName(g.vendorDeliveryZoneId)})` : ''}</span>
+                                <span>$${getVendorZoneFee(g.vendorDeliveryZoneId).toFixed(2)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
                 <div style="padding-top: 0.5rem; font-size: 0.9375rem;">
                     <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>
                     ${discount > 0 ? `<div style="display:flex; justify-content:space-between; color:#15803d;"><span>Discount (${appliedCoupon.code})</span><span>−$${discount.toFixed(2)}</span></div>` : ''}
                     <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>
+                    <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Delivery Fee</span><span>$${deliveryFeeTotal.toFixed(2)}</span></div>
                     <div style="display:flex; justify-content:space-between; font-weight: 800; font-size: 1.125rem; margin-top: 0.375rem;"><span>Total</span><span>$${total.toFixed(2)}</span></div>
                 </div>`;
         }
@@ -24601,21 +24791,32 @@
             errorEl.style.display = 'none';
             if (!code) { errorEl.textContent = 'Enter a coupon code first.'; errorEl.style.display = 'block'; return; }
             if (cart.length === 0) return;
-            const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
             const btn = document.getElementById('cart-apply-coupon-btn');
             btn.disabled = true;
             btn.textContent = 'Checking…';
             try {
-                const result = await apiFetch('/api/marketplace/coupons/preview', {
-                    method: 'POST',
-                    body: JSON.stringify({ vendorId: cart[0].vendorId, code, subtotal }),
-                });
-                if (!result.valid) {
-                    errorEl.textContent = result.error || 'That coupon code is not valid.';
+                // A coupon belongs to exactly one vendor — with more than
+                // one vendor in the cart, this tries each vendor's own
+                // subtotal in turn until one actually owns the code,
+                // rather than assuming it's always the first vendor
+                // added (which is no longer necessarily true now that
+                // carts can span vendors).
+                const vendorGroups = groupCartByVendor();
+                let matched = null;
+                for (const g of vendorGroups) {
+                    const groupSubtotal = g.items.reduce((sum, c) => sum + c.price * c.quantity, 0);
+                    const result = await apiFetch('/api/marketplace/coupons/preview', {
+                        method: 'POST',
+                        body: JSON.stringify({ vendorId: g.vendorId, code, subtotal: groupSubtotal }),
+                    });
+                    if (result.valid) { matched = { ...result, vendorId: g.vendorId }; break; }
+                }
+                if (!matched) {
+                    errorEl.textContent = 'That coupon code is not valid for anything in your cart.';
                     errorEl.style.display = 'block';
                     return;
                 }
-                appliedCoupon = { code: result.code, discountType: result.discountType, discountValue: result.discountValue, discountAmount: result.discountAmount };
+                appliedCoupon = { code: matched.code, vendorId: matched.vendorId, discountType: matched.discountType, discountValue: matched.discountValue, discountAmount: matched.discountAmount };
                 showToast('Coupon applied', 'success');
                 renderCartModal();
             } catch (err) {
@@ -24862,11 +25063,11 @@
             // one, the field stays editable with a placeholder saying so,
             // rather than silently showing empty with no explanation.
             //
-            // Multi-vendor note: this app's cart is already restricted to
-            // one vendor at a time (see addToCart — adding a second
-            // vendor's item is blocked with an error), so the
-            // multiple-pickup-locations case below is handled honestly
-            // but isn't actually reachable today given that constraint.
+            // Multi-vendor: each vendor's own stored address is what
+            // actually gets used per vendor group at submission time
+            // (see handleCheckoutSubmit) — this single field is purely a
+            // summary display when more than one vendor is in the cart,
+            // not an editable input for any of them.
             const pickupInput = document.getElementById('checkout-pickup-address');
             const pickupSubtext = document.getElementById('checkout-pickup-subtext');
             const uniqueVendors = [...new Map(cart.map(c => [c.vendorId, { name: c.vendorName, address: c.vendorStoreAddress }])).values()];
@@ -24961,7 +25162,11 @@
             const paymentMethod = document.querySelector('input[name="checkout-payment-method"]:checked').value;
             const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
             const serviceFee = publicPlatformConfig.serviceFee || 0;
-            const total = subtotal + serviceFee;
+            const discount = appliedCoupon ? appliedCoupon.discountAmount : 0;
+            const vendorGroups = groupCartByVendor();
+            const isMultiVendor = vendorGroups.length > 1;
+            const deliveryFeeTotal = vendorGroups.reduce((sum, g) => sum + getVendorZoneFee(g.vendorDeliveryZoneId), 0);
+            const total = subtotal - discount + serviceFee + deliveryFeeTotal;
             const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
 
             let providerRow = '';
@@ -24969,14 +25174,39 @@
                 const provider = document.querySelector('input[name="checkout-momo-provider"]:checked').value;
                 providerRow = `<div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;"><span>Provider</span><strong>${getMomoProviderLabel(provider)}</strong></div>`;
             }
+            const deliveryFeeBreakdownHtml = isMultiVendor ? `
+                <div style="background:var(--bg-light); border-radius:0.625rem; padding:0.625rem 0.75rem; margin-bottom:0.625rem;">
+                    <div style="font-weight:700; font-size:0.75rem; margin-bottom:0.375rem;">Delivery fee by vendor</div>
+                    ${vendorGroups.map(g => `
+                        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--slate-light); margin-bottom:0.2rem;">
+                            <span>${g.vendorName}${getVendorZoneName(g.vendorDeliveryZoneId) ? ` (${getVendorZoneName(g.vendorDeliveryZoneId)})` : ''}</span>
+                            <span>$${getVendorZoneFee(g.vendorDeliveryZoneId).toFixed(2)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
             document.getElementById('checkout-summary').innerHTML = `
-                <div style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.625rem;">${itemCount} item(s)</div>
+                <div style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.625rem;">${itemCount} item(s)${isMultiVendor ? ` from ${vendorGroups.length} vendors` : ''}</div>
                 ${providerRow}
+                ${deliveryFeeBreakdownHtml}
                 <div style="display:flex; justify-content:space-between; margin-bottom:0.375rem;"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:0.625rem;"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>
+                ${discount > 0 ? `<div style="display:flex; justify-content:space-between; margin-bottom:0.375rem; color:#15803d;"><span>Discount (${appliedCoupon.code})</span><span>−$${discount.toFixed(2)}</span></div>` : ''}
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.375rem;"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.625rem;"><span>Delivery Fee</span><span>$${deliveryFeeTotal.toFixed(2)}</span></div>
                 <div style="display:flex; justify-content:space-between; font-weight:700; font-size:1.0625rem; padding-top:0.625rem; border-top:1px solid var(--border);"><span>Total</span><span>$${total.toFixed(2)}</span></div>
             `;
             document.getElementById('checkout-submit-btn').textContent = paymentMethod === 'momo_manual' ? `Confirm & Pay $${total.toFixed(2)}` : 'Place Order';
+
+            // Multi-vendor timeline disclaimer — only shown when it's
+            // actually true (more than one vendor in this checkout), so
+            // a normal single-vendor order never gets a fabricated delay
+            // warning it doesn't need.
+            const disclaimerEl = document.getElementById('checkout-disclaimer-text');
+            if (disclaimerEl) {
+                disclaimerEl.textContent = isMultiVendor
+                    ? 'Checking out creates a real delivery order for these items — same tracking as any other order. Note! Ordering from multiple vendors will delay delivery. It will usually take 6-12 hours.'
+                    : 'Checking out creates a real delivery order for these items — same tracking as any other order.';
+            }
         }
 
         async function handleCheckoutSubmit(e) {
@@ -24987,45 +25217,56 @@
             errorEl.style.display = 'none';
             btn.disabled = true;
             btn.textContent = 'Placing Order…';
+            const dropoffAddress = document.getElementById('checkout-dropoff-address').value;
+            // Each vendor group uses ITS OWN real stored pickup address
+            // (see openCheckoutModal's auto-populate comment) — the
+            // single #checkout-pickup-address field is only a display
+            // summary once more than one vendor is in the cart, never
+            // the actual value submitted for any of them.
+            const vendorGroups = groupCartByVendor().map(g => ({
+                vendorId: g.vendorId,
+                vendorName: g.vendorName,
+                pickupAddress: g.vendorStoreAddress || document.getElementById('checkout-pickup-address').value,
+                items: g.items.map(c => ({ productId: c.productId, quantity: c.quantity, selectedColor: c.selectedColor || undefined, selectedSize: c.selectedSize || undefined })),
+            }));
             try {
                 if (paymentMethod === 'momo_manual') {
                     const provider = document.querySelector('input[name="checkout-momo-provider"]:checked').value;
-                    const result = await apiFetch('/api/marketplace/checkout/momo-manual', {
+                    const result = await apiFetch('/api/marketplace/checkout/multi/momo-manual', {
                         method: 'POST',
-                        body: JSON.stringify({
-                            vendorId: cart[0].vendorId,
-                            items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, selectedColor: c.selectedColor || undefined, selectedSize: c.selectedSize || undefined })),
-                            pickupAddress: document.getElementById('checkout-pickup-address').value,
-                            dropoffAddress: document.getElementById('checkout-dropoff-address').value,
-                            provider,
-                            couponCode: appliedCoupon ? appliedCoupon.code : undefined,
-                        }),
+                        body: JSON.stringify({ vendorGroups, dropoffAddress, provider, couponCode: appliedCoupon ? appliedCoupon.code : undefined }),
                     });
+                    if (result.errors && result.errors.length) {
+                        showToast(`${result.errors.length} vendor(s) couldn't be checked out — the rest were placed.`, 'error');
+                    }
                     // Cart isn't cleared yet — payment hasn't been
                     // confirmed by a Super Admin. showMomoReferencePage()
                     // shows Step 3; the cart clears once the customer
                     // moves on (there's nothing left to wait/poll for on
                     // this screen — see its own comment).
-                    showMomoReferencePage(result);
+                    showMomoReferencePage({
+                        purchaseId: result.results.map(r => r.purchaseId).join(', '),
+                        paymentReference: result.paymentReference,
+                        sendToPhone: result.sendToPhone,
+                        grandTotal: result.combinedGrandTotal,
+                    });
                     return;
                 }
-                const result = await apiFetch('/api/marketplace/checkout', {
+                const result = await apiFetch('/api/marketplace/checkout/multi', {
                     method: 'POST',
-                    body: JSON.stringify({
-                        vendorId: cart[0].vendorId,
-                        items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, selectedColor: c.selectedColor || undefined, selectedSize: c.selectedSize || undefined })),
-                        pickupAddress: document.getElementById('checkout-pickup-address').value,
-                        dropoffAddress: document.getElementById('checkout-dropoff-address').value,
-                        couponCode: appliedCoupon ? appliedCoupon.code : undefined,
-                    }),
+                    body: JSON.stringify({ vendorGroups, dropoffAddress, couponCode: appliedCoupon ? appliedCoupon.code : undefined }),
                 });
                 cart = [];
                 appliedCoupon = null;
                 updateCartCount();
                 document.getElementById('checkout-modal').classList.remove('active');
                 document.getElementById('checkout-form').reset();
-                showToast(`Order placed! Total: $${result.grandTotal.toFixed(2)}`, 'success');
-                sendLocalNotification('Order Placed', { body: `Your marketplace order (${result.purchaseId}) was placed.` });
+                if (result.errors && result.errors.length) {
+                    showToast(`Placed with ${result.results.length} vendor(s) — ${result.errors.length} couldn't be checked out.`, 'error');
+                } else {
+                    showToast(`Order placed! Total: $${result.combinedGrandTotal.toFixed(2)}`, 'success');
+                }
+                sendLocalNotification('Order Placed', { body: `Your marketplace order was placed (${result.results.length} vendor${result.results.length > 1 ? 's' : ''}).` });
             } catch (err) {
                 errorEl.textContent = err.message;
                 errorEl.style.display = 'block';

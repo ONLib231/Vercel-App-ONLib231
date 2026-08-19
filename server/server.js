@@ -1450,6 +1450,104 @@ app.delete('/api/super-admin/momo-providers/:id', requireAuth, requireSuperAdmin
   }
 });
 
+// ============================================================
+// Delivery Zones (Super Admin) — full CRUD, same shape as Mobile Money
+// providers above. See schema.sql's comment on delivery_zones for why
+// this is a real, admin-defined substitute for geolocation rather than
+// GPS-based zone detection this app has no service for.
+// ============================================================
+app.get('/api/super-admin/delivery-zones', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const zones = await db.getAllDeliveryZones();
+    res.json({ zones });
+  } catch (err) {
+    console.error('GET /api/super-admin/delivery-zones failed', err);
+    res.status(500).json({ error: 'Failed to load delivery zones' });
+  }
+});
+
+app.post('/api/super-admin/delivery-zones', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { name, fee } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'A zone name is required' });
+  const feeNum = Number(fee);
+  if (!Number.isFinite(feeNum) || feeNum < 0) return res.status(400).json({ error: 'A valid delivery fee is required' });
+  try {
+    const zones = await db.getAllDeliveryZones();
+    let baseId = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'zone';
+    let id = baseId;
+    let suffix = 2;
+    while (zones.some(z => z.id === id)) { id = `${baseId}_${suffix}`; suffix += 1; }
+    const zone = await db.createDeliveryZone({ id, name: name.trim(), fee: feeNum, sortOrder: zones.length });
+    await logAudit(req, 'delivery_zone.create', { targetType: 'delivery_zone', targetId: zone.id, targetLabel: zone.name });
+    res.json({ ok: true, zone });
+  } catch (err) {
+    console.error('POST /api/super-admin/delivery-zones failed', err);
+    res.status(500).json({ error: 'Failed to add delivery zone' });
+  }
+});
+
+app.put('/api/super-admin/delivery-zones/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { name, fee, sortOrder } = req.body || {};
+  if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'A zone name is required' });
+  if (fee !== undefined && (!Number.isFinite(Number(fee)) || Number(fee) < 0)) {
+    return res.status(400).json({ error: 'A valid delivery fee is required' });
+  }
+  try {
+    const zone = await db.updateDeliveryZone(req.params.id, {
+      name: name !== undefined ? name.trim() : undefined,
+      fee: fee !== undefined ? Number(fee) : undefined,
+      sortOrder,
+    });
+    if (!zone) return res.status(404).json({ error: 'Zone not found' });
+    await logAudit(req, 'delivery_zone.update', { targetType: 'delivery_zone', targetId: zone.id, targetLabel: zone.name });
+    res.json({ ok: true, zone });
+  } catch (err) {
+    console.error('PUT /api/super-admin/delivery-zones/:id failed', err);
+    res.status(500).json({ error: 'Failed to update delivery zone' });
+  }
+});
+
+app.delete('/api/super-admin/delivery-zones/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    // Vendors assigned to this zone fall back to "no zone" via the FK's
+    // ON DELETE SET NULL (see schema.sql) — never left pointing at a
+    // deleted zone.
+    await db.deleteDeliveryZone(req.params.id);
+    await logAudit(req, 'delivery_zone.delete', { targetType: 'delivery_zone', targetId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/super-admin/delivery-zones/:id failed', err);
+    res.status(500).json({ error: 'Failed to delete delivery zone' });
+  }
+});
+
+// Assigns a vendor to a zone (or clears it with zoneId: null) — a
+// separate small endpoint rather than folding into vendor account
+// editing, since this is set from the Vendors table row, not a form.
+app.put('/api/super-admin/vendors/:id/delivery-zone', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { zoneId } = req.body || {};
+  try {
+    const ok = await db.setVendorDeliveryZone(req.params.id, zoneId || null);
+    if (!ok) return res.status(404).json({ error: 'Vendor not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('PUT /api/super-admin/vendors/:id/delivery-zone failed', err);
+    res.status(500).json({ error: 'Failed to set delivery zone' });
+  }
+});
+
+// Public — every enabled zone, so checkout can show a real per-vendor
+// fee and label before the customer is even logged in.
+app.get('/api/delivery-zones', async (req, res) => {
+  try {
+    const zones = await db.getAllDeliveryZones();
+    res.json({ zones });
+  } catch (err) {
+    console.error('GET /api/delivery-zones failed', err);
+    res.status(500).json({ error: 'Failed to load delivery zones' });
+  }
+});
+
 app.post('/api/admin/change-email', requireAuth, requireAdmin, authLimiter, async (req, res) => {
   const { newEmail, currentPassword } = req.body || {};
   if (!newEmail || !currentPassword) {
@@ -4946,6 +5044,78 @@ app.post('/api/marketplace/checkout', requireAuth, async (req, res) => {
   }
 });
 
+// Multi-vendor Pay-on-Delivery checkout — one cart spanning several
+// vendors becomes one checkout ACTION from the customer's side, but
+// under the hood it's still one real db.checkout() call per vendor
+// (that function's transaction/stock/coupon logic is untouched and
+// still single-vendor — this just loops it). Each vendor group gets
+// its own real delivery fee from its assigned zone (see schema.sql's
+// comment on delivery_zones), looked up fresh here, never trusted
+// from the client. A later group failing (e.g. out of stock) does
+// NOT roll back groups that already succeeded — those are real,
+// separate orders now — so this returns per-group results AND errors
+// rather than one pass/fail, and the frontend is responsible for
+// showing the customer exactly what did and didn't go through.
+app.post('/api/marketplace/checkout/multi', requireAuth, async (req, res) => {
+  if (req.user.role !== 'sender') {
+    return res.status(403).json({ error: 'Only customers can check out' });
+  }
+  const platformSettings = await db.getPlatformSettings();
+  if (platformSettings.maintenanceMode) {
+    return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
+  }
+  const { vendorGroups, dropoffAddress, couponCode } = req.body || {};
+  if (!Array.isArray(vendorGroups) || vendorGroups.length === 0) {
+    return res.status(400).json({ error: 'At least one vendor is required' });
+  }
+  if (!dropoffAddress) {
+    return res.status(400).json({ error: 'Dropoff address is required' });
+  }
+  for (const g of vendorGroups) {
+    if (!g.vendorId || !Array.isArray(g.items) || g.items.length === 0 || !g.pickupAddress) {
+      return res.status(400).json({ error: 'Each vendor needs its own items and pickup address' });
+    }
+  }
+  const checkoutBatchId = vendorGroups.length > 1 ? crypto.randomUUID() : null;
+  const results = [];
+  const errors = [];
+  for (const g of vendorGroups) {
+    try {
+      const vendor = await db.getUserById(g.vendorId);
+      const zone = vendor && vendor.deliveryZoneId ? await db.getDeliveryZoneById(vendor.deliveryZoneId) : null;
+      const deliveryFee = zone ? zone.fee : 0;
+      const result = await db.checkout({
+        customerId: req.user.id,
+        customerName: req.user.businessName,
+        vendorId: g.vendorId,
+        items: g.items,
+        pickupAddress: g.pickupAddress,
+        dropoffAddress,
+        createDeliveryOrder: true,
+        couponCode, // only applies to the vendor that actually owns the code; a no-op for every other group in the batch
+        deliveryFee,
+        checkoutBatchId,
+      });
+      io.to(`vendor:${g.vendorId}`).emit('purchase:created', result);
+      if (result.deliveryOrderId) {
+        const deliveryOrder = await db.getOrder(result.deliveryOrderId);
+        if (deliveryOrder) {
+          orderRooms(deliveryOrder).forEach((r) => io.to(r).emit('order:created', deliveryOrder));
+          notifyNewOrder(deliveryOrder);
+        }
+      }
+      results.push({ ...result, vendorId: g.vendorId, zoneName: zone ? zone.name : null, deliveryFee });
+    } catch (err) {
+      errors.push({ vendorId: g.vendorId, vendorName: g.vendorName || null, error: err.message || 'Checkout failed' });
+    }
+  }
+  if (results.length === 0) {
+    return res.status(400).json({ error: errors[0] ? errors[0].error : 'Checkout failed', errors });
+  }
+  const combinedGrandTotal = Math.round(results.reduce((sum, r) => sum + r.grandTotal, 0) * 100) / 100;
+  res.json({ ok: true, checkoutBatchId, results, errors, combinedGrandTotal });
+});
+
 // ============================================================
 // Mobile Money (MTN) checkout — an online-payment alternative to Pay
 // on Delivery. Orange Money isn't wired up yet (see README → "Mobile
@@ -5121,6 +5291,82 @@ app.post('/api/marketplace/checkout/momo-manual', requireAuth, async (req, res) 
     console.error('POST /api/marketplace/checkout/momo-manual failed', err);
     res.status(400).json({ error: err.message || 'Checkout failed' });
   }
+});
+
+// Multi-vendor Mobile Money checkout — same batching idea as
+// /api/marketplace/checkout/multi above, but the customer sends ONE
+// combined payment covering every vendor, using ONE shared reference
+// code. That reference is generated by the FIRST vendor group's real
+// checkout() call (same generation logic as a normal single-vendor
+// Mobile Money checkout, unchanged); every subsequent group in the
+// batch is checked out with skipReferenceGeneration so it stores no
+// reference of its own (payment_reference has a real uniqueness
+// constraint — see schema.sql) and is instead matched via
+// checkout_batch_id when a Super Admin confirms or rejects the
+// primary purchase (see confirmMomoPaymentAndCreateOrder /
+// voidFailedMomoPayment's batch-cascade logic).
+app.post('/api/marketplace/checkout/multi/momo-manual', requireAuth, async (req, res) => {
+  if (req.user.role !== 'sender') {
+    return res.status(403).json({ error: 'Only customers can check out' });
+  }
+  const platformSettings = await db.getPlatformSettings();
+  if (platformSettings.maintenanceMode) {
+    return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
+  }
+  const { vendorGroups, dropoffAddress, provider, couponCode } = req.body || {};
+  if (!Array.isArray(vendorGroups) || vendorGroups.length === 0) {
+    return res.status(400).json({ error: 'At least one vendor is required' });
+  }
+  if (!dropoffAddress) {
+    return res.status(400).json({ error: 'Dropoff address is required' });
+  }
+  for (const g of vendorGroups) {
+    if (!g.vendorId || !Array.isArray(g.items) || g.items.length === 0 || !g.pickupAddress) {
+      return res.status(400).json({ error: 'Each vendor needs its own items and pickup address' });
+    }
+  }
+  const momoProvider = await db.getMomoProviderById(provider);
+  if (!momoProvider || !momoProvider.isEnabled) {
+    return res.status(400).json({ error: 'That Mobile Money provider is not available right now' });
+  }
+  const checkoutBatchId = vendorGroups.length > 1 ? crypto.randomUUID() : null;
+  let sharedReference = null;
+  const results = [];
+  const errors = [];
+  for (const g of vendorGroups) {
+    try {
+      const vendor = await db.getUserById(g.vendorId);
+      const zone = vendor && vendor.deliveryZoneId ? await db.getDeliveryZoneById(vendor.deliveryZoneId) : null;
+      const deliveryFee = zone ? zone.fee : 0;
+      const result = await db.checkout({
+        customerId: req.user.id,
+        customerName: req.user.businessName,
+        vendorId: g.vendorId,
+        items: g.items,
+        pickupAddress: g.pickupAddress,
+        dropoffAddress,
+        createDeliveryOrder: false,
+        paymentMethod: 'momo_manual',
+        paymentStatus: 'pending',
+        paymentProvider: provider,
+        couponCode,
+        deliveryFee,
+        checkoutBatchId,
+        skipReferenceGeneration: sharedReference !== null,
+      });
+      if (!sharedReference) sharedReference = result.paymentReference;
+      io.to(`vendor:${g.vendorId}`).emit('purchase:created', result);
+      results.push({ ...result, vendorId: g.vendorId, zoneName: zone ? zone.name : null, deliveryFee });
+    } catch (err) {
+      errors.push({ vendorId: g.vendorId, vendorName: g.vendorName || null, error: err.message || 'Checkout failed' });
+    }
+  }
+  if (results.length === 0) {
+    return res.status(400).json({ error: errors[0] ? errors[0].error : 'Checkout failed', errors });
+  }
+  io.to('admins').emit('marketplace_payment:new', { checkoutBatchId, purchaseId: results[0].purchaseId });
+  const combinedGrandTotal = Math.round(results.reduce((sum, r) => sum + r.grandTotal, 0) * 100) / 100;
+  res.json({ ok: true, checkoutBatchId, paymentReference: sharedReference, results, errors, combinedGrandTotal, sendToPhone: momoProvider.phone });
 });
 
 app.get('/api/marketplace/purchases/:id/payment-status', requireAuth, async (req, res) => {
