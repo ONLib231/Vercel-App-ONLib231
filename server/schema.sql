@@ -427,6 +427,14 @@ CREATE TABLE IF NOT EXISTS saved_addresses (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_saved_addresses_customer_id ON saved_addresses (customer_id);
+-- saved_addresses.zone_id (a FK to delivery_zones) is added further
+-- down in this file, right after delivery_zones itself is created —
+-- delivery_zones doesn't exist yet at this point on a truly fresh
+-- database, and db.init() runs this whole file as one batched query
+-- (see db.js), where Postgres implicitly wraps multiple statements in
+-- one transaction: a FK referencing a not-yet-existing table here
+-- would fail and roll back everything in the batch, not just this one
+-- statement. Search this file for "ALTER TABLE saved_addresses ADD COLUMN IF NOT EXISTS zone_id".
 
 -- Real in-app messaging between a customer and a vendor. One
 -- conversation per (customer, vendor) pair — reused for every future
@@ -485,11 +493,16 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 CREATE INDEX IF NOT EXISTS idx_leads_vendor_id ON leads (vendor_id, created_at DESC);
 
--- Vendor's physical store address, optional — powers a real "Get
--- Directions" feature (a plain Google Maps search-query link, no API
--- key needed). NULL until a vendor fills it in via Settings. Kept —
--- this is real, separate infrastructure from leads above, not a
--- duplicate of it.
+-- Physical address, optional — powers a real "Get Directions" feature
+-- (a plain Google Maps search-query link, no API key needed). NULL
+-- until filled in via Settings (or registration). Originally
+-- vendor-only ("store address"); also used by delivery_company
+-- accounts as their company/home-base address once self-service
+-- delivery-zone selection was added (see delivery_zone_id below) —
+-- kept the column name rather than renaming it, since renaming would
+-- touch every existing reference to `storeAddress` for no behavior
+-- change; the meaning is "this account's physical location," which
+-- fits both roles.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS store_address TEXT;
 
 -- Restaurants as a real vendor type, not a separate table/entity — a
@@ -1313,6 +1326,14 @@ CREATE TABLE IF NOT EXISTS delivery_zones (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Originally Super-Admin-assigned only, for role = 'vendor'. Now also
+-- self-service: a vendor or delivery_company can set their own zone
+-- from Settings/registration by searching it (see the Zone Search
+-- Picker in index.html and setSelfDeliveryZone in db.js) — the Super
+-- Admin's own assignment route/UI is unchanged and can still override
+-- it. Not used by role = 'sender' — a customer's zone lives per saved
+-- address instead (see saved_addresses.zone_id below), since one
+-- customer can have several addresses in different zones.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS delivery_zone_id TEXT REFERENCES delivery_zones(id) ON DELETE SET NULL;
 
 -- Delivery Regions — a Super-Admin-defined grouping ABOVE zones (e.g.
@@ -1338,6 +1359,19 @@ ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS region_id TEXT REFERENCES de
 -- unique when set.
 ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS code TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_zones_code ON delivery_zones (code) WHERE code IS NOT NULL;
+
+-- Optional Region/Zone tag on a saved address, set via the same Zone
+-- Search Picker used for vendor/delivery_company self-service (see
+-- users.delivery_zone_id's comment above). Lives on the address, not
+-- on the customer, because one customer can have several saved
+-- addresses ("Home", "Office") in different zones — unlike a vendor
+-- or delivery company, which only has one location. Nullable: this is
+-- purely descriptive metadata for now (per the current scope, it does
+-- NOT feed into delivery fee calculation, which stays 100%
+-- vendor-zone-driven, same as before this column existed). Placed here
+-- (after delivery_zones exists), not next to the rest of
+-- saved_addresses further up this file — see the comment there.
+ALTER TABLE saved_addresses ADD COLUMN IF NOT EXISTS zone_id TEXT REFERENCES delivery_zones(id) ON DELETE SET NULL;
 
 -- Real delivery fee charged to the customer at checkout — snapshotted
 -- at checkout time (same "never trust a stale value later" pattern as

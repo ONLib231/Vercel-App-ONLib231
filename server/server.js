@@ -715,13 +715,27 @@ io.on('connection', (socket) => {
 // REST: auth + one-time initial state load
 // ============================================================
 
+// Zone Search Picker support — a customer registering (or, separately,
+// saving an address) can optionally search-and-pick a Region/Zone
+// instead of typing an address blind. Shared validator since three
+// registration routes plus the saved-addresses routes all need the
+// same "if given, it must be a real zone" check.
+async function validateOptionalZoneId(zoneId) {
+  if (!zoneId) return true;
+  const zone = await db.getDeliveryZoneById(zoneId);
+  return !!zone;
+}
+
 app.post('/api/auth/register', authLimiter, async (req, res) => {
-  const { businessName, email, password, phone } = req.body || {};
+  const { businessName, email, password, phone, address, deliveryZoneId } = req.body || {};
   if (!businessName || !email || !password || !phone) {
     return res.status(400).json({ error: 'businessName, email, phone, and password are required' });
   }
   if (password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (!(await validateOptionalZoneId(deliveryZoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
   }
   try {
     const existing = await db.getUserByEmail(email);
@@ -736,6 +750,21 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       passwordHash,
       role: 'sender', // public registration always creates senders; admins are seeded (see below)
     });
+    // A customer's zone lives per saved address, not on the user (see
+    // schema.sql's comment on saved_addresses.zone_id) — so an address
+    // typed/picked at registration becomes their first, default saved
+    // address, exactly like adding one later from Settings would.
+    // Optional and best-effort: a failure here never fails the account
+    // creation that already succeeded above.
+    if (address && address.trim()) {
+      try {
+        await db.createSavedAddress({
+          id: crypto.randomUUID(), customerId: user.id, label: 'Home', address: address.trim(), isDefault: true, zoneId: deliveryZoneId || null,
+        });
+      } catch (err) {
+        console.error('register: failed to save initial address', err);
+      }
+    }
     const sessionId = await recordLoginHistory(req, user.id);
     const token = signToken(user, sessionId);
     res.json({ token, user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason } });
@@ -755,7 +784,7 @@ const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024; // ~2MB raw per document — these a
 const VALID_ID_DOCUMENT_TYPES = ['passport', 'national_id', 'drivers_license'];
 
 app.post('/api/auth/register-vendor', authLimiter, async (req, res) => {
-  const { businessName, email, password, phone, businessRegistrationDoc, idDocumentType, idDocumentDoc, vendorType } = req.body || {};
+  const { businessName, email, password, phone, businessRegistrationDoc, idDocumentType, idDocumentDoc, vendorType, deliveryZoneId } = req.body || {};
   if (!businessName || !email || !password || !phone) {
     return res.status(400).json({ error: 'Business name, email, phone, and password are required' });
   }
@@ -773,6 +802,9 @@ app.post('/api/auth/register-vendor', authLimiter, async (req, res) => {
   }
   if (businessRegistrationDoc.length > MAX_DOCUMENT_BYTES * 1.4 || idDocumentDoc.length > MAX_DOCUMENT_BYTES * 1.4) {
     return res.status(400).json({ error: 'Each document must be under ~2MB — please use a smaller photo or scan.' });
+  }
+  if (!(await validateOptionalZoneId(deliveryZoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
   }
   try {
     const existing = await db.getUserByEmail(email);
@@ -792,6 +824,7 @@ app.post('/api/auth/register-vendor', authLimiter, async (req, res) => {
       idDocumentDoc,
       appliedAt: new Date().toISOString(),
       vendorType: vendorType === 'restaurant' ? 'restaurant' : 'store',
+      deliveryZoneId,
     });
 
     // Real notification attempt — fire-and-forget, never blocks the
@@ -804,7 +837,7 @@ app.post('/api/auth/register-vendor', authLimiter, async (req, res) => {
     const token = signToken(user, sessionId);
     res.json({
       token,
-      user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason },
+      user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, deliveryZoneId: user.deliveryZoneId, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason },
     });
   } catch (err) {
     console.error('register-vendor failed', err);
@@ -815,9 +848,11 @@ app.post('/api/auth/register-vendor', authLimiter, async (req, res) => {
 // Delivery company self-registration — same real approval workflow as
 // vendor registration above, mirrored exactly (same document
 // requirements, same pending-until-approved status), just scoped to
-// role = 'delivery_company'.
+// role = 'delivery_company'. Also collects an optional company/home-base
+// address + delivery zone, same as vendor registration — this role had
+// no address concept at all before the Zone Search Picker feature.
 app.post('/api/auth/register-delivery-company', authLimiter, async (req, res) => {
-  const { businessName, email, password, phone, businessRegistrationDoc, idDocumentType, idDocumentDoc } = req.body || {};
+  const { businessName, email, password, phone, businessRegistrationDoc, idDocumentType, idDocumentDoc, storeAddress, deliveryZoneId } = req.body || {};
   if (!businessName || !email || !password || !phone) {
     return res.status(400).json({ error: 'Business name, email, phone, and password are required' });
   }
@@ -832,6 +867,9 @@ app.post('/api/auth/register-delivery-company', authLimiter, async (req, res) =>
   }
   if (businessRegistrationDoc.length > MAX_DOCUMENT_BYTES * 1.4 || idDocumentDoc.length > MAX_DOCUMENT_BYTES * 1.4) {
     return res.status(400).json({ error: 'Each document must be under ~2MB — please use a smaller photo or scan.' });
+  }
+  if (!(await validateOptionalZoneId(deliveryZoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
   }
   try {
     const existing = await db.getUserByEmail(email);
@@ -850,6 +888,8 @@ app.post('/api/auth/register-delivery-company', authLimiter, async (req, res) =>
       idDocumentType,
       idDocumentDoc,
       appliedAt: new Date().toISOString(),
+      storeAddress: storeAddress ? storeAddress.trim() : null,
+      deliveryZoneId,
     });
 
     notifyNewVendorApplication(businessName, email, 'delivery_company');
@@ -859,7 +899,7 @@ app.post('/api/auth/register-delivery-company', authLimiter, async (req, res) =>
     const token = signToken(user, sessionId);
     res.json({
       token,
-      user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason },
+      user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, deliveryZoneId: user.deliveryZoneId, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason },
     });
   } catch (err) {
     console.error('register-delivery-company failed', err);
@@ -872,7 +912,7 @@ app.post('/api/auth/register-delivery-company', authLimiter, async (req, res) =>
 // the fields returned to the frontend can't quietly drift apart
 // between the different ways a session can start.
 function publicUserShape(user) {
-  return { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason, twoFactorEnabled: user.twoFactorEnabled };
+  return { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, deliveryZoneId: user.deliveryZoneId, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason, twoFactorEnabled: user.twoFactorEnabled };
 }
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
@@ -1241,14 +1281,19 @@ app.post('/api/auth/admin-login', authLimiter, async (req, res) => {
 app.get('/api/me', requireAuth, async (req, res) => {
   const user = await db.getUserById(req.user.id);
   if (!user) return res.status(401).json({ error: 'Account no longer exists' });
-  res.json({ user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason } });
+  res.json({ user: { id: user.id, businessName: user.businessName, email: user.email, phone: user.phone, storeAddress: user.storeAddress, vendorType: user.vendorType, avgPrepTimeMinutes: user.avgPrepTimeMinutes, profileImageUrl: user.profileImageUrl, deliveryZoneId: user.deliveryZoneId, role: user.role, approvalStatus: user.approvalStatus, rejectionReason: user.rejectionReason } });
 });
 
 // Self-service profile edit — any authenticated user updating their own
 // name/phone (customer, vendor, admin, or super admin). Email and
-// password stay on their existing separate flows.
+// password stay on their existing separate flows. storeAddress and
+// deliveryZoneId are vendor/delivery_company only (see schema.sql's
+// comments on those columns) — a vendor or delivery company can now set
+// their own zone here via the Zone Search Picker, alongside the Super
+// Admin's separate, still-unchanged assignment route.
 app.put('/api/me/profile', requireAuth, async (req, res) => {
-  const { businessName, phone, storeAddress, avgPrepTimeMinutes } = req.body || {};
+  const { businessName, phone, storeAddress, avgPrepTimeMinutes, deliveryZoneId } = req.body || {};
+  const canSelfSetZone = req.user.role === 'vendor' || req.user.role === 'delivery_company';
   if (!businessName || !businessName.trim()) {
     return res.status(400).json({ error: 'Name cannot be empty' });
   }
@@ -1258,17 +1303,24 @@ app.put('/api/me/profile', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Prep time must be a realistic number of minutes' });
     }
   }
+  if (canSelfSetZone && !(await validateOptionalZoneId(deliveryZoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
+  }
   try {
     const existing = await db.getUserById(req.user.id);
     const updated = await db.updateUserProfile(req.user.id, {
       businessName: businessName.trim(),
       phone: phone ? phone.trim() : null,
-      storeAddress: req.user.role === 'vendor' && storeAddress !== undefined ? (storeAddress.trim() || null) : undefined,
+      storeAddress: canSelfSetZone && storeAddress !== undefined ? (storeAddress.trim() || null) : undefined,
       avgPrepTimeMinutes: req.user.role === 'vendor' && existing && existing.vendorType === 'restaurant' && avgPrepTimeMinutes !== undefined
         ? (avgPrepTimeMinutes === null || avgPrepTimeMinutes === '' ? null : Number(avgPrepTimeMinutes))
         : undefined,
     });
-    res.json({ user: { id: updated.id, businessName: updated.businessName, email: updated.email, phone: updated.phone, storeAddress: updated.storeAddress, vendorType: updated.vendorType, avgPrepTimeMinutes: updated.avgPrepTimeMinutes, role: updated.role } });
+    if (canSelfSetZone && deliveryZoneId !== undefined) {
+      await db.setSelfDeliveryZone(req.user.id, deliveryZoneId || null);
+    }
+    const final = canSelfSetZone && deliveryZoneId !== undefined ? await db.getUserById(req.user.id) : updated;
+    res.json({ user: { id: final.id, businessName: final.businessName, email: final.email, phone: final.phone, storeAddress: final.storeAddress, vendorType: final.vendorType, avgPrepTimeMinutes: final.avgPrepTimeMinutes, deliveryZoneId: final.deliveryZoneId, role: final.role } });
   } catch (err) {
     console.error('PUT /api/me/profile failed', err);
     res.status(500).json({ error: 'Failed to update profile' });
@@ -4835,13 +4887,16 @@ app.get('/api/addresses', requireAuth, async (req, res) => {
 
 app.post('/api/addresses', requireAuth, async (req, res) => {
   if (req.user.role !== 'sender') return res.status(403).json({ error: 'Only customers have saved addresses' });
-  const { label, address, isDefault } = req.body || {};
+  const { label, address, isDefault, zoneId } = req.body || {};
   if (!label || !label.trim() || !address || !address.trim()) {
     return res.status(400).json({ error: 'Label and address are both required' });
   }
+  if (!(await validateOptionalZoneId(zoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
+  }
   try {
     const saved = await db.createSavedAddress({
-      id: crypto.randomUUID(), customerId: req.user.id, label: label.trim(), address: address.trim(), isDefault,
+      id: crypto.randomUUID(), customerId: req.user.id, label: label.trim(), address: address.trim(), isDefault, zoneId,
     });
     res.json({ address: saved });
   } catch (err) {
@@ -4852,12 +4907,15 @@ app.post('/api/addresses', requireAuth, async (req, res) => {
 
 app.put('/api/addresses/:id', requireAuth, async (req, res) => {
   if (req.user.role !== 'sender') return res.status(403).json({ error: 'Only customers have saved addresses' });
-  const { label, address, isDefault } = req.body || {};
+  const { label, address, isDefault, zoneId } = req.body || {};
   if (!label || !label.trim() || !address || !address.trim()) {
     return res.status(400).json({ error: 'Label and address are both required' });
   }
+  if (zoneId !== undefined && !(await validateOptionalZoneId(zoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
+  }
   try {
-    const updated = await db.updateSavedAddress(req.params.id, req.user.id, { label: label.trim(), address: address.trim(), isDefault });
+    const updated = await db.updateSavedAddress(req.params.id, req.user.id, { label: label.trim(), address: address.trim(), isDefault, zoneId });
     if (!updated) return res.status(404).json({ error: 'Address not found' });
     res.json({ address: updated });
   } catch (err) {

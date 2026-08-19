@@ -465,7 +465,7 @@ function rowToLoginHistory(r) {
 
 function rowToAddress(r) {
   if (!r) return null;
-  return { id: r.id, label: r.label, address: r.address, isDefault: r.is_default, createdAt: r.created_at };
+  return { id: r.id, label: r.label, address: r.address, isDefault: r.is_default, zoneId: r.zone_id || null, createdAt: r.created_at };
 }
 
 function rowToMessage(r) {
@@ -494,9 +494,11 @@ function rowToUser(r) {
     vendorType: r.vendor_type || 'store',
     avgPrepTimeMinutes: r.avg_prep_time_minutes,
     profileImageUrl: r.profile_image_url,
-    // Real, Super-Admin-assigned zone (see schema.sql's comment on
-    // delivery_zones) — only meaningful for role = 'vendor', null on
-    // every other role.
+    // Real delivery zone (see schema.sql's comment on users.delivery_zone_id)
+    // — meaningful for role = 'vendor' or 'delivery_company', settable by
+    // the Super Admin or, now, by the account itself (self-service zone
+    // search picker). Always null for role = 'sender' — a customer's zone
+    // lives per saved address instead (saved_addresses.zone_id).
     deliveryZoneId: r.delivery_zone_id || null,
     isDisabled: r.is_disabled,
     disabledFeatures: r.disabled_features || [],
@@ -581,13 +583,28 @@ const db = {
 
   // ---- Users -------------------------------------------------------
 
-  async createUser({ id, businessName, email, phone, passwordHash, role, approvalStatus, businessRegistrationDoc, idDocumentType, idDocumentDoc, appliedAt, vendorType }) {
+  async createUser({ id, businessName, email, phone, passwordHash, role, approvalStatus, businessRegistrationDoc, idDocumentType, idDocumentDoc, appliedAt, vendorType, storeAddress, deliveryZoneId }) {
     const { rows } = await pool.query(
-      `INSERT INTO users (id, business_name, email, phone, password_hash, role, approval_status, business_registration_doc, id_document_type, id_document_doc, applied_at, vendor_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-      [id, businessName, email.toLowerCase(), phone || null, passwordHash, role, approvalStatus || 'approved', businessRegistrationDoc || null, idDocumentType || null, idDocumentDoc || null, appliedAt || null, vendorType === 'restaurant' ? 'restaurant' : 'store']
+      `INSERT INTO users (id, business_name, email, phone, password_hash, role, approval_status, business_registration_doc, id_document_type, id_document_doc, applied_at, vendor_type, store_address, delivery_zone_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+      [id, businessName, email.toLowerCase(), phone || null, passwordHash, role, approvalStatus || 'approved', businessRegistrationDoc || null, idDocumentType || null, idDocumentDoc || null, appliedAt || null, vendorType === 'restaurant' ? 'restaurant' : 'store', storeAddress || null, deliveryZoneId || null]
     );
     return rowToUser(rows[0]);
+  },
+
+  // Self-service zone assignment — the account itself picking its own
+  // zone via the Zone Search Picker (registration or Settings), as
+  // opposed to setVendorDeliveryZone below, which is the Super Admin's
+  // separate, still-unchanged assignment route. Scoped to vendor/
+  // delivery_company only, same restriction the Super Admin route
+  // already enforced for vendor — senders never get a user-level zone
+  // (theirs lives per saved address, see setSavedAddress* above).
+  async setSelfDeliveryZone(userId, zoneId) {
+    const { rows } = await pool.query(
+      `UPDATE users SET delivery_zone_id = $1 WHERE id = $2 AND role IN ('vendor', 'delivery_company') RETURNING id`,
+      [zoneId || null, userId]
+    );
+    return rows.length > 0;
   },
 
   async updateUserPassword(userId, passwordHash) {
@@ -4144,20 +4161,27 @@ const db = {
     return rows.map(rowToAddress);
   },
 
-  async createSavedAddress({ id, customerId, label, address, isDefault }) {
+  async createSavedAddress({ id, customerId, label, address, isDefault, zoneId }) {
     if (isDefault) await pool.query('UPDATE saved_addresses SET is_default = false WHERE customer_id = $1', [customerId]);
     const { rows } = await pool.query(
-      'INSERT INTO saved_addresses (id, customer_id, label, address, is_default) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [id, customerId, label, address, !!isDefault]
+      'INSERT INTO saved_addresses (id, customer_id, label, address, is_default, zone_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [id, customerId, label, address, !!isDefault, zoneId || null]
     );
     return rowToAddress(rows[0]);
   },
 
-  async updateSavedAddress(id, customerId, { label, address, isDefault }) {
+  async updateSavedAddress(id, customerId, { label, address, isDefault, zoneId }) {
     if (isDefault) await pool.query('UPDATE saved_addresses SET is_default = false WHERE customer_id = $1', [customerId]);
+    // zoneId === undefined means "don't touch this field" (caller never
+    // sent it) — same untouched-vs-explicit-null convention used by
+    // updateUserProfile's storeAddress below, so a saved address can
+    // still be edited by a caller that only knows label/address.
+    const touchingZone = zoneId !== undefined;
     const { rows } = await pool.query(
-      'UPDATE saved_addresses SET label = $1, address = $2, is_default = $3 WHERE id = $4 AND customer_id = $5 RETURNING *',
-      [label, address, !!isDefault, id, customerId]
+      `UPDATE saved_addresses SET label = $1, address = $2, is_default = $3,
+         zone_id = CASE WHEN $4 THEN $5 ELSE zone_id END
+       WHERE id = $6 AND customer_id = $7 RETURNING *`,
+      [label, address, !!isDefault, touchingZone, zoneId || null, id, customerId]
     );
     return rows[0] ? rowToAddress(rows[0]) : null;
   },

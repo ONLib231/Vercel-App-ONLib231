@@ -3758,6 +3758,13 @@
                         <label class="form-label">First and Last Name</label>
                         <input type="text" class="form-input" id="register-business-name" placeholder="Enter your first and last name">
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Delivery Address <span style="color:var(--slate-light); font-weight:400;">(optional)</span></label>
+                        <textarea class="form-input" id="register-customer-address" rows="2" placeholder="Street, city, landmark…"></textarea>
+                        <p style="color:var(--slate-light); font-size:0.8125rem; margin-top:0.5rem; margin-bottom:0;">Saved as your default delivery address — you can add more, or skip this and add one later from Settings.</p>
+                    </div>
+                    <!-- Populated by initZoneSearchPickers() with prefix "register-customer" -->
+                    <div id="register-customer-zone-picker-container"></div>
                 </div>
 
                 <!-- Vendor fields -->
@@ -3774,6 +3781,8 @@
                             <option value="restaurant">Restaurant — food menu</option>
                         </select>
                     </div>
+                    <!-- Populated by initZoneSearchPickers() with prefix "register-vendor" -->
+                    <div id="register-vendor-zone-picker-container"></div>
                     <div class="form-group">
                         <label class="form-label">Business Registration Document</label>
                         <div class="auth-upload-row">
@@ -3810,6 +3819,12 @@
                         <label class="form-label">Company Name</label>
                         <input type="text" class="form-input" id="register-delivery-company-name" placeholder="e.g. Speedy Riders Liberia">
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Company Address <span style="color:var(--slate-light); font-weight:400;">(optional)</span></label>
+                        <input type="text" class="form-input" id="register-delivery-company-address" placeholder="Enter your company's physical/home-base address">
+                    </div>
+                    <!-- Populated by initZoneSearchPickers() with prefix "register-delivery-company" -->
+                    <div id="register-delivery-company-zone-picker-container"></div>
                     <div class="form-group">
                         <label class="form-label">Business Registration Document</label>
                         <div class="auth-upload-row">
@@ -4203,6 +4218,8 @@
                             <label class="form-label">Address</label>
                             <textarea class="form-input" id="address-form-address" rows="3" placeholder="Street, city, landmark…" required></textarea>
                         </div>
+                        <!-- Populated by initZoneSearchPickers() with prefix "address-form" -->
+                        <div id="address-form-zone-picker-container"></div>
                         <label class="auth-checkbox-label" style="margin-bottom: 1.25rem;">
                             <input type="checkbox" id="address-form-default">
                             Set as default
@@ -4917,6 +4934,12 @@
                                 <input type="tel" class="form-input" id="dc-settings-phone-input">
                             </div>
                         </div>
+                        <div class="form-group">
+                            <label class="form-label">Company Address <span style="color:var(--slate-light); font-weight:400;">(optional)</span></label>
+                            <input type="text" class="form-input" id="dc-settings-address-input" placeholder="Enter your company's physical/home-base address">
+                        </div>
+                        <!-- Populated by initZoneSearchPickers() with prefix "dc-settings" -->
+                        <div id="dc-settings-zone-picker-container"></div>
                         <div class="form-group">
                             <label class="form-label">Email</label>
                             <input type="email" class="form-input" id="dc-settings-email" disabled style="background:var(--bg-light); color:var(--slate-light);">
@@ -6640,6 +6663,8 @@
                         <input type="text" class="form-input" id="vendor-settings-address-input" placeholder="Enter full store address / physical pickup location (e.g., Street, City, Country)">
                         <p style="color:var(--slate-light); font-size:0.8125rem; margin-top:0.5rem; margin-bottom:0;">This address will automatically populate as the pickup location for customer orders.</p>
                     </div>
+                    <!-- Populated by initZoneSearchPickers() with prefix "vendor-settings" -->
+                    <div id="vendor-settings-zone-picker-container"></div>
                     <div class="form-group" id="vendor-settings-prep-time-group" style="display:none;">
                         <label class="form-label">Estimated Prep Time (minutes)</label>
                         <input type="number" class="form-input" id="vendor-settings-prep-time-input" min="0" max="500" placeholder="e.g. 20">
@@ -9265,6 +9290,8 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     <label class="form-label">Address</label>
                     <textarea class="form-input" id="dcust-address-form-address" rows="3" placeholder="Street, city, landmark…" required></textarea>
                 </div>
+                <!-- Populated by initZoneSearchPickers() with prefix "dcust-address-form" -->
+                <div id="dcust-address-form-zone-picker-container"></div>
                 <label class="auth-checkbox-label" style="margin-bottom: 1.25rem;">
                     <input type="checkbox" id="dcust-address-form-default">
                     Set as default
@@ -10566,6 +10593,141 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             return zone ? zone.name : null;
         }
 
+        // ---- Zone Search Picker — a reusable, self-service "search your
+        // address by Region/Zone" widget used at registration and in
+        // Settings for vendors, delivery companies, and customers. Modeled
+        // on the same debounced-search + clickable-results pattern already
+        // used by the Support Inbox "New Message" recipient picker, rather
+        // than a long native <select> — but filters client-side against
+        // deliveryZonesCache/deliveryRegionsCache (already loaded app-wide,
+        // including pre-login, by loadPublicConfig()) instead of hitting
+        // the server, since the zone/region list is small.
+        //
+        // Each instance is identified by a `prefix` and expects these
+        // elements to exist (see zoneSearchPickerHtml below for the markup
+        // that creates them): ${prefix}-zone-search (text input),
+        // ${prefix}-zone-results (results list), ${prefix}-zone-id (hidden
+        // input holding the selected zone id), ${prefix}-zone-selected /
+        // ${prefix}-zone-selected-text (the "you picked this" chip shown
+        // after selecting, with a Change link back to search).
+        function zoneSearchPickerHtml(prefix, labelText) {
+            return `
+                <div class="form-group">
+                    <label class="form-label">${labelText} <span style="color:var(--slate-light); font-weight:400;">(optional)</span></label>
+                    <input type="text" class="form-input zone-picker-input" id="${prefix}-zone-search" placeholder="Search by zone code, name, or region…" autocomplete="off">
+                    <input type="hidden" id="${prefix}-zone-id">
+                    <div class="zone-picker-results" id="${prefix}-zone-results" style="display:none; border:1px solid var(--border); border-radius:0.5rem; margin-top:0.375rem; max-height:220px; overflow-y:auto; background:white; position:relative; z-index:5;"></div>
+                    <div id="${prefix}-zone-selected" style="display:none; margin-top:0.5rem; padding:0.5rem 0.75rem; background:var(--bg-light,#f0f9ff); border-radius:0.5rem; font-size:0.875rem;">
+                        <span id="${prefix}-zone-selected-text"></span>
+                        <button type="button" class="zone-picker-change-btn" data-prefix="${prefix}" style="margin-left:0.5rem; color:var(--primary); background:none; border:none; cursor:pointer; font-size:0.8125rem; text-decoration:underline; padding:0;">Change</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderZonePickerResults(prefix) {
+            const input = document.getElementById(`${prefix}-zone-search`);
+            const resultsEl = document.getElementById(`${prefix}-zone-results`);
+            if (!input || !resultsEl) return;
+            const q = input.value.trim().toLowerCase();
+            if (!q) { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; return; }
+            const regionNameById = new Map(deliveryRegionsCache.map(r => [r.id, r.name]));
+            const matches = deliveryZonesCache.filter(z => {
+                const regionName = regionNameById.get(z.regionId) || '';
+                return (z.code || '').toLowerCase().includes(q) || z.name.toLowerCase().includes(q) || regionName.toLowerCase().includes(q);
+            }).slice(0, 20);
+            resultsEl.innerHTML = matches.length === 0
+                ? '<div style="padding:0.625rem 0.75rem; color:var(--slate-light); font-size:0.8125rem;">No matching zones.</div>'
+                : matches.map(z => `
+                    <div class="zone-picker-result" data-id="${z.id}" style="padding:0.5rem 0.75rem; cursor:pointer; border-bottom:1px solid var(--border); font-size:0.875rem;">
+                        <strong>${z.code ? `${escapeHtmlAttr(z.code)} — ` : ''}${escapeHtmlAttr(z.name)}</strong>
+                        <div style="font-size:0.75rem; color:var(--slate-light);">${escapeHtmlAttr(regionNameById.get(z.regionId) || 'Unassigned')} · $${z.fee.toFixed(2)} delivery fee</div>
+                    </div>
+                `).join('');
+            resultsEl.style.display = 'block';
+        }
+
+        function selectZoneForPicker(prefix, zone) {
+            document.getElementById(`${prefix}-zone-id`).value = zone.id;
+            const regionNameById = new Map(deliveryRegionsCache.map(r => [r.id, r.name]));
+            document.getElementById(`${prefix}-zone-selected-text`).textContent =
+                `${zone.code ? `${zone.code} — ` : ''}${zone.name} (${regionNameById.get(zone.regionId) || 'Unassigned'})`;
+            document.getElementById(`${prefix}-zone-selected`).style.display = 'block';
+            document.getElementById(`${prefix}-zone-search`).style.display = 'none';
+            document.getElementById(`${prefix}-zone-results`).style.display = 'none';
+        }
+
+        function clearZoneForPicker(prefix) {
+            document.getElementById(`${prefix}-zone-id`).value = '';
+            document.getElementById(`${prefix}-zone-selected`).style.display = 'none';
+            const input = document.getElementById(`${prefix}-zone-search`);
+            input.style.display = '';
+            input.value = '';
+            input.focus();
+        }
+
+        // Pre-fills a picker with an already-known zone — e.g. opening
+        // Settings for a vendor who already has one assigned, or editing a
+        // saved address that already has one. Falls back to a cleared,
+        // empty picker if zoneId is null/unknown.
+        function presetZoneForPicker(prefix, zoneId) {
+            const zone = zoneId ? deliveryZonesCache.find(z => z.id === zoneId) : null;
+            if (zone) selectZoneForPicker(prefix, zone);
+            else clearZoneForPicker(prefix);
+        }
+
+        // Wires one picker instance's input/results/change-link events —
+        // call once per prefix during initial page wiring, not on every
+        // open (mirrors how the New Message search input is wired once,
+        // not re-wired each time that picker is shown).
+        function wireZoneSearchPicker(prefix) {
+            const input = document.getElementById(`${prefix}-zone-search`);
+            const resultsEl = document.getElementById(`${prefix}-zone-results`);
+            if (!input || !resultsEl) return;
+            input.addEventListener('input', debounce(() => renderZonePickerResults(prefix), 150));
+            input.addEventListener('focus', () => renderZonePickerResults(prefix));
+            resultsEl.addEventListener('click', (e) => {
+                const row = e.target.closest('.zone-picker-result');
+                if (!row) return;
+                const zone = deliveryZonesCache.find(z => z.id === row.dataset.id);
+                if (zone) selectZoneForPicker(prefix, zone);
+            });
+        }
+
+        // One global click-away-to-close + Change-link handler, shared by
+        // every picker instance, rather than a per-instance document
+        // listener that would accumulate if wired more than once.
+        document.addEventListener('click', (e) => {
+            const changeBtn = e.target.closest('.zone-picker-change-btn');
+            if (changeBtn) { clearZoneForPicker(changeBtn.dataset.prefix); return; }
+            if (e.target.closest('.zone-picker-input') || e.target.closest('.zone-picker-results')) return;
+            document.querySelectorAll('.zone-picker-results').forEach(el => { el.style.display = 'none'; });
+        });
+
+        // Injects + wires every Zone Search Picker instance on the page —
+        // called once at boot. Each entry's container div (e.g.
+        // #register-vendor-zone-picker-container) already exists in the
+        // static HTML; this fills it with the reusable widget markup for
+        // that prefix and wires its events. Missing containers (e.g. a
+        // role's picker that doesn't exist yet) are skipped harmlessly.
+        function initZoneSearchPickers() {
+            const pickers = [
+                ['register-vendor', 'Delivery Zone'],
+                ['register-delivery-company', 'Delivery Zone (Home Base)'],
+                ['register-customer', 'Delivery Zone'],
+                ['vendor-settings', 'Delivery Zone'],
+                ['dc-settings', 'Delivery Zone (Home Base)'],
+                ['address-form', 'Delivery Zone'],
+                ['dcust-address-form', 'Delivery Zone'],
+            ];
+            pickers.forEach(([prefix, label]) => {
+                const container = document.getElementById(`${prefix}-zone-picker-container`);
+                if (!container) return;
+                container.innerHTML = zoneSearchPickerHtml(prefix, label);
+                wireZoneSearchPicker(prefix);
+            });
+        }
+
         // Groups cart lines by vendor — the real unit every multi-vendor
         // fee/checkout calculation works from (see /api/marketplace/
         // checkout/multi and .../multi/momo-manual).
@@ -11077,6 +11239,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             setupScrollReactiveHeader();
             initGoogleSignIn();
             loadPublicConfig().then(applyMaintenanceBannerState);
+            initZoneSearchPickers();
             wireProfilePhotoUpload('mp-settings-photo-btn', 'mp-settings-photo-input');
             wireProfilePhotoUpload('vendor-settings-photo-btn', 'vendor-settings-photo-input');
             wireProfilePhotoUpload('admin-settings-photo-btn', 'admin-settings-photo-input');
@@ -11471,6 +11634,8 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             } else if (view === 'settings') {
                 document.getElementById('dc-settings-name-input').value = currentUser.businessName || '';
                 document.getElementById('dc-settings-email').value = currentUser.email || '';
+                document.getElementById('dc-settings-address-input').value = currentUser.storeAddress || '';
+                presetZoneForPicker('dc-settings', currentUser.deliveryZoneId);
                 populateCountryCodeSelects();
                 splitPhoneNumber(currentUser.phone, 'dc-settings-phone-country', 'dc-settings-phone-input');
             }
@@ -11685,12 +11850,16 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 try {
                     const businessName = document.getElementById('dc-settings-name-input').value.trim();
                     const phone = combinePhoneNumber('dc-settings-phone-country', 'dc-settings-phone-input');
+                    const storeAddress = document.getElementById('dc-settings-address-input').value.trim();
+                    const deliveryZoneId = document.getElementById('dc-settings-zone-id').value || null;
                     const data = await apiFetch('/api/me/profile', {
                         method: 'PUT',
-                        body: JSON.stringify({ businessName, phone }),
+                        body: JSON.stringify({ businessName, phone, storeAddress, deliveryZoneId }),
                     });
                     currentUser.businessName = data.user.businessName;
                     currentUser.phone = data.user.phone;
+                    currentUser.storeAddress = data.user.storeAddress;
+                    currentUser.deliveryZoneId = data.user.deliveryZoneId;
                     document.getElementById('dc-company-name').textContent = currentUser.businessName;
                     document.getElementById('dc-avatar').textContent = currentUser.businessName.charAt(0).toUpperCase();
                     refreshMyAvatarDisplays();
@@ -12370,11 +12539,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 document.getElementById('dcust-address-form-label').value = addr.label;
                 document.getElementById('dcust-address-form-address').value = addr.address;
                 document.getElementById('dcust-address-form-default').checked = addr.isDefault;
+                presetZoneForPicker('dcust-address-form', addr.zoneId);
             } else {
                 document.getElementById('dcust-address-form-id').value = '';
                 document.getElementById('dcust-address-form-label').value = '';
                 document.getElementById('dcust-address-form-address').value = '';
                 document.getElementById('dcust-address-form-default').checked = false;
+                presetZoneForPicker('dcust-address-form', null);
             }
             form.style.display = 'block';
         }
@@ -12419,6 +12590,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 label: document.getElementById('dcust-address-form-label').value.trim(),
                 address: document.getElementById('dcust-address-form-address').value.trim(),
                 isDefault: document.getElementById('dcust-address-form-default').checked,
+                zoneId: document.getElementById('dcust-address-form-zone-id').value || null,
             });
             btn.disabled = true;
             btn.textContent = 'Saving…';
@@ -13360,6 +13532,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                                 businessRegistrationDoc: pendingBizDocDataUrl,
                                 idDocumentType,
                                 idDocumentDoc: pendingIdDocDataUrl,
+                                deliveryZoneId: document.getElementById('register-vendor-zone-id').value || undefined,
                             })
                         });
                         await saveAuth(data.token, data.user);
@@ -13397,6 +13570,8 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                                 businessRegistrationDoc: pendingBizDocDataUrl,
                                 idDocumentType,
                                 idDocumentDoc: pendingIdDocDataUrl,
+                                storeAddress: document.getElementById('register-delivery-company-address').value.trim() || undefined,
+                                deliveryZoneId: document.getElementById('register-delivery-company-zone-id').value || undefined,
                             })
                         });
                         await saveAuth(data.token, data.user);
@@ -13424,7 +13599,11 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 try {
                     const data = await apiFetch('/api/auth/register', {
                         method: 'POST',
-                        body: JSON.stringify({ businessName, email, phone, password })
+                        body: JSON.stringify({
+                            businessName, email, phone, password,
+                            address: document.getElementById('register-customer-address').value.trim() || undefined,
+                            deliveryZoneId: document.getElementById('register-customer-zone-id').value || undefined,
+                        })
                     });
                     await saveAuth(data.token, data.user);
                     await enterApp();
@@ -22980,6 +23159,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 document.getElementById('vendor-settings-name-input').value = currentUser.businessName || '';
                 splitPhoneNumber(currentUser.phone, 'vendor-settings-phone-country', 'vendor-settings-phone-input');
                 document.getElementById('vendor-settings-address-input').value = currentUser.storeAddress || '';
+                presetZoneForPicker('vendor-settings', currentUser.deliveryZoneId);
                 document.getElementById('vendor-settings-email').value = currentUser.email || '';
                 const prepTimeGroup = document.getElementById('vendor-settings-prep-time-group');
                 if (currentUser.vendorType === 'restaurant') {
@@ -23276,6 +23456,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                             businessName: document.getElementById('vendor-settings-name-input').value,
                             phone: combinePhoneNumber('vendor-settings-phone-country', 'vendor-settings-phone-input'),
                             storeAddress: document.getElementById('vendor-settings-address-input').value.trim(),
+                            deliveryZoneId: document.getElementById('vendor-settings-zone-id').value || null,
                             avgPrepTimeMinutes: currentUser.vendorType === 'restaurant'
                                 ? (document.getElementById('vendor-settings-prep-time-input').value.trim() || null)
                                 : undefined,
@@ -23284,6 +23465,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     currentUser.businessName = data.user.businessName;
                     currentUser.phone = data.user.phone;
                     currentUser.storeAddress = data.user.storeAddress;
+                    currentUser.deliveryZoneId = data.user.deliveryZoneId;
                     currentUser.avgPrepTimeMinutes = data.user.avgPrepTimeMinutes;
                     document.getElementById('vendor-display-name').textContent = currentUser.businessName;
                     document.getElementById('vendor-avatar').textContent = currentUser.businessName.charAt(0).toUpperCase();
@@ -24279,6 +24461,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('address-form-label').value = address ? address.label : '';
             document.getElementById('address-form-address').value = address ? address.address : '';
             document.getElementById('address-form-default').checked = address ? address.isDefault : false;
+            presetZoneForPicker('address-form', address ? address.zoneId : null);
             document.getElementById('address-form-error').style.display = 'none';
             document.getElementById('address-form-section').style.display = 'block';
             document.getElementById('address-form-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -25659,6 +25842,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     label: document.getElementById('address-form-label').value.trim(),
                     address: document.getElementById('address-form-address').value.trim(),
                     isDefault: document.getElementById('address-form-default').checked,
+                    zoneId: document.getElementById('address-form-zone-id').value || null,
                 });
                 btn.disabled = true;
                 btn.textContent = 'Saving…';
