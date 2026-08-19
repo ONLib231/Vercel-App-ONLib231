@@ -3992,10 +3992,10 @@
                     Messages
                     <span class="desktop-sidebar-badge messages-count-badge" style="display:none;">0</span>
                 </button>
-                <button type="button" class="desktop-sidebar-item" data-mp-tab="addresses">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                    Addresses
-                </button>
+                <!-- Addresses removed — address management now lives
+                     inside Settings (see "Saved Addresses" there), reached
+                     via the Settings item below, instead of its own
+                     sidebar destination. -->
                 <button type="button" class="desktop-sidebar-item" data-mp-tab="payment-methods">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
                     Payment Methods
@@ -4194,45 +4194,6 @@
                 </div>
             </div>
 
-            <!-- Addresses — no saved-address book exists yet; checkout
-                 asks for an address each time -->
-            <div id="mp-view-addresses" style="display:none;">
-                <div class="mobile-section" style="margin-top:0;">
-                    <div class="mobile-section-header">
-                        <div class="mobile-section-title">Saved Addresses</div>
-                        <button type="button" class="mobile-view-all" id="add-address-btn">+ Add</button>
-                    </div>
-                    <div id="saved-addresses-list"></div>
-                </div>
-
-                <!-- Add/Edit form — shown inline, not a modal, so it stays
-                     in the same tab flow -->
-                <div class="mobile-section" id="address-form-section" style="display:none;">
-                    <form id="address-form" style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm);">
-                        <input type="hidden" id="address-form-id">
-                        <div class="form-group">
-                            <label class="form-label">Label</label>
-                            <input type="text" class="form-input" id="address-form-label" placeholder="e.g. Home, Office" required>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Address</label>
-                            <textarea class="form-input" id="address-form-address" rows="3" placeholder="Street, city, landmark…" required></textarea>
-                        </div>
-                        <!-- Populated by initZoneSearchPickers() with prefix "address-form" -->
-                        <div id="address-form-zone-picker-container"></div>
-                        <label class="auth-checkbox-label" style="margin-bottom: 1.25rem;">
-                            <input type="checkbox" id="address-form-default">
-                            Set as default
-                        </label>
-                        <div class="auth-error" id="address-form-error"></div>
-                        <div style="display:flex; gap:0.75rem;">
-                            <button type="button" class="btn-small btn-secondary" id="address-form-cancel-btn" style="flex:1;">Cancel</button>
-                            <button type="submit" class="btn-primary" id="address-form-save-btn" style="flex:1;">Save Address</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
             <!-- Payment Methods — no payment gateway exists; pay on delivery only -->
             <div id="mp-view-payment-methods" style="display:none;">
                 <div class="mobile-section" style="margin-top:0; text-align:center; padding: 3rem 1rem; color: var(--slate-light);">
@@ -4274,10 +4235,63 @@
                             <label class="form-label">Role</label>
                             <input type="text" class="form-input" value="Customer" disabled style="background:var(--bg-light); color:var(--slate-light);">
                         </div>
+                        <!-- Home Base — a single preferred zone on the
+                             account itself, separate from the per-address
+                             zone each entry in Saved Addresses below can
+                             also carry. Purely descriptive, like every
+                             other use of delivery_zone_id — doesn't feed
+                             into delivery fee calculation. Populated by
+                             initZoneSearchPickers() with prefix
+                             "mp-settings". -->
+                        <div id="mp-settings-zone-picker-container"></div>
                         <div class="auth-error" id="mp-settings-error"></div>
                         <button type="submit" class="btn-primary" id="mp-settings-save-btn" style="width:100%;">Save Changes</button>
                     </form>
                     <p style="color:var(--slate-light); font-size:0.8125rem; margin-top:1rem;">Email and password changes aren't part of this form yet — those need their own careful flow (uniqueness checks, verification).</p>
+
+                    <!-- Saved Addresses — moved here from the old standalone
+                         "Addresses" tab (was reachable from the Account
+                         menu) so address management lives in Settings
+                         alongside the new Home Base zone above. Markup and
+                         every id below are unchanged from the old tab —
+                         only the surrounding container moved — so
+                         loadSavedAddresses()/renderSavedAddressesList()/
+                         openAddressForm()/etc. all keep working exactly as
+                         before. -->
+                    <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <div class="mobile-section-title">Saved Addresses</div>
+                            <button type="button" class="mobile-view-all" id="add-address-btn">+ Add</button>
+                        </div>
+                        <div id="saved-addresses-list"></div>
+                    </div>
+
+                    <!-- Add/Edit form — shown inline, not a modal, so it
+                         stays in the Settings flow -->
+                    <div id="address-form-section" style="display:none; margin-top:1rem;">
+                        <form id="address-form" style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm);">
+                            <input type="hidden" id="address-form-id">
+                            <div class="form-group">
+                                <label class="form-label">Label</label>
+                                <input type="text" class="form-input" id="address-form-label" placeholder="e.g. Home, Office" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Address</label>
+                                <textarea class="form-input" id="address-form-address" rows="3" placeholder="Street, city, landmark…" required></textarea>
+                            </div>
+                            <!-- Populated by initZoneSearchPickers() with prefix "address-form" -->
+                            <div id="address-form-zone-picker-container"></div>
+                            <label class="auth-checkbox-label" style="margin-bottom: 1.25rem;">
+                                <input type="checkbox" id="address-form-default">
+                                Set as default
+                            </label>
+                            <div class="auth-error" id="address-form-error"></div>
+                            <div style="display:flex; gap:0.75rem;">
+                                <button type="button" class="btn-small btn-secondary" id="address-form-cancel-btn" style="flex:1;">Cancel</button>
+                                <button type="submit" class="btn-primary" id="address-form-save-btn" style="flex:1;">Save Address</button>
+                            </div>
+                        </form>
+                    </div>
 
                     <!-- Appearance — same real dark theme #delivery-app's
                          Settings > Appearance already has (see the
@@ -4369,11 +4383,10 @@
                             <div><div class="mp-account-menu-title">Wishlist</div><div class="mp-account-menu-sub">View items you saved</div></div>
                             <div class="mp-account-menu-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></div>
                         </button>
-                        <button type="button" class="mp-account-menu-item" id="mp-account-menu-addresses">
-                            <div class="mp-account-menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>
-                            <div><div class="mp-account-menu-title">Addresses</div><div class="mp-account-menu-sub">Manage your delivery addresses</div></div>
-                            <div class="mp-account-menu-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></div>
-                        </button>
+                        <!-- Addresses row removed — address management now
+                             lives inside Settings (see "Saved Addresses"
+                             there), reached via the Settings row below,
+                             instead of its own destination here. -->
                         <button type="button" class="mp-account-menu-item" id="mp-account-menu-payment">
                             <div class="mp-account-menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></div>
                             <div><div class="mp-account-menu-title">Payment Methods</div><div class="mp-account-menu-sub">Coming soon — pay on delivery for now</div></div>
@@ -5104,10 +5117,10 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         Create New Order
                     </button>
-                    <button type="button" class="admin-nav-item" id="dcust-nav-addresses">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                        Addresses
-                    </button>
+                    <!-- Addresses nav item removed — address management now
+                         lives inside Settings (see "Saved Addresses"
+                         there), reached via the Settings item below,
+                         instead of its own sidebar destination. -->
                     <button type="button" class="admin-nav-item" id="dcust-nav-payment">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
                         Payment Methods
@@ -5388,10 +5401,9 @@
                 <button type="button" class="mobile-nav-item mobile-nav-item-prominent" id="dcust-mnav-new-order" aria-label="Create New Order">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
-                <button type="button" class="mobile-nav-item" id="dcust-mnav-addresses">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
-                    Addresses
-                </button>
+                <!-- Addresses bottom-nav item removed — address management
+                     now lives inside Settings, reachable from here via
+                     More → Settings. -->
                 <button type="button" class="mobile-nav-item" id="dcust-mnav-more">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
                     More
@@ -5447,6 +5459,16 @@
                             <svg class="admin-nav-group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                         </button>
                         <div class="admin-nav-group-body"><div class="admin-nav-group-body-inner">
+                            <!-- Available Orders + Recent Deliveries, moved
+                                 off the Dashboard/Overview page into its own
+                                 section per Super Admin's request — Manage
+                                 Agent still sees this content inline on
+                                 Overview (their operational home dashboard),
+                                 so this nav item is Super Admin only. -->
+                            <button type="button" class="admin-nav-item" id="open-orders-btn" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+                                Orders
+                            </button>
                             <button type="button" class="admin-nav-item" id="view-order-history-delivery">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
                                 Order History
@@ -5734,7 +5756,18 @@
                     </div>
                 </section>
 
-                <div class="admin-two-col">
+                <!-- Available Orders + Recent Deliveries — for Manage Agent
+                     this stays inline right here (their operational home
+                     dashboard, unchanged). For Super Admin it gets
+                     physically relocated (the live DOM node, not a clone —
+                     so ids stay unique and no listeners are lost) into
+                     #orders-modal-body at login, per Super Admin's request
+                     to move this off the Dashboard/Overview page into its
+                     own "Orders" section (sidebar + More sheet). See the
+                     role-detection JS that toggles isSuperAdmin for the
+                     move logic, and #admin-orders-inline-anchor below for
+                     where it comes back for Manage Agent. -->
+                <div class="admin-two-col" id="admin-orders-block">
                     <div class="admin-two-col-main">
                         <section class="orders-section" id="available-orders-section">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
@@ -5770,20 +5803,6 @@
                             </div>
                             <div id="orders-grouped-delivery"></div>
                         </section>
-
-                        <div class="admin-charts-row">
-                            <section class="orders-section admin-chart-card">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                                    <h2 class="section-title" style="margin: 0; font-size: 1rem;">Revenue Overview (This Week)</h2>
-                                </div>
-                                <canvas id="revenue-chart" height="200"></canvas>
-                            </section>
-                            <section class="orders-section admin-chart-card" style="max-width: 320px;">
-                                <h2 class="section-title" style="margin: 0 0 1rem; font-size: 1rem;">Order Status (This Week)</h2>
-                                <canvas id="order-status-chart" height="200"></canvas>
-                                <div id="order-status-legend" class="order-status-legend"></div>
-                            </section>
-                        </div>
                     </div>
 
                     <div class="admin-two-col-side">
@@ -5805,6 +5824,32 @@
                              modal (#fleet-directory-modal) is unaffected —
                              see the README section on this removal. -->
                     </div>
+                </div>
+
+                <!-- Empty anchor marking where #admin-orders-block gets
+                     reinserted for Manage Agent (see above). Never shown
+                     itself — purely a DOM position marker. -->
+                <div id="admin-orders-inline-anchor" style="display:none;"></div>
+
+                <!-- Revenue/Order Status charts stay on the Dashboard for
+                     BOTH roles unconditionally — only Available Orders and
+                     Recent Deliveries move for Super Admin, per their
+                     request. Pulled out of .admin-two-col-main (where it
+                     used to sit right under Available Orders) into its own
+                     full-width row so it renders correctly whichever role
+                     #admin-orders-block currently sits with. -->
+                <div class="admin-charts-row">
+                    <section class="orders-section admin-chart-card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h2 class="section-title" style="margin: 0; font-size: 1rem;">Revenue Overview (This Week)</h2>
+                        </div>
+                        <canvas id="revenue-chart" height="200"></canvas>
+                    </section>
+                    <section class="orders-section admin-chart-card" style="max-width: 320px;">
+                        <h2 class="section-title" style="margin: 0 0 1rem; font-size: 1rem;">Order Status (This Week)</h2>
+                        <canvas id="order-status-chart" height="200"></canvas>
+                        <div id="order-status-legend" class="order-status-legend"></div>
+                    </section>
                 </div>
                 </div>
 
@@ -8360,6 +8405,25 @@
          role = 'admin' ("Manage Agent"), replacing what used to be a
          single hardcoded account. Same table/modal pattern as Vendors
          and Delivery Companies above. -->
+    <!-- Orders — Available Orders + Recent Deliveries, Super Admin only.
+         Moved out of the Dashboard/Overview page at Super Admin's request
+         so Platform Overview isn't buried under the delivery-ops queue.
+         #orders-modal-body starts empty; the real content
+         (#admin-orders-block, defined inline in #admin-operational-view)
+         gets physically relocated in here for Super Admin at login — see
+         the isSuperAdmin role-detection JS. Manage Agent never opens this
+         modal (their nav entry to it stays hidden) — they keep seeing the
+         same content inline on Overview, unchanged. -->
+    <div class="modal-overlay" id="orders-modal">
+        <div class="modal" style="max-width: 1200px; width: 95%; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>📦 Orders</h3>
+                <button class="close-btn" id="close-orders-modal">&times;</button>
+            </div>
+            <div id="orders-modal-body"></div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="staff-modal">
         <div class="modal" style="max-width: 900px; width: 95%; max-height: 85vh; overflow-y: auto;">
             <div class="modal-header">
@@ -9264,47 +9328,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
     </div>
 
     <!-- Help & Support -->
-    <!-- Delivery customer: Addresses (real data, reused from the same
-         savedAddressesCache/loadSavedAddresses already built for
-         Marketplace checkout — same account, same addresses). -->
-    <div class="modal-overlay" id="dcust-addresses-modal">
-        <div class="modal">
-            <div class="modal-header">
-                <h3>📍 Addresses</h3>
-                <button class="close-btn" id="close-dcust-addresses-modal">&times;</button>
-            </div>
-            <button type="button" class="btn-small btn-success" id="dcust-add-address-btn" style="margin-bottom:1rem;">+ Add Address</button>
-            <div id="dcust-addresses-list"></div>
-
-            <!-- Add/Edit form — shown inline, same real endpoints
-                 (/api/addresses) already used by Marketplace's own
-                 address management, just a separate form since the two
-                 live in different top-level app containers. -->
-            <form id="dcust-address-form" style="display:none; background:var(--bg-light); border-radius:1rem; padding:1.25rem; margin-top:1rem;">
-                <input type="hidden" id="dcust-address-form-id">
-                <div class="form-group">
-                    <label class="form-label">Label</label>
-                    <input type="text" class="form-input" id="dcust-address-form-label" placeholder="e.g. Home, Office" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Address</label>
-                    <textarea class="form-input" id="dcust-address-form-address" rows="3" placeholder="Street, city, landmark…" required></textarea>
-                </div>
-                <!-- Populated by initZoneSearchPickers() with prefix "dcust-address-form" -->
-                <div id="dcust-address-form-zone-picker-container"></div>
-                <label class="auth-checkbox-label" style="margin-bottom: 1.25rem;">
-                    <input type="checkbox" id="dcust-address-form-default">
-                    Set as default
-                </label>
-                <div class="auth-error" id="dcust-address-form-error"></div>
-                <div style="display:flex; gap:0.75rem;">
-                    <button type="button" class="btn-small btn-secondary" id="dcust-address-form-cancel-btn" style="flex:1;">Cancel</button>
-                    <button type="submit" class="btn-primary" id="dcust-address-form-save-btn" style="flex:1;">Save Address</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <!-- Delivery customer: Payment Methods — same honest "Coming Soon"
          messaging already used on the Marketplace side, not a new
          placeholder invented for this screen. -->
@@ -9476,6 +9499,14 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 <button class="close-btn" id="close-admin-more-modal">&times;</button>
             </div>
             <div class="admin-more-list">
+                <button type="button" class="admin-more-item" id="admin-more-orders" style="display:none;">
+                    <span class="admin-more-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></span>
+                    <span class="admin-more-item-text">
+                        <span class="admin-more-item-title">Orders</span>
+                        <span class="admin-more-item-subtitle">Available orders and recent deliveries</span>
+                    </span>
+                    <svg class="admin-more-item-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
                 <button type="button" class="admin-more-item" id="admin-more-order-history">
                     <span class="admin-more-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></span>
                     <span class="admin-more-item-text">
@@ -9655,8 +9686,59 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     <label class="form-label">Email</label>
                     <input type="email" class="form-input" id="dcust-settings-email" disabled style="background:var(--bg-light); color:var(--slate-light);">
                 </div>
+                <!-- Home Base — a single preferred zone on the account
+                     itself, separate from the per-address zone each entry
+                     in Saved Addresses below can also carry. Purely
+                     descriptive, like every other use of delivery_zone_id
+                     — doesn't feed into delivery fee calculation.
+                     Populated by initZoneSearchPickers() with prefix
+                     "dcust-settings". -->
+                <div id="dcust-settings-zone-picker-container"></div>
                 <div id="dcust-settings-error" style="color: #dc2626; font-size: 0.875rem; margin-bottom: 1rem; display: none;"></div>
                 <button type="submit" class="btn-small btn-success" id="dcust-settings-submit-btn">Save Changes</button>
+            </form>
+
+            <!-- Saved Addresses — moved here from the old standalone
+                 Addresses modal (was its own sidebar/bottom-nav item) so
+                 address management lives in Settings alongside the new
+                 Home Base zone above. Markup and every id below are
+                 unchanged from the old modal — only the surrounding
+                 container moved — so loadDcustAddressesList()'s render
+                 logic, openDcustAddressForm()/handleDcustAddressFormSubmit()/
+                 etc. all keep working exactly as before. -->
+            <div style="background:white; border-radius:1rem; padding:1.25rem; border:1px solid var(--border); box-shadow:var(--shadow-sm); margin-top:1rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                    <div class="mobile-section-title">Saved Addresses</div>
+                    <button type="button" class="btn-small btn-success" id="dcust-add-address-btn">+ Add</button>
+                </div>
+                <div id="dcust-addresses-list"></div>
+            </div>
+
+            <!-- Add/Edit form — shown inline, same real endpoints
+                 (/api/addresses) already used by Marketplace's own
+                 address management, just a separate form since the two
+                 live in different top-level app containers. -->
+            <form id="dcust-address-form" style="display:none; background:var(--bg-light); border-radius:1rem; padding:1.25rem; margin-top:1rem;">
+                <input type="hidden" id="dcust-address-form-id">
+                <div class="form-group">
+                    <label class="form-label">Label</label>
+                    <input type="text" class="form-input" id="dcust-address-form-label" placeholder="e.g. Home, Office" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Address</label>
+                    <textarea class="form-input" id="dcust-address-form-address" rows="3" placeholder="Street, city, landmark…" required></textarea>
+                </div>
+                <!-- Populated by initZoneSearchPickers() with prefix "dcust-address-form" -->
+                <div id="dcust-address-form-zone-picker-container"></div>
+                <label class="auth-checkbox-label" style="margin-bottom: 1.25rem;">
+                    <input type="checkbox" id="dcust-address-form-default">
+                    Set as default
+                </label>
+                <div class="auth-error" id="dcust-address-form-error"></div>
+                <div style="display:flex; gap:0.75rem;">
+                    <button type="button" class="btn-small btn-secondary" id="dcust-address-form-cancel-btn" style="flex:1;">Cancel</button>
+                    <button type="submit" class="btn-primary" id="dcust-address-form-save-btn" style="flex:1;">Save Address</button>
+                </div>
             </form>
 
             <!-- Appearance — same real dark theme as Manage Agent/
@@ -10719,6 +10801,8 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 ['dc-settings', 'Delivery Zone (Home Base)'],
                 ['address-form', 'Delivery Zone'],
                 ['dcust-address-form', 'Delivery Zone'],
+                ['mp-settings', 'Delivery Zone (Home Base)'],
+                ['dcust-settings', 'Delivery Zone (Home Base)'],
             ];
             pickers.forEach(([prefix, label]) => {
                 const container = document.getElementById(`${prefix}-zone-picker-container`);
@@ -12074,7 +12158,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
         // Bottom nav tab switching — Home and Categories share the same
         // underlying feed (Categories just focuses the category picker),
         // Stores/Wishlist/Account are their own views.
-        const MP_TAB_VIEWS = ['shop', 'stores', 'wishlist', 'deals', 'orders', 'messages', 'addresses', 'payment-methods', 'settings', 'account'];
+        const MP_TAB_VIEWS = ['shop', 'stores', 'wishlist', 'deals', 'orders', 'messages', 'payment-methods', 'settings', 'account'];
 
         function setMarketplaceTab(tab) {
             document.querySelectorAll('#home-screen .mobile-nav-item, #home-screen .desktop-sidebar-item[data-mp-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.mpTab === tab));
@@ -12099,13 +12183,16 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 document.getElementById('mp-messages-thread-view').style.display = 'none';
                 document.getElementById('mp-messages-list-view').style.display = 'block';
                 loadConversations('mp');
-            } else if (tab === 'addresses') {
-                closeAddressForm();
-                loadSavedAddresses();
             } else if (tab === 'settings' && currentUser) {
                 document.getElementById('mp-settings-name-input').value = currentUser.businessName || '';
                 splitPhoneNumber(currentUser.phone, 'mp-settings-phone-country', 'mp-settings-phone-input');
                 document.getElementById('mp-settings-email').value = currentUser.email || '';
+                presetZoneForPicker('mp-settings', currentUser.deliveryZoneId);
+                // Saved Addresses now lives inside Settings (moved from the
+                // old standalone "Addresses" tab) — load it every time
+                // Settings opens, same as the old tab did.
+                closeAddressForm();
+                loadSavedAddresses();
             } else if (tab === 'account' && currentUser && currentUser.role === 'sender') {
                 loadAccountOverview();
             }
@@ -12188,7 +12275,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             const locationPill = document.getElementById('dcust-location-pill');
             if (locationPill) locationPill.style.display = mode === 'customer' ? 'inline-flex' : 'none';
             // Mirrors the sidebar gating above for narrow viewports: the
-            // mobile bottom nav's items (My Orders, Addresses, More) are
+            // mobile bottom nav's items (My Orders, More) are
             // all account-specific, same as the sidebar it stands in for
             // below the desktop breakpoint. Previously this stayed
             // visible for guests too — a fixed-position bar with nothing
@@ -12499,11 +12586,15 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('cart-modal').classList.add('active');
         }
 
-        async function openDcustAddressesModal() {
+        // Renders the Saved Addresses list inside Settings — was its own
+        // standalone modal (openDcustAddressesModal opened it directly);
+        // now called from openDcustSettingsModal() each time Settings
+        // opens, same as Marketplace's own loadSavedAddresses() does for
+        // its Settings tab.
+        async function loadDcustAddressesList() {
             const container = document.getElementById('dcust-addresses-list');
             container.innerHTML = '<p style="text-align:center; color:var(--slate-light);">Loading…</p>';
             document.getElementById('dcust-address-form').style.display = 'none';
-            document.getElementById('dcust-addresses-modal').classList.add('active');
             try {
                 const data = await apiFetch('/api/addresses');
                 savedAddressesCache = data.addresses || [];
@@ -12559,7 +12650,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             try {
                 await apiFetch(`/api/addresses/${addressId}`, { method: 'DELETE' });
                 showToast('Address deleted', 'success');
-                await openDcustAddressesModal();
+                await loadDcustAddressesList();
             } catch (err) {
                 showToast(err.message, 'error');
             }
@@ -12574,7 +12665,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     body: JSON.stringify({ label: address.label, address: address.address, isDefault: true }),
                 });
                 showToast('Default address updated', 'success');
-                await openDcustAddressesModal();
+                await loadDcustAddressesList();
             } catch (err) {
                 showToast(err.message, 'error');
             }
@@ -12602,7 +12693,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 }
                 showToast('Address saved', 'success');
                 closeDcustAddressForm();
-                await openDcustAddressesModal();
+                await loadDcustAddressesList();
             } catch (err) {
                 errorEl.textContent = err.message;
                 errorEl.style.display = 'block';
@@ -12620,6 +12711,11 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             populateCountryCodeSelects();
             splitPhoneNumber(currentUser.phone, 'dcust-settings-phone-country', 'dcust-settings-phone-input');
             refreshMyAvatarDisplays();
+            presetZoneForPicker('dcust-settings', currentUser.deliveryZoneId);
+            // Saved Addresses now lives inside Settings (moved from the
+            // old standalone Addresses modal) — load it every time
+            // Settings opens, same as the old modal did.
+            loadDcustAddressesList();
             document.getElementById('dcust-settings-modal').classList.add('active');
         }
 
@@ -12633,12 +12729,14 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             try {
                 const businessName = document.getElementById('dcust-settings-name-input').value.trim();
                 const phone = combinePhoneNumber('dcust-settings-phone-country', 'dcust-settings-phone-input');
+                const deliveryZoneId = document.getElementById('dcust-settings-zone-id').value || null;
                 const data = await apiFetch('/api/me/profile', {
                     method: 'PUT',
-                    body: JSON.stringify({ businessName, phone }),
+                    body: JSON.stringify({ businessName, phone, deliveryZoneId }),
                 });
                 currentUser.businessName = data.user.businessName;
                 currentUser.phone = data.user.phone;
+                currentUser.deliveryZoneId = data.user.deliveryZoneId;
                 document.getElementById('delivery-sender-display-name').textContent = currentUser.businessName;
                 document.getElementById('delivery-sender-avatar').textContent = currentUser.businessName.charAt(0).toUpperCase();
                 document.getElementById('dcust-welcome-name').textContent = `Welcome, ${currentUser.businessName}! 👋`;
@@ -12676,7 +12774,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             // ---- Account Menu (mobile Account hub) ----
             document.getElementById('mp-account-menu-orders').addEventListener('click', () => setMarketplaceTab('orders'));
             document.getElementById('mp-account-menu-wishlist').addEventListener('click', () => setMarketplaceTab('wishlist'));
-            document.getElementById('mp-account-menu-addresses').addEventListener('click', () => setMarketplaceTab('addresses'));
             document.getElementById('mp-account-menu-disputes').addEventListener('click', () => {
                 document.getElementById('my-disputes-modal').classList.add('active');
                 loadMyDisputesPanel();
@@ -12795,10 +12892,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('dcust-sidebar-new-order-btn').addEventListener('click', openNewOrderModal);
             document.getElementById('dcust-orders-search').addEventListener('input', applyDcustOrdersFilter);
             document.getElementById('dcust-orders-status-filter').addEventListener('change', applyDcustOrdersFilter);
-            document.getElementById('dcust-nav-addresses').addEventListener('click', openDcustAddressesModal);
-            document.getElementById('close-dcust-addresses-modal').addEventListener('click', () => {
-                document.getElementById('dcust-addresses-modal').classList.remove('active');
-            });
             document.getElementById('dcust-add-address-btn').addEventListener('click', () => openDcustAddressForm(null));
             document.getElementById('dcust-address-form-cancel-btn').addEventListener('click', closeDcustAddressForm);
             document.getElementById('dcust-address-form').addEventListener('submit', handleDcustAddressFormSubmit);
@@ -12840,7 +12933,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('dcust-mnav-dashboard').addEventListener('click', () => setDeliveryCustomerView('dashboard'));
             document.getElementById('dcust-mnav-my-orders').addEventListener('click', () => setDeliveryCustomerView('my-orders'));
             document.getElementById('dcust-mnav-new-order').addEventListener('click', openNewOrderModal);
-            document.getElementById('dcust-mnav-addresses').addEventListener('click', openDcustAddressesModal);
             document.getElementById('dcust-mnav-more').addEventListener('click', () => {
                 document.getElementById('dcust-more-modal').classList.add('active');
             });
@@ -13064,6 +13156,29 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 const superAdminOverviewBlock = document.getElementById('super-admin-overview-view');
                 if (superAdminOverviewBlock) superAdminOverviewBlock.style.display = isSuperAdmin ? 'block' : 'none';
                 document.getElementById('admin-overview-nav-label').textContent = 'Overview';
+                // Orders (Available Orders + Recent Deliveries) — Super
+                // Admin's own request to move this off the Dashboard/
+                // Overview page into its own section. Manage Agent keeps
+                // it inline as their operational home dashboard (nav entry
+                // stays hidden for them, block stays put).
+                const ordersNavBtn = document.getElementById('open-orders-btn');
+                if (ordersNavBtn) ordersNavBtn.style.display = isSuperAdmin ? 'flex' : 'none';
+                const moreOrdersBtn = document.getElementById('admin-more-orders');
+                if (moreOrdersBtn) moreOrdersBtn.style.display = isSuperAdmin ? 'flex' : 'none';
+                // Physically relocate the live #admin-orders-block node
+                // (not a clone — ids stay unique, no listeners lost)
+                // between its inline home and the Orders modal, based on
+                // role. Idempotent — safe to run on every login.
+                const ordersBlock = document.getElementById('admin-orders-block');
+                const ordersModalBody = document.getElementById('orders-modal-body');
+                const ordersInlineAnchor = document.getElementById('admin-orders-inline-anchor');
+                if (ordersBlock && ordersModalBody && ordersInlineAnchor) {
+                    if (isSuperAdmin && ordersBlock.parentElement !== ordersModalBody) {
+                        ordersModalBody.appendChild(ordersBlock);
+                    } else if (!isSuperAdmin && ordersBlock.parentElement !== ordersInlineAnchor.parentElement) {
+                        ordersInlineAnchor.parentElement.insertBefore(ordersBlock, ordersInlineAnchor);
+                    }
+                }
                 // Mobile bottom nav — same role split as the sidebar above,
                 // just mirrored onto the mobile-only nav buttons.
                 // Fleet was Manage-Agent-only here to begin with (Super
@@ -14849,7 +14964,16 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             const todaySpotlightCtaBtn = document.getElementById('admin-today-spotlight-cta');
             if (todaySpotlightCtaBtn) {
                 todaySpotlightCtaBtn.addEventListener('click', () => {
-                    document.getElementById('available-orders-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Available Orders lives inline here for Manage Agent
+                    // (scroll to it), but moved into its own Orders modal
+                    // for Super Admin (open that instead) — see the
+                    // isSuperAdmin role-detection JS that relocates
+                    // #admin-orders-block.
+                    if (currentUser && currentUser.role === 'super_admin') {
+                        document.getElementById('open-orders-btn').click();
+                    } else {
+                        document.getElementById('available-orders-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
                 });
             }
 
@@ -15521,6 +15645,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 document.getElementById('vendors-modal').classList.add('active');
                 loadVendors();
             });
+            // ---- Orders (Available Orders + Recent Deliveries, Super Admin only) ----
+            document.getElementById('open-orders-btn').addEventListener('click', () => {
+                document.getElementById('orders-modal').classList.add('active');
+            });
+            document.getElementById('close-orders-modal').addEventListener('click', () => {
+                document.getElementById('orders-modal').classList.remove('active');
+            });
             // ---- Staff Accounts (Super Admin only) ----
             document.getElementById('sa-manage-staff-btn').addEventListener('click', () => {
                 document.getElementById('staff-modal').classList.add('active');
@@ -15569,8 +15700,10 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 loadCustomers();
             });
             document.getElementById('sa-quick-delivery-ops-btn').addEventListener('click', () => {
-                setAdminMainView('operational');
-                document.getElementById('admin-operational-view').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Super-Admin-only Quick Action — Available Orders now
+                // lives in its own Orders modal for this role, not inline
+                // on Overview.
+                document.getElementById('open-orders-btn').click();
             });
             document.getElementById('sa-quick-products-btn').addEventListener('click', () => {
                 document.getElementById('product-moderation-modal').classList.add('active');
@@ -16045,6 +16178,10 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             });
             document.getElementById('close-admin-more-modal').addEventListener('click', () => {
                 document.getElementById('admin-more-modal').classList.remove('active');
+            });
+            document.getElementById('admin-more-orders').addEventListener('click', () => {
+                document.getElementById('admin-more-modal').classList.remove('active');
+                document.getElementById('open-orders-btn').click();
             });
             document.getElementById('admin-more-order-history').addEventListener('click', () => {
                 document.getElementById('admin-more-modal').classList.remove('active');
@@ -24052,7 +24189,17 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             } else {
                 pill.innerHTML = `📍 <a href="#" id="dcust-location-pill-add">Add your delivery address</a>`;
                 const link = document.getElementById('dcust-location-pill-add');
-                if (link) link.addEventListener('click', (e) => { e.preventDefault(); document.getElementById('dcust-nav-addresses')?.click(); });
+                // Addresses now lives inside Settings (was its own modal
+                // reachable via #dcust-nav-addresses, since removed) — open
+                // Settings, then jump straight to the Add Address form so
+                // this shortcut still lands the customer exactly where it
+                // used to in one click.
+                if (link) link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    openDcustSettingsModal();
+                    openDcustAddressForm(null);
+                    document.getElementById('dcust-address-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
             }
         }
 
@@ -25872,15 +26019,18 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 btn.disabled = true;
                 btn.textContent = 'Saving…';
                 try {
+                    const deliveryZoneId = document.getElementById('mp-settings-zone-id').value || null;
                     const data = await apiFetch('/api/me/profile', {
                         method: 'PUT',
                         body: JSON.stringify({
                             businessName: document.getElementById('mp-settings-name-input').value,
                             phone: combinePhoneNumber('mp-settings-phone-country', 'mp-settings-phone-input'),
+                            deliveryZoneId,
                         }),
                     });
                     currentUser.businessName = data.user.businessName;
                     currentUser.phone = data.user.phone;
+                    currentUser.deliveryZoneId = data.user.deliveryZoneId;
                     document.getElementById('mp-account-hero-name').textContent = `Hello, ${currentUser.businessName}!`;
                     document.getElementById('mp-account-hero-avatar').textContent = currentUser.businessName.charAt(0).toUpperCase();
                     document.getElementById('desktop-profile-name').textContent = currentUser.businessName;

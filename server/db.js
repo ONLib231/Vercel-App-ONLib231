@@ -595,13 +595,17 @@ const db = {
   // Self-service zone assignment — the account itself picking its own
   // zone via the Zone Search Picker (registration or Settings), as
   // opposed to setVendorDeliveryZone below, which is the Super Admin's
-  // separate, still-unchanged assignment route. Scoped to vendor/
-  // delivery_company only, same restriction the Super Admin route
-  // already enforced for vendor — senders never get a user-level zone
-  // (theirs lives per saved address, see setSavedAddress* above).
+  // separate, still-unchanged assignment route. Originally vendor/
+  // delivery_company only; 'sender' (customer) joined the list once
+  // customers gained their own self-service "Home Base" zone in
+  // Settings — this is a separate, single preferred zone on the user
+  // row, distinct from the per-address zone a customer can also set on
+  // each entry in their saved-addresses book (see setSavedAddress*
+  // above). Purely descriptive for every role, same as the vendor/
+  // delivery_company case — it never feeds into fee calculation.
   async setSelfDeliveryZone(userId, zoneId) {
     const { rows } = await pool.query(
-      `UPDATE users SET delivery_zone_id = $1 WHERE id = $2 AND role IN ('vendor', 'delivery_company') RETURNING id`,
+      `UPDATE users SET delivery_zone_id = $1 WHERE id = $2 AND role IN ('vendor', 'delivery_company', 'sender') RETURNING id`,
       [zoneId || null, userId]
     );
     return rows.length > 0;

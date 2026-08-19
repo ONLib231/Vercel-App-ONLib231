@@ -1286,14 +1286,18 @@ app.get('/api/me', requireAuth, async (req, res) => {
 
 // Self-service profile edit — any authenticated user updating their own
 // name/phone (customer, vendor, admin, or super admin). Email and
-// password stay on their existing separate flows. storeAddress and
-// deliveryZoneId are vendor/delivery_company only (see schema.sql's
-// comments on those columns) — a vendor or delivery company can now set
-// their own zone here via the Zone Search Picker, alongside the Super
-// Admin's separate, still-unchanged assignment route.
+// password stay on their existing separate flows. storeAddress stays
+// vendor/delivery_company only (see schema.sql's comments on that
+// column — customers have no single store/company address, they have a
+// whole saved-addresses book instead). deliveryZoneId ("Home Base") is
+// now self-service for vendor, delivery_company, AND sender (customer)
+// — a customer's own preferred zone, separate from the per-address zone
+// on each entry in their saved-addresses book — alongside the Super
+// Admin's separate, still-unchanged vendor assignment route.
 app.put('/api/me/profile', requireAuth, async (req, res) => {
   const { businessName, phone, storeAddress, avgPrepTimeMinutes, deliveryZoneId } = req.body || {};
-  const canSelfSetZone = req.user.role === 'vendor' || req.user.role === 'delivery_company';
+  const canSelfSetStoreAddress = req.user.role === 'vendor' || req.user.role === 'delivery_company';
+  const canSelfSetZone = canSelfSetStoreAddress || req.user.role === 'sender';
   if (!businessName || !businessName.trim()) {
     return res.status(400).json({ error: 'Name cannot be empty' });
   }
@@ -1311,7 +1315,7 @@ app.put('/api/me/profile', requireAuth, async (req, res) => {
     const updated = await db.updateUserProfile(req.user.id, {
       businessName: businessName.trim(),
       phone: phone ? phone.trim() : null,
-      storeAddress: canSelfSetZone && storeAddress !== undefined ? (storeAddress.trim() || null) : undefined,
+      storeAddress: canSelfSetStoreAddress && storeAddress !== undefined ? (storeAddress.trim() || null) : undefined,
       avgPrepTimeMinutes: req.user.role === 'vendor' && existing && existing.vendorType === 'restaurant' && avgPrepTimeMinutes !== undefined
         ? (avgPrepTimeMinutes === null || avgPrepTimeMinutes === '' ? null : Number(avgPrepTimeMinutes))
         : undefined,

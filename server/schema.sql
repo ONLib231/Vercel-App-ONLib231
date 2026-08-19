@@ -1327,13 +1327,16 @@ CREATE TABLE IF NOT EXISTS delivery_zones (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 -- Originally Super-Admin-assigned only, for role = 'vendor'. Now also
--- self-service: a vendor or delivery_company can set their own zone
--- from Settings/registration by searching it (see the Zone Search
--- Picker in index.html and setSelfDeliveryZone in db.js) — the Super
--- Admin's own assignment route/UI is unchanged and can still override
--- it. Not used by role = 'sender' — a customer's zone lives per saved
--- address instead (see saved_addresses.zone_id below), since one
--- customer can have several addresses in different zones.
+-- self-service: a vendor, delivery_company, or sender (customer) can
+-- set their own "Home Base" zone from Settings/registration by
+-- searching it (see the Zone Search Picker in index.html and
+-- setSelfDeliveryZone in db.js) — the Super Admin's own vendor
+-- assignment route/UI is unchanged and can still override it. For a
+-- sender this is a single preferred zone on the user row, separate
+-- from the per-address zone they can also set on each entry in their
+-- saved-addresses book (see saved_addresses.zone_id below) — one
+-- customer can have several addresses in different zones, but only one
+-- Home Base.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS delivery_zone_id TEXT REFERENCES delivery_zones(id) ON DELETE SET NULL;
 
 -- Delivery Regions — a Super-Admin-defined grouping ABOVE zones (e.g.
