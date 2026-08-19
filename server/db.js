@@ -176,6 +176,14 @@ function isFuture(ts) {
   return !!ts && new Date(ts).getTime() > Date.now();
 }
 
+// Shared id-slug helper — same rule the delivery-zone create route has
+// always used inline (lowercase, non-alphanumeric runs collapsed to a
+// single underscore, trimmed), now also used by the Regions/Zones bulk
+// import so imported ids look the same as manually-created ones.
+function slugify(text, fallback) {
+  return String(text || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || fallback;
+}
+
 function rowToHomeBanner(r) {
   if (!r) return null;
   return {
@@ -1444,15 +1452,29 @@ const db = {
     await pool.query('DELETE FROM momo_providers WHERE id = $1', [id]);
   },
 
-  // ---- Delivery Zones (Super Admin managed) -----------------------------
+  // ---- Delivery Zones & Regions (Super Admin managed) --------------------
   // See schema.sql's comment on delivery_zones — a real, admin-defined
-  // substitute for geolocation this app doesn't have.
+  // substitute for geolocation this app doesn't have. Regions are a purely
+  // organizational grouping ABOVE zones (see schema.sql's comment on
+  // delivery_regions) — the fee still lives on the zone.
 
   rowToDeliveryZone(r) {
     return {
       id: r.id,
       name: r.name,
+      code: r.code || null,
+      regionId: r.region_id || null,
       fee: Number(r.fee),
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  },
+
+  rowToDeliveryRegion(r) {
+    return {
+      id: r.id,
+      name: r.name,
       sortOrder: r.sort_order,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -1469,19 +1491,27 @@ const db = {
     return rows[0] ? this.rowToDeliveryZone(rows[0]) : null;
   },
 
-  async createDeliveryZone({ id, name, fee, sortOrder }) {
+  async getDeliveryZoneByCode(code) {
+    if (!code) return null;
+    const { rows } = await pool.query('SELECT * FROM delivery_zones WHERE code = $1', [code]);
+    return rows[0] ? this.rowToDeliveryZone(rows[0]) : null;
+  },
+
+  async createDeliveryZone({ id, name, code, regionId, fee, sortOrder }) {
     const { rows } = await pool.query(
-      `INSERT INTO delivery_zones (id, name, fee, sort_order) VALUES ($1, $2, $3, $4) RETURNING *`,
-      [id, name, fee, sortOrder || 0]
+      `INSERT INTO delivery_zones (id, name, code, region_id, fee, sort_order) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [id, name, code || null, regionId || null, fee, sortOrder || 0]
     );
     return this.rowToDeliveryZone(rows[0]);
   },
 
-  async updateDeliveryZone(id, { name, fee, sortOrder }) {
+  async updateDeliveryZone(id, { name, code, regionId, fee, sortOrder }) {
     const sets = [];
     const values = [];
     let i = 1;
     if (name !== undefined) { sets.push(`name = $${i}`); values.push(name); i += 1; }
+    if (code !== undefined) { sets.push(`code = $${i}`); values.push(code || null); i += 1; }
+    if (regionId !== undefined) { sets.push(`region_id = $${i}`); values.push(regionId || null); i += 1; }
     if (fee !== undefined) { sets.push(`fee = $${i}`); values.push(fee); i += 1; }
     if (sortOrder !== undefined) { sets.push(`sort_order = $${i}`); values.push(sortOrder); i += 1; }
     if (sets.length === 0) return this.getDeliveryZoneById(id);
@@ -1504,6 +1534,127 @@ const db = {
       [zoneId || null, vendorId]
     );
     return rows.length > 0;
+  },
+
+  async getAllDeliveryRegions() {
+    const { rows } = await pool.query('SELECT * FROM delivery_regions ORDER BY sort_order ASC, created_at ASC');
+    return rows.map(this.rowToDeliveryRegion);
+  },
+
+  async getDeliveryRegionById(id) {
+    const { rows } = await pool.query('SELECT * FROM delivery_regions WHERE id = $1', [id]);
+    return rows[0] ? this.rowToDeliveryRegion(rows[0]) : null;
+  },
+
+  async getDeliveryRegionByName(name) {
+    if (!name) return null;
+    const { rows } = await pool.query('SELECT * FROM delivery_regions WHERE lower(name) = lower($1)', [name]);
+    return rows[0] ? this.rowToDeliveryRegion(rows[0]) : null;
+  },
+
+  async createDeliveryRegion({ id, name, sortOrder }) {
+    const { rows } = await pool.query(
+      `INSERT INTO delivery_regions (id, name, sort_order) VALUES ($1, $2, $3) RETURNING *`,
+      [id, name, sortOrder || 0]
+    );
+    return this.rowToDeliveryRegion(rows[0]);
+  },
+
+  async updateDeliveryRegion(id, { name, sortOrder }) {
+    const sets = [];
+    const values = [];
+    let i = 1;
+    if (name !== undefined) { sets.push(`name = $${i}`); values.push(name); i += 1; }
+    if (sortOrder !== undefined) { sets.push(`sort_order = $${i}`); values.push(sortOrder); i += 1; }
+    if (sets.length === 0) return this.getDeliveryRegionById(id);
+    sets.push('updated_at = now()');
+    values.push(id);
+    const { rows } = await pool.query(`UPDATE delivery_regions SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`, values);
+    return rows[0] ? this.rowToDeliveryRegion(rows[0]) : null;
+  },
+
+  async deleteDeliveryRegion(id) {
+    // Zones in this region fall back to "Unassigned" (region_id NULL) via
+    // the FK's ON DELETE SET NULL — never left pointing at a deleted
+    // region, and never deleted themselves just because their region was.
+    await pool.query('DELETE FROM delivery_regions WHERE id = $1', [id]);
+  },
+
+  // Bulk import used by the Super Admin "Import Regions & Zones" flow.
+  // `regions` is [{ name, zones: [{ code, name, fee }] }], already parsed
+  // and validated by the caller (server.js) from the pasted text. Matching
+  // is by name (case-insensitive) for regions and by code for zones, so
+  // re-importing the same list later updates fees/names in place instead
+  // of creating duplicates — the whole point of a code being a stable key
+  // (see schema.sql's comment on delivery_zones.code). Runs as one
+  // transaction: either the whole list is applied, or none of it is.
+  async importDeliveryZones(regions) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: existingRegionRows } = await client.query('SELECT * FROM delivery_regions');
+      const { rows: existingZoneRows } = await client.query('SELECT * FROM delivery_zones');
+      const regionByName = new Map(existingRegionRows.map(r => [String(r.name).toLowerCase(), r]));
+      const zoneByCode = new Map(existingZoneRows.filter(z => z.code).map(z => [z.code, z]));
+      const usedRegionIds = new Set(existingRegionRows.map(r => r.id));
+      const usedZoneIds = new Set(existingZoneRows.map(z => z.id));
+      let regionSortOrder = existingRegionRows.length;
+      let zoneSortOrder = existingZoneRows.length;
+      const summary = { regionsCreated: 0, regionsUpdated: 0, zonesCreated: 0, zonesUpdated: 0 };
+
+      const uniqueId = (base, used) => {
+        let id = base;
+        let suffix = 2;
+        while (used.has(id)) { id = `${base}_${suffix}`; suffix += 1; }
+        used.add(id);
+        return id;
+      };
+
+      for (const region of regions) {
+        let regionRow = regionByName.get(region.name.toLowerCase());
+        if (!regionRow) {
+          const id = uniqueId(slugify(region.name, 'region'), usedRegionIds);
+          const { rows } = await client.query(
+            `INSERT INTO delivery_regions (id, name, sort_order) VALUES ($1, $2, $3) RETURNING *`,
+            [id, region.name, regionSortOrder]
+          );
+          regionRow = rows[0];
+          regionByName.set(region.name.toLowerCase(), regionRow);
+          regionSortOrder += 1;
+          summary.regionsCreated += 1;
+        } else {
+          summary.regionsUpdated += 1;
+        }
+
+        for (const zone of region.zones) {
+          const existingZone = zoneByCode.get(zone.code);
+          if (existingZone) {
+            await client.query(
+              `UPDATE delivery_zones SET name = $1, fee = $2, region_id = $3, updated_at = now() WHERE id = $4`,
+              [zone.name, zone.fee, regionRow.id, existingZone.id]
+            );
+            summary.zonesUpdated += 1;
+          } else {
+            const id = uniqueId(slugify(`${zone.code}_${zone.name}`, 'zone'), usedZoneIds);
+            const { rows } = await client.query(
+              `INSERT INTO delivery_zones (id, name, code, region_id, fee, sort_order) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+              [id, zone.name, zone.code, regionRow.id, zone.fee, zoneSortOrder]
+            );
+            zoneByCode.set(zone.code, rows[0]);
+            zoneSortOrder += 1;
+            summary.zonesCreated += 1;
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+      return summary;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   },
 
   // ---- Login history ---------------------------------------------------

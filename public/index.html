@@ -9133,17 +9133,62 @@
                 <div class="auth-error" id="momo-providers-error" style="display:none; margin-top:0.75rem;"></div>
             </div>
 
-            <!-- Delivery Zones — same real, admin-defined substitute for
-                 geolocation described in schema.sql's comment on
-                 delivery_zones. Assign each vendor to one from the
-                 Vendors table (see the zone dropdown added to
-                 loadVendors' row template). -->
+            <!-- Delivery Zones & Regions — same real, admin-defined
+                 substitute for geolocation described in schema.sql's
+                 comment on delivery_zones. Zones are grouped under
+                 Regions (schema.sql's comment on delivery_regions) —
+                 purely organizational, the fee still lives on the
+                 zone — and can be added one at a time or bulk-imported
+                 from a pasted list (see the Import modal). Assign each
+                 vendor to a zone from the Vendors table (see the zone
+                 dropdown added to loadVendors' row template). -->
             <div style="border-top:1px solid var(--border); margin-top:1.5rem; padding-top:1.5rem;">
                 <h4 style="font-weight:700; margin-bottom:0.375rem;">📍 Delivery Zones</h4>
-                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:1rem;">Each zone has its own flat delivery fee. Assign vendors to a zone from the Vendors panel — checkout charges the real fee for every vendor in a customer's cart, combined.</p>
+                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:1rem;">Zones are grouped by Region and each has its own flat delivery fee. Assign vendors to a zone from the Vendors panel — checkout charges the real fee for every vendor in a customer's cart, combined.</p>
                 <div id="delivery-zones-list"></div>
-                <button type="button" class="btn-small btn-secondary" id="delivery-zone-add-btn" style="margin-top:0.5rem;">+ Add Zone</button>
+                <div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">
+                    <button type="button" class="btn-small btn-secondary" id="delivery-region-add-btn">+ Add Region</button>
+                    <button type="button" class="btn-small btn-secondary" id="delivery-zone-add-btn">+ Add Zone</button>
+                    <button type="button" class="btn-small btn-secondary" id="delivery-zones-import-btn">⬆ Import Regions &amp; Zones</button>
+                </div>
                 <div class="auth-error" id="delivery-zones-error" style="display:none; margin-top:0.75rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delivery Zones & Regions bulk import — lets the Super Admin
+         paste a whole Region/Zone list instead of adding each zone one
+         at a time. See parseDeliveryZonesImportText in server.js for
+         the exact expected format. Re-importing later updates existing
+         regions (matched by name) and zones (matched by code) instead
+         of duplicating them. Placed after platform-settings-modal in
+         the DOM — every .modal-overlay shares one z-index (see that
+         CSS rule), so a modal opened from within another modal must
+         come later in the DOM to actually stack on top of it and
+         receive clicks (same reasoning already documented near
+         order-details-modal/staff-modal for this same pattern). -->
+    <div class="modal-overlay" id="delivery-zones-import-modal">
+        <div class="modal" style="max-width: 560px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Import Regions &amp; Zones</h3>
+                <button class="close-btn" id="close-delivery-zones-import-modal">&times;</button>
+            </div>
+            <div style="padding:1.25rem;">
+                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.75rem;">Paste a list like this — one REGION line, then its zones underneath (blank line between regions):</p>
+                <pre style="background:#f8fafc; border:1px solid var(--border); border-radius:0.5rem; padding:0.625rem; font-size:0.75rem; overflow-x:auto; margin-bottom:0.75rem; white-space:pre-wrap;">REGION 1 — CENTRAL MONROVIA
+Z01 — Central Monrovia — $2.00
+Z03 — Vai Town, Clara Town — $2.50
+
+REGION 2 — SINKOR &amp; CONGO TOWN
+Z02 — Sinkor — $1.50
+Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
+                <textarea id="delivery-zones-import-text" class="form-input" rows="10" placeholder="Paste your regions and zones here..." style="width:100%; font-family:monospace; font-size:0.8125rem;"></textarea>
+                <div class="auth-error" id="delivery-zones-import-error" style="display:none; margin-top:0.75rem; white-space:pre-line;"></div>
+                <div id="delivery-zones-import-summary" style="display:none; margin-top:0.75rem; font-weight:700; color:#15803d;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-small btn-secondary" id="cancel-delivery-zones-import-btn">Cancel</button>
+                <button type="button" class="btn-small btn-success" id="submit-delivery-zones-import-btn">Import</button>
             </div>
         </div>
     </div>
@@ -10495,17 +10540,23 @@
             try {
                 const zonesData = await apiFetch('/api/delivery-zones');
                 deliveryZonesCache = zonesData.zones || [];
+                deliveryRegionsCache = zonesData.regions || [];
             } catch (err) {
                 console.error('Failed to load delivery zones', err);
                 deliveryZonesCache = [];
+                deliveryRegionsCache = [];
             }
         }
 
         // Real, Super-Admin-defined delivery zones (see schema.sql's
         // comment on delivery_zones) — a vendor with no zone assigned
         // has no real fee to charge, so this returns 0 rather than
-        // guessing/defaulting to something fabricated.
+        // guessing/defaulting to something fabricated. Zones are
+        // grouped under Regions (see schema.sql's comment on
+        // delivery_regions) — purely organizational, the fee still
+        // lives on the zone.
         let deliveryZonesCache = [];
+        let deliveryRegionsCache = [];
         function getVendorZoneFee(vendorDeliveryZoneId) {
             const zone = deliveryZonesCache.find(z => z.id === vendorDeliveryZoneId);
             return zone ? zone.fee : 0;
@@ -10620,7 +10671,15 @@
             if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
             const res = await fetch(path, Object.assign({}, options, { headers }));
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+            if (!res.ok) {
+                const err = new Error(data.error || `Request failed (${res.status})`);
+                // Some routes (e.g. the delivery-zones import) return a
+                // per-line `details` array alongside the summary error —
+                // attach it so a catch block can show the full list, not
+                // just the generic top-level message.
+                if (data.details) err.details = data.details;
+                throw err;
+            }
             return data;
         }
 
@@ -15642,7 +15701,7 @@
                 }
             });
 
-            // ---- Delivery Zones ----
+            // ---- Delivery Zones & Regions ----
             document.getElementById('delivery-zone-add-btn').addEventListener('click', async () => {
                 const errorEl = document.getElementById('delivery-zones-error');
                 errorEl.style.display = 'none';
@@ -15657,15 +15716,52 @@
                     errorEl.style.display = 'block';
                 }
             });
-            document.getElementById('delivery-zones-list').addEventListener('click', (e) => {
-                const row = e.target.closest('.delivery-zone-row');
-                if (!row) return;
-                if (e.target.classList.contains('delivery-zone-save-btn')) saveDeliveryZoneRow(row);
-                if (e.target.classList.contains('delivery-zone-delete-btn')) {
-                    const name = row.querySelector('.delivery-zone-name-input').value;
-                    deleteDeliveryZoneRow(row.dataset.id, name);
+            document.getElementById('delivery-region-add-btn').addEventListener('click', async () => {
+                const errorEl = document.getElementById('delivery-zones-error');
+                errorEl.style.display = 'none';
+                try {
+                    await apiFetch('/api/super-admin/delivery-regions', {
+                        method: 'POST',
+                        body: JSON.stringify({ name: 'New Region' }),
+                    });
+                    loadDeliveryZonesPanel();
+                } catch (err) {
+                    errorEl.textContent = err.message;
+                    errorEl.style.display = 'block';
                 }
             });
+            document.getElementById('delivery-zones-list').addEventListener('click', (e) => {
+                const zoneRow = e.target.closest('.delivery-zone-row');
+                if (zoneRow) {
+                    if (e.target.classList.contains('delivery-zone-save-btn')) saveDeliveryZoneRow(zoneRow);
+                    if (e.target.classList.contains('delivery-zone-delete-btn')) {
+                        const name = zoneRow.querySelector('.delivery-zone-name-input').value;
+                        deleteDeliveryZoneRow(zoneRow.dataset.id, name);
+                    }
+                    return;
+                }
+                const regionGroup = e.target.closest('.delivery-region-group');
+                if (regionGroup && regionGroup.dataset.id) {
+                    if (e.target.classList.contains('delivery-region-save-btn')) saveDeliveryRegionRow(regionGroup);
+                    if (e.target.classList.contains('delivery-region-delete-btn')) {
+                        const name = regionGroup.querySelector('.delivery-region-name-input').value;
+                        deleteDeliveryRegionRow(regionGroup.dataset.id, name);
+                    }
+                }
+            });
+            document.getElementById('delivery-zones-import-btn').addEventListener('click', () => {
+                document.getElementById('delivery-zones-import-text').value = '';
+                document.getElementById('delivery-zones-import-error').style.display = 'none';
+                document.getElementById('delivery-zones-import-summary').style.display = 'none';
+                document.getElementById('delivery-zones-import-modal').classList.add('active');
+            });
+            document.getElementById('close-delivery-zones-import-modal').addEventListener('click', () => {
+                document.getElementById('delivery-zones-import-modal').classList.remove('active');
+            });
+            document.getElementById('cancel-delivery-zones-import-btn').addEventListener('click', () => {
+                document.getElementById('delivery-zones-import-modal').classList.remove('active');
+            });
+            document.getElementById('submit-delivery-zones-import-btn').addEventListener('click', submitDeliveryZonesImport);
 
             // ---- Help & Support ----
             document.getElementById('open-help-support-btn').addEventListener('click', () => {
@@ -16238,7 +16334,20 @@
                             <td>
                                 <select class="form-input vendor-zone-select" data-id="${v.id}" style="padding:0.3rem 0.5rem; font-size:0.8125rem;">
                                     <option value="">— No zone —</option>
-                                    ${deliveryZonesCache.map(z => `<option value="${z.id}" ${v.deliveryZoneId === z.id ? 'selected' : ''}>${z.name} ($${z.fee.toFixed(2)})</option>`).join('')}
+                                    ${deliveryRegionsCache.map(r => {
+                                        const zonesInRegion = deliveryZonesCache.filter(z => z.regionId === r.id);
+                                        if (zonesInRegion.length === 0) return '';
+                                        return `<optgroup label="${r.name.replace(/"/g, '&quot;')}">
+                                            ${zonesInRegion.map(z => `<option value="${z.id}" ${v.deliveryZoneId === z.id ? 'selected' : ''}>${z.code ? `${z.code} — ` : ''}${z.name} ($${z.fee.toFixed(2)})</option>`).join('')}
+                                        </optgroup>`;
+                                    }).join('')}
+                                    ${(() => {
+                                        const unassigned = deliveryZonesCache.filter(z => !z.regionId);
+                                        if (unassigned.length === 0) return '';
+                                        return `<optgroup label="Unassigned">
+                                            ${unassigned.map(z => `<option value="${z.id}" ${v.deliveryZoneId === z.id ? 'selected' : ''}>${z.code ? `${z.code} — ` : ''}${z.name} ($${z.fee.toFixed(2)})</option>`).join('')}
+                                        </optgroup>`;
+                                    })()}
                                 </select>
                             </td>
                             <td>${new Date(v.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
@@ -18098,19 +18207,26 @@
             }
         }
 
-        // ---- Delivery Zones (Super Admin) — same pattern as Mobile
-        // Money Providers above. See schema.sql's comment on
-        // delivery_zones for why this is a real, admin-defined
-        // substitute for geolocation.
+        // ---- Delivery Zones & Regions (Super Admin) — same pattern as
+        // Mobile Money Providers above. See schema.sql's comments on
+        // delivery_zones and delivery_regions for why this is a real,
+        // admin-defined substitute for geolocation, and why regions are
+        // a purely organizational grouping above zones (the fee still
+        // lives on the zone).
         let deliveryZonesPanelCache = [];
+        let deliveryRegionsPanelCache = [];
 
         async function loadDeliveryZonesPanel() {
             const container = document.getElementById('delivery-zones-list');
             const errorEl = document.getElementById('delivery-zones-error');
             errorEl.style.display = 'none';
             try {
-                const data = await apiFetch('/api/super-admin/delivery-zones');
-                deliveryZonesPanelCache = data.zones || [];
+                const [zonesData, regionsData] = await Promise.all([
+                    apiFetch('/api/super-admin/delivery-zones'),
+                    apiFetch('/api/super-admin/delivery-regions'),
+                ]);
+                deliveryZonesPanelCache = zonesData.zones || [];
+                deliveryRegionsPanelCache = regionsData.regions || [];
                 renderDeliveryZonesPanel();
             } catch (err) {
                 container.innerHTML = '';
@@ -18119,30 +18235,65 @@
             }
         }
 
-        function renderDeliveryZonesPanel() {
-            const container = document.getElementById('delivery-zones-list');
-            if (deliveryZonesPanelCache.length === 0) {
-                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.875rem;">No delivery zones yet — vendors have no real fee to charge until you add one.</p>';
-                return;
-            }
-            container.innerHTML = deliveryZonesPanelCache.map(z => `
-                <div class="delivery-zone-row" data-id="${z.id}" style="display:flex; align-items:center; gap:0.625rem; border:1px solid var(--border); border-radius:0.625rem; padding:0.75rem; margin-bottom:0.625rem;">
-                    <input type="text" class="form-input delivery-zone-name-input" value="${z.name.replace(/"/g, '&quot;')}" placeholder="Zone name" style="flex:1;">
+        function deliveryZoneRowHtml(z) {
+            return `
+                <div class="delivery-zone-row" data-id="${z.id}" style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; border:1px solid var(--border); border-radius:0.625rem; padding:0.625rem 0.75rem; margin-bottom:0.5rem; background:#fff;">
+                    <input type="text" class="form-input delivery-zone-code-input" value="${escapeHtmlAttr(z.code || '')}" placeholder="Code (e.g. Z01)" style="width:90px;">
+                    <input type="text" class="form-input delivery-zone-name-input" value="${escapeHtmlAttr(z.name)}" placeholder="Zone name" style="flex:1; min-width:140px;">
+                    <select class="form-input delivery-zone-region-select" style="width:180px;">
+                        <option value="">— Unassigned —</option>
+                        ${deliveryRegionsPanelCache.map(r => `<option value="${r.id}" ${z.regionId === r.id ? 'selected' : ''}>${escapeHtmlAttr(r.name)}</option>`).join('')}
+                    </select>
                     <div style="display:flex; align-items:center; gap:0.375rem;">
                         <span style="color:var(--slate-light);">$</span>
-                        <input type="number" class="form-input delivery-zone-fee-input" value="${z.fee}" min="0" step="0.01" placeholder="Fee" style="width:90px;">
+                        <input type="number" class="form-input delivery-zone-fee-input" value="${z.fee}" min="0" step="0.01" placeholder="Fee" style="width:85px;">
                     </div>
                     <button type="button" class="btn-small btn-secondary delivery-zone-save-btn">Save</button>
                     <button type="button" class="btn-small delivery-zone-delete-btn" style="background:#fee2e2; color:#991b1b;">Delete</button>
                 </div>
-            `).join('');
+            `;
+        }
+
+        function renderDeliveryZonesPanel() {
+            const container = document.getElementById('delivery-zones-list');
+            if (deliveryZonesPanelCache.length === 0 && deliveryRegionsPanelCache.length === 0) {
+                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.875rem;">No delivery zones yet — vendors have no real fee to charge until you add one, or import a list.</p>';
+                return;
+            }
+            const regionsHtml = deliveryRegionsPanelCache.map(r => {
+                const zones = deliveryZonesPanelCache.filter(z => z.regionId === r.id);
+                return `
+                    <div class="delivery-region-group" data-id="${r.id}" style="margin-bottom:1rem; border:1px solid var(--border); border-radius:0.75rem; padding:0.75rem; background:#f8fafc;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.625rem;">
+                            <input type="text" class="form-input delivery-region-name-input" value="${escapeHtmlAttr(r.name)}" placeholder="Region name" style="flex:1; font-weight:700;">
+                            <button type="button" class="btn-small btn-secondary delivery-region-save-btn">Save</button>
+                            <button type="button" class="btn-small delivery-region-delete-btn" style="background:#fee2e2; color:#991b1b;">Delete</button>
+                        </div>
+                        <div class="delivery-region-zones">
+                            ${zones.length ? zones.map(deliveryZoneRowHtml).join('') : '<p style="color:var(--slate-light); font-size:0.8125rem; margin:0;">No zones in this region yet.</p>'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            const unassignedZones = deliveryZonesPanelCache.filter(z => !z.regionId);
+            const unassignedHtml = unassignedZones.length ? `
+                <div class="delivery-region-group" style="margin-bottom:1rem; border:1px dashed var(--border); border-radius:0.75rem; padding:0.75rem;">
+                    <div style="font-weight:700; margin-bottom:0.625rem; color:var(--slate-light);">Unassigned</div>
+                    <div class="delivery-region-zones">
+                        ${unassignedZones.map(deliveryZoneRowHtml).join('')}
+                    </div>
+                </div>
+            ` : '';
+            container.innerHTML = regionsHtml + unassignedHtml;
         }
 
         async function saveDeliveryZoneRow(row) {
             const id = row.dataset.id;
             const errorEl = document.getElementById('delivery-zones-error');
             errorEl.style.display = 'none';
+            const code = row.querySelector('.delivery-zone-code-input').value.trim();
             const name = row.querySelector('.delivery-zone-name-input').value.trim();
+            const regionId = row.querySelector('.delivery-zone-region-select').value;
             const fee = Number(row.querySelector('.delivery-zone-fee-input').value);
             if (!name || !Number.isFinite(fee) || fee < 0) {
                 errorEl.textContent = 'Zone name and a valid fee are both required.';
@@ -18152,7 +18303,7 @@
             try {
                 await apiFetch(`/api/super-admin/delivery-zones/${id}`, {
                     method: 'PUT',
-                    body: JSON.stringify({ name, fee }),
+                    body: JSON.stringify({ name, fee, code, regionId }),
                 });
                 showToast('Zone saved', 'success');
                 loadDeliveryZonesPanel();
@@ -18170,6 +18321,73 @@
                 loadDeliveryZonesPanel();
             } catch (err) {
                 showToast(err.message, 'error');
+            }
+        }
+
+        async function saveDeliveryRegionRow(row) {
+            const id = row.dataset.id;
+            const errorEl = document.getElementById('delivery-zones-error');
+            errorEl.style.display = 'none';
+            const name = row.querySelector('.delivery-region-name-input').value.trim();
+            if (!name) {
+                errorEl.textContent = 'A region name is required.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            try {
+                await apiFetch(`/api/super-admin/delivery-regions/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name }),
+                });
+                showToast('Region saved', 'success');
+                loadDeliveryZonesPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        async function deleteDeliveryRegionRow(id, name) {
+            if (!confirm(`Remove region "${name}"? Its zones stay, but become Unassigned until reassigned to another region.`)) return;
+            try {
+                await apiFetch(`/api/super-admin/delivery-regions/${id}`, { method: 'DELETE' });
+                showToast('Region removed', 'success');
+                loadDeliveryZonesPanel();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function submitDeliveryZonesImport() {
+            const btn = document.getElementById('submit-delivery-zones-import-btn');
+            const errorEl = document.getElementById('delivery-zones-import-error');
+            const summaryEl = document.getElementById('delivery-zones-import-summary');
+            errorEl.style.display = 'none';
+            summaryEl.style.display = 'none';
+            const text = document.getElementById('delivery-zones-import-text').value;
+            if (!text || !text.trim()) {
+                errorEl.textContent = 'Paste the regions and zones to import.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = 'Importing…';
+            try {
+                const result = await apiFetch('/api/super-admin/delivery-zones/import', {
+                    method: 'POST',
+                    body: JSON.stringify({ text }),
+                });
+                const { summary } = result;
+                summaryEl.textContent = `Imported: ${summary.regionsCreated} region(s) added, ${summary.regionsUpdated} matched, ${summary.zonesCreated} zone(s) added, ${summary.zonesUpdated} updated.`;
+                summaryEl.style.display = 'block';
+                document.getElementById('delivery-zones-import-text').value = '';
+                loadDeliveryZonesPanel();
+            } catch (err) {
+                errorEl.textContent = (err.details && err.details.length) ? err.details.join('\n') : err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Import';
             }
         }
 

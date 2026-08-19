@@ -1467,17 +1467,25 @@ app.get('/api/super-admin/delivery-zones', requireAuth, requireSuperAdmin, async
 });
 
 app.post('/api/super-admin/delivery-zones', requireAuth, requireSuperAdmin, async (req, res) => {
-  const { name, fee } = req.body || {};
+  const { name, fee, code, regionId } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'A zone name is required' });
   const feeNum = Number(fee);
   if (!Number.isFinite(feeNum) || feeNum < 0) return res.status(400).json({ error: 'A valid delivery fee is required' });
+  const trimmedCode = code && code.trim() ? code.trim() : null;
   try {
     const zones = await db.getAllDeliveryZones();
+    if (trimmedCode && zones.some(z => z.code === trimmedCode)) {
+      return res.status(400).json({ error: `Zone code "${trimmedCode}" is already used` });
+    }
+    if (regionId) {
+      const region = await db.getDeliveryRegionById(regionId);
+      if (!region) return res.status(400).json({ error: 'Region not found' });
+    }
     let baseId = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'zone';
     let id = baseId;
     let suffix = 2;
     while (zones.some(z => z.id === id)) { id = `${baseId}_${suffix}`; suffix += 1; }
-    const zone = await db.createDeliveryZone({ id, name: name.trim(), fee: feeNum, sortOrder: zones.length });
+    const zone = await db.createDeliveryZone({ id, name: name.trim(), code: trimmedCode, regionId: regionId || null, fee: feeNum, sortOrder: zones.length });
     await logAudit(req, 'delivery_zone.create', { targetType: 'delivery_zone', targetId: zone.id, targetLabel: zone.name });
     res.json({ ok: true, zone });
   } catch (err) {
@@ -1487,14 +1495,27 @@ app.post('/api/super-admin/delivery-zones', requireAuth, requireSuperAdmin, asyn
 });
 
 app.put('/api/super-admin/delivery-zones/:id', requireAuth, requireSuperAdmin, async (req, res) => {
-  const { name, fee, sortOrder } = req.body || {};
+  const { name, fee, sortOrder, code, regionId } = req.body || {};
   if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'A zone name is required' });
   if (fee !== undefined && (!Number.isFinite(Number(fee)) || Number(fee) < 0)) {
     return res.status(400).json({ error: 'A valid delivery fee is required' });
   }
+  const trimmedCode = code !== undefined ? (code && code.trim() ? code.trim() : null) : undefined;
   try {
+    if (trimmedCode) {
+      const existing = await db.getDeliveryZoneByCode(trimmedCode);
+      if (existing && existing.id !== req.params.id) {
+        return res.status(400).json({ error: `Zone code "${trimmedCode}" is already used` });
+      }
+    }
+    if (regionId) {
+      const region = await db.getDeliveryRegionById(regionId);
+      if (!region) return res.status(400).json({ error: 'Region not found' });
+    }
     const zone = await db.updateDeliveryZone(req.params.id, {
       name: name !== undefined ? name.trim() : undefined,
+      code: trimmedCode,
+      regionId: regionId !== undefined ? (regionId || null) : undefined,
       fee: fee !== undefined ? Number(fee) : undefined,
       sortOrder,
     });
@@ -1536,15 +1557,160 @@ app.put('/api/super-admin/vendors/:id/delivery-zone', requireAuth, requireSuperA
   }
 });
 
-// Public — every enabled zone, so checkout can show a real per-vendor
-// fee and label before the customer is even logged in.
+// Public — every enabled zone (+ its regions), so checkout can show a
+// real per-vendor fee and label before the customer is even logged in.
+// `regions` is included alongside the existing flat `zones` array so
+// this stays backward compatible with any code that only reads `zones`.
 app.get('/api/delivery-zones', async (req, res) => {
   try {
-    const zones = await db.getAllDeliveryZones();
-    res.json({ zones });
+    const [zones, regions] = await Promise.all([db.getAllDeliveryZones(), db.getAllDeliveryRegions()]);
+    res.json({ zones, regions });
   } catch (err) {
     console.error('GET /api/delivery-zones failed', err);
     res.status(500).json({ error: 'Failed to load delivery zones' });
+  }
+});
+
+// ============================================================
+// Delivery Regions (Super Admin) — a purely organizational grouping
+// above zones (see schema.sql's comment on delivery_regions). Same
+// CRUD shape as delivery zones above.
+// ============================================================
+app.get('/api/super-admin/delivery-regions', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const regions = await db.getAllDeliveryRegions();
+    res.json({ regions });
+  } catch (err) {
+    console.error('GET /api/super-admin/delivery-regions failed', err);
+    res.status(500).json({ error: 'Failed to load delivery regions' });
+  }
+});
+
+app.post('/api/super-admin/delivery-regions', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { name } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'A region name is required' });
+  try {
+    const regions = await db.getAllDeliveryRegions();
+    let baseId = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'region';
+    let id = baseId;
+    let suffix = 2;
+    while (regions.some(r => r.id === id)) { id = `${baseId}_${suffix}`; suffix += 1; }
+    const region = await db.createDeliveryRegion({ id, name: name.trim(), sortOrder: regions.length });
+    await logAudit(req, 'delivery_region.create', { targetType: 'delivery_region', targetId: region.id, targetLabel: region.name });
+    res.json({ ok: true, region });
+  } catch (err) {
+    console.error('POST /api/super-admin/delivery-regions failed', err);
+    res.status(500).json({ error: 'Failed to add delivery region' });
+  }
+});
+
+app.put('/api/super-admin/delivery-regions/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { name, sortOrder } = req.body || {};
+  if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'A region name is required' });
+  try {
+    const region = await db.updateDeliveryRegion(req.params.id, {
+      name: name !== undefined ? name.trim() : undefined,
+      sortOrder,
+    });
+    if (!region) return res.status(404).json({ error: 'Region not found' });
+    await logAudit(req, 'delivery_region.update', { targetType: 'delivery_region', targetId: region.id, targetLabel: region.name });
+    res.json({ ok: true, region });
+  } catch (err) {
+    console.error('PUT /api/super-admin/delivery-regions/:id failed', err);
+    res.status(500).json({ error: 'Failed to update delivery region' });
+  }
+});
+
+app.delete('/api/super-admin/delivery-regions/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    // Zones in this region fall back to "Unassigned" via the FK's ON
+    // DELETE SET NULL (see schema.sql) — never deleted along with it.
+    await db.deleteDeliveryRegion(req.params.id);
+    await logAudit(req, 'delivery_region.delete', { targetType: 'delivery_region', targetId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/super-admin/delivery-regions/:id failed', err);
+    res.status(500).json({ error: 'Failed to delete delivery region' });
+  }
+});
+
+// Bulk import — lets the Super Admin paste a whole Region/Zone list
+// (e.g. copied from a planning doc) instead of adding each zone one at
+// a time. Expected format, one region header followed by its zones:
+//   REGION 1 — CENTRAL MONROVIA
+//   Z01 — Central Monrovia — $2.00
+//   Z03 — Vai Town, Clara Town — $2.50
+// Re-importing the same list later updates existing regions (matched
+// by name) and zones (matched by code) in place rather than
+// duplicating them — see db.importDeliveryZones.
+function parseDeliveryZonesImportText(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const regions = [];
+  const errors = [];
+  const seenCodes = new Set();
+  let currentRegion = null;
+  const REGION_RE = /^REGION\b/i;
+  const ZONE_RE = /^(\S+)\s+[—–-]\s+(.+?)\s+[—–-]\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s*$/;
+
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const lineNo = idx + 1;
+    if (REGION_RE.test(line)) {
+      currentRegion = { name: line, zones: [] };
+      regions.push(currentRegion);
+      return;
+    }
+    const m = line.match(ZONE_RE);
+    if (m) {
+      if (!currentRegion) {
+        errors.push(`Line ${lineNo}: zone "${line}" appears before any REGION header.`);
+        return;
+      }
+      const code = m[1].trim();
+      const name = m[2].trim();
+      const fee = Number(m[3].replace(/,/g, ''));
+      if (!Number.isFinite(fee) || fee < 0) {
+        errors.push(`Line ${lineNo}: invalid fee in "${line}".`);
+        return;
+      }
+      if (seenCodes.has(code)) {
+        errors.push(`Line ${lineNo}: duplicate zone code "${code}" in this import.`);
+        return;
+      }
+      seenCodes.add(code);
+      currentRegion.zones.push({ code, name, fee });
+      return;
+    }
+    errors.push(`Line ${lineNo}: could not parse "${line}". Expected "REGION ..." or "CODE — Name — $Fee".`);
+  });
+
+  regions.filter(r => r.zones.length === 0).forEach(r => errors.push(`Region "${r.name}" has no zones listed under it.`));
+
+  return { regions: regions.filter(r => r.zones.length > 0), errors };
+}
+
+app.post('/api/super-admin/delivery-zones/import', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Paste the regions and zones to import.' });
+  const { regions, errors } = parseDeliveryZonesImportText(text);
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Could not parse the pasted list.', details: errors });
+  }
+  if (regions.length === 0) {
+    return res.status(400).json({ error: 'No regions found in the pasted list.' });
+  }
+  try {
+    const summary = await db.importDeliveryZones(regions);
+    await logAudit(req, 'delivery_zone.import', {
+      targetType: 'delivery_zone',
+      targetLabel: `${summary.regionsCreated + summary.regionsUpdated} region(s), ${summary.zonesCreated + summary.zonesUpdated} zone(s)`,
+    });
+    const [zones, allRegions] = await Promise.all([db.getAllDeliveryZones(), db.getAllDeliveryRegions()]);
+    res.json({ ok: true, summary, zones, regions: allRegions });
+  } catch (err) {
+    console.error('POST /api/super-admin/delivery-zones/import failed', err);
+    res.status(500).json({ error: 'Import failed' });
   }
 });
 

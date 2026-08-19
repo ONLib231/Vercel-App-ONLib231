@@ -1315,6 +1315,30 @@ CREATE TABLE IF NOT EXISTS delivery_zones (
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS delivery_zone_id TEXT REFERENCES delivery_zones(id) ON DELETE SET NULL;
 
+-- Delivery Regions — a Super-Admin-defined grouping ABOVE zones (e.g.
+-- "REGION 1 — CENTRAL MONROVIA" containing zones Z01, Z03, ...). Purely
+-- organizational: the delivery fee still lives on the zone, a region
+-- has no fee of its own. A zone's region is optional (region_id can be
+-- NULL — "Unassigned") so existing zones created before this feature
+-- keep working with no region set.
+CREATE TABLE IF NOT EXISTS delivery_regions (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS region_id TEXT REFERENCES delivery_regions(id) ON DELETE SET NULL;
+
+-- Short admin-facing zone code (e.g. "Z01"), shown alongside the zone's
+-- descriptive name so a bulk-imported list (see the delivery-zones
+-- import route in server.js) can be re-imported later to update fees
+-- without creating duplicates — the code, not the name, is the stable
+-- match key. Optional/nullable (existing zones predate codes) but
+-- unique when set.
+ALTER TABLE delivery_zones ADD COLUMN IF NOT EXISTS code TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_zones_code ON delivery_zones (code) WHERE code IS NOT NULL;
+
 -- Real delivery fee charged to the customer at checkout — snapshotted
 -- at checkout time (same "never trust a stale value later" pattern as
 -- purchases.service_fee), so a zone's fee changing afterward never
