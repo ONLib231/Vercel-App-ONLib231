@@ -3705,6 +3705,341 @@
             #delivery-customer-app .dcust-trust-item { padding: 0; }
             #delivery-customer-app .dcust-wide-card-grid { grid-template-columns: 1fr; }
         }
+
+        /* ==========================================================
+           TAOBAO-STYLE SKIN — ONLib Marketplace (#home-screen)
+           ----------------------------------------------------------
+           A visual layer over the existing marketplace components,
+           modelled on taobao.com: orange (#FF5000) as the single brand
+           colour, red (#FF0036) reserved for prices, a near-white page
+           carrying white content "modules", a dense borderless product
+           waterfall, and the three-column desktop hero (category rail |
+           banner | account card).
+
+           Deliberately scoped to #home-screen only. ONLib Delivery, the
+           vendor dashboard and the admin dashboard share many of these
+           class names (.mobile-topbar, .product-card, ...) and stay on
+           the original navy/red palette — this is the shopper-facing
+           storefront's identity, not the whole product's.
+
+           Written as a final override block rather than by editing the
+           rules above, so the original theme stays intact and readable
+           and this whole skin can be lifted out in one piece.
+           ========================================================== */
+        #home-screen {
+            --tb-orange: #FF5000;
+            --tb-orange-lit: #FF7A00;
+            --tb-orange-dark: #E04600;
+            --tb-tint: #FFF1EB;
+            --tb-price: #FF0036;
+            --tb-ink: #1F1F1F;
+            --tb-muted: #7A7A7A;
+            --tb-faint: #B5B5B5;
+            --tb-surface: #F5F5F5;
+            --tb-line: #EDEDED;
+            --tb-night: #11192D;
+
+            /* Remap the tokens the existing components already consume,
+               so all of them repaint from this single place instead of
+               each needing its own override below. */
+            --golib-red: var(--tb-orange);
+            --golib-red-dark: var(--tb-orange-dark);
+            --golib-navy: var(--tb-night);
+            --golib-navy-light: #1D2A47;
+            --golib-blue: var(--tb-orange);
+            --golib-blue-dark: var(--tb-orange-dark);
+            --primary: var(--tb-orange);
+            --primary-dark: var(--tb-orange-dark);
+            --slate: var(--tb-ink);
+            --slate-light: var(--tb-muted);
+            --slate-lighter: var(--tb-faint);
+            --bg-light: var(--tb-surface);
+            --border: var(--tb-line);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 6px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        /* ---------- Header: orange bar + white pill search ---------- */
+        #home-screen .mobile-topbar {
+            background: linear-gradient(180deg, #FF5000 0%, #FF7300 100%);
+            border-bottom: none; color: #fff;
+        }
+        #home-screen .mobile-icon-btn,
+        #home-screen .mp-back-to-chooser-btn {
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(255, 255, 255, 0.35);
+            color: #fff;
+        }
+        #home-screen .mobile-icon-badge {
+            background: #fff; color: var(--tb-orange); border-color: rgba(255, 255, 255, 0.55);
+        }
+        #home-screen .mp-topbar-auth-link,
+        #home-screen .mp-topbar-auth-link:not(.primary) { color: #fff; }
+        #home-screen .mp-topbar-divider { background: rgba(255, 255, 255, 0.35); }
+        #home-screen .mobile-search-bar {
+            background: #fff; border: none; border-radius: 9999px; box-shadow: none;
+            gap: 0.5rem; padding: 0.25rem 0.25rem 0.25rem 0.9375rem;
+        }
+        #home-screen .mobile-search-bar svg { color: var(--tb-faint); }
+        #home-screen .mobile-search-bar input { font-size: 0.875rem; }
+        #home-screen .mobile-search-bar input::placeholder { color: var(--tb-faint); }
+        .mobile-search-go {
+            flex-shrink: 0; border: none; cursor: pointer; height: 36px; padding: 0 1.125rem;
+            border-radius: 9999px; background: linear-gradient(135deg, #FF5000, #FF7A00);
+            color: #fff; font-weight: 700; font-size: 0.8125rem; font-family: inherit;
+        }
+        .mobile-search-go:hover { background: linear-gradient(135deg, #E04600, #FF6A00); }
+
+        /* ---------- Hot search words ---------- */
+        .tb-hotwords {
+            display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.75rem 0 0.125rem;
+            scrollbar-width: none; -ms-overflow-style: none;
+        }
+        .tb-hotwords::-webkit-scrollbar { display: none; }
+        .tb-hotwords:empty { display: none; }
+        .tb-hotword {
+            flex-shrink: 0; border: none; cursor: pointer; font-family: inherit;
+            background: var(--tb-tint); color: #C9400A; font-size: 0.75rem; font-weight: 600;
+            padding: 0.375rem 0.75rem; border-radius: 9999px; white-space: nowrap;
+        }
+        .tb-hotword.is-hot { background: linear-gradient(135deg, #FF5000, #FF7A00); color: #fff; }
+
+        /* ---------- Hero row: rail | banner | account card ----------
+           One column on phones (banner only — the rail's job is done by
+           the icon grid below it, and the account card's by the Account
+           tab). The rail joins at 1024px, the account card at 1280px,
+           matching how much width the desktop sidebar leaves over. */
+        .tb-hero-row { margin-top: 0.625rem; }
+        .tb-cat-rail, .tb-user-card { display: none; }
+        @media (min-width: 1024px) {
+            .tb-hero-row {
+                display: grid; grid-template-columns: 184px minmax(0, 1fr);
+                gap: 0.75rem; align-items: stretch;
+            }
+            .tb-cat-rail {
+                display: flex; flex-direction: column; background: #fff;
+                border: 1px solid var(--tb-line); border-radius: 0.75rem;
+                padding: 0.5rem 0; overflow: hidden;
+            }
+            .tb-cat-rail-item {
+                display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+                width: 100%; background: none; border: none; cursor: pointer; font-family: inherit;
+                padding: 0.4375rem 0.875rem; font-size: 0.8125rem; font-weight: 500;
+                color: var(--tb-ink); text-align: left;
+            }
+            .tb-cat-rail-item span {
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .tb-cat-rail-item svg { width: 13px; height: 13px; opacity: 0.35; flex-shrink: 0; }
+            .tb-cat-rail-item:hover { background: var(--tb-tint); color: var(--tb-orange); }
+            .tb-cat-rail-item:hover svg { opacity: 0.9; }
+        }
+        @media (min-width: 1280px) {
+            .tb-hero-row { grid-template-columns: 184px minmax(0, 1fr) 218px; }
+            .tb-user-card {
+                display: flex; flex-direction: column; background: #fff;
+                border: 1px solid var(--tb-line); border-radius: 0.75rem;
+                padding: 1.125rem 0.875rem; text-align: center;
+            }
+        }
+        .tb-user-avatar {
+            width: 54px; height: 54px; border-radius: 50%; margin: 0 auto 0.5rem;
+            background: var(--tb-tint); color: var(--tb-orange);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; font-size: 1.25rem;
+        }
+        .tb-user-greet { font-size: 0.75rem; color: var(--tb-muted); }
+        .tb-user-name {
+            font-size: 0.9375rem; font-weight: 700; color: var(--tb-ink); margin-bottom: 0.875rem;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .tb-user-btn {
+            width: 100%; height: 34px; border: none; cursor: pointer; font-family: inherit;
+            border-radius: 9999px; font-weight: 700; font-size: 0.8125rem;
+            background: linear-gradient(135deg, #FF5000, #FF7A00); color: #fff;
+        }
+        .tb-user-btn.ghost {
+            background: #fff; color: var(--tb-orange);
+            border: 1px solid var(--tb-orange); margin-top: 0.5rem;
+        }
+        .tb-user-links {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.25rem;
+            margin-top: 1rem; padding-top: 0.875rem; border-top: 1px dashed #E0E0E0;
+        }
+        .tb-user-link {
+            background: none; border: none; cursor: pointer; font-family: inherit;
+            display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+            font-size: 0.625rem; font-weight: 600; color: var(--tb-muted);
+        }
+        .tb-user-link svg { width: 17px; height: 17px; color: var(--tb-orange); }
+        .tb-user-link:hover { color: var(--tb-orange); }
+
+        /* ---------- Banner ---------- */
+        #home-screen .discovery-banner-carousel { border-radius: 0.75rem; height: 100%; }
+        #home-screen .discovery-banner-track { height: 100%; }
+        #home-screen .discovery-banner { min-height: 176px; padding: 1.25rem; }
+        #home-screen .discovery-banner-headline { color: #fff; }
+        #home-screen .discovery-banner-cta { border-radius: 9999px; padding: 0.5rem 1.375rem; }
+        #home-screen .discovery-banner-dots {
+            left: auto; right: 0.875rem; bottom: 0.875rem; justify-content: flex-end;
+        }
+        #home-screen .discovery-banner-dot { background: rgba(255, 255, 255, 0.5); }
+        #home-screen .discovery-banner-dot.active { background: var(--tb-orange); width: 22px; }
+        @media (min-width: 1024px) {
+            #home-screen .discovery-banner { min-height: 296px; padding: 2rem; }
+            #home-screen .discovery-banner-headline { font-size: 1.75rem; }
+        }
+
+        /* ---------- Content modules (white blocks on grey) ---------- */
+        #home-screen #mp-view-shop .mobile-section {
+            background: #fff; border-radius: 0.75rem; padding: 0.875rem; margin-top: 0.625rem;
+        }
+        #home-screen .mobile-section-header { margin-bottom: 0.75rem; }
+        #home-screen .mobile-section-title {
+            font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.5rem;
+        }
+        #home-screen #mp-view-shop .mobile-section-title::before {
+            content: ''; width: 4px; height: 15px; border-radius: 2px; flex-shrink: 0;
+            background: linear-gradient(180deg, #FF5000, #FF9500);
+        }
+        #home-screen .mobile-view-all { color: var(--tb-muted); font-weight: 500; font-size: 0.75rem; }
+        #home-screen .mobile-view-all:hover { color: var(--tb-orange); }
+
+        /* ---------- Category icon grid (5-up, round tinted tiles) ---------- */
+        #home-screen .category-grid {
+            display: grid; grid-template-columns: repeat(5, 1fr);
+            gap: 0.875rem 0.25rem; overflow: visible;
+        }
+        #home-screen .category-item { width: auto; gap: 0.375rem; }
+        #home-screen .category-icon-box {
+            width: 46px; height: 46px; border-radius: 50%;
+            background: var(--tb-tint); border: none; box-shadow: none;
+        }
+        #home-screen .category-icon-box svg { width: 22px; height: 22px; color: var(--tb-orange); }
+        #home-screen .category-item.active-category .category-icon-box {
+            background: linear-gradient(135deg, #FF5000, #FF7A00);
+        }
+        #home-screen .category-label {
+            font-size: 0.6875rem; font-weight: 500; color: var(--tb-ink);
+            max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        @media (min-width: 768px) {
+            #home-screen .category-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+        }
+
+        /* ---------- Flash deals strip ---------- */
+        .tb-flash-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .tb-countdown { display: inline-flex; align-items: center; gap: 2px; }
+        .tb-countdown b {
+            background: var(--tb-ink); color: #fff; font-size: 0.625rem; font-weight: 700;
+            border-radius: 3px; padding: 2px 4px; font-variant-numeric: tabular-nums;
+        }
+        .tb-countdown i { font-style: normal; color: var(--tb-ink); font-size: 0.625rem; font-weight: 700; }
+        .tb-flash-row {
+            display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.25rem;
+            scrollbar-width: none; -ms-overflow-style: none;
+        }
+        .tb-flash-row::-webkit-scrollbar { display: none; }
+        .tb-flash-card {
+            flex: 0 0 98px; width: 98px; background: none; border: none; padding: 0;
+            cursor: pointer; text-align: left; font-family: inherit;
+        }
+        .tb-flash-card img {
+            width: 98px; height: 98px; object-fit: cover; display: block;
+            border-radius: 0.5rem; background: var(--tb-surface);
+        }
+        .tb-flash-price {
+            color: var(--tb-price); font-weight: 800; font-size: 0.875rem; margin-top: 0.3125rem;
+        }
+        .tb-flash-was {
+            color: var(--tb-faint); text-decoration: line-through;
+            font-size: 0.6875rem; font-weight: 500; margin-left: 0.25rem;
+        }
+        .tb-flash-name {
+            font-size: 0.6875rem; color: var(--tb-muted);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+
+        /* ---------- Product waterfall ---------- */
+        #home-screen .product-grid { gap: 0.625rem; }
+        #home-screen .product-card {
+            background: #fff; border: none; border-radius: 0.625rem; box-shadow: none;
+        }
+        #home-screen .product-card-image {
+            background: var(--tb-surface); object-fit: cover; aspect-ratio: 1 / 1; height: auto;
+        }
+        #home-screen .product-card-body { padding: 0.5rem 0.375rem 0.625rem; gap: 0.25rem; }
+        #home-screen .product-card-name {
+            font-size: 0.8125rem; font-weight: 400; color: var(--tb-ink);
+            line-height: 1.35; margin-top: 0;
+        }
+        #home-screen .product-card-price-row { flex-wrap: wrap; gap: 0.375rem; }
+        #home-screen .product-card-price {
+            color: var(--tb-price); font-size: 1.0625rem; font-weight: 800;
+            font-variant-numeric: tabular-nums;
+        }
+        #home-screen .tb-cur { font-size: 0.75rem; font-weight: 700; margin-right: 1px; }
+        #home-screen .tb-dec { font-size: 0.75rem; font-weight: 700; }
+        #home-screen .product-card-original-price { color: var(--tb-faint); font-size: 0.6875rem; }
+        #home-screen .product-card-sold { color: var(--tb-muted); font-size: 0.6875rem; }
+        #home-screen .product-card-discount-badge {
+            background: linear-gradient(135deg, #FF0036, #FF5000); border-radius: 0.25rem;
+            font-size: 0.625rem; padding: 0.125rem 0.375rem;
+        }
+        #home-screen .product-card-featured-badge {
+            background: linear-gradient(135deg, #FF7A00, #FF5000); border-radius: 0.25rem;
+            font-size: 0.625rem; padding: 0.125rem 0.375rem; box-shadow: none;
+        }
+        #home-screen .product-card-outofstock-badge { border-radius: 0.25rem; font-size: 0.625rem; }
+        @media (min-width: 768px) {
+            #home-screen .product-grid { grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); }
+        }
+
+        /* ---------- Filter bar, stores row, nav chrome ---------- */
+        #home-screen .storefront-filter-bar .form-input {
+            border-radius: 9999px; font-size: 0.8125rem; padding: 0.5rem 0.875rem;
+        }
+        #home-screen .store-card { border: 1px solid var(--tb-line); box-shadow: none; border-radius: 0.75rem; }
+        #home-screen .store-card-avatar { background: linear-gradient(135deg, #FF5000, #FF7A00); }
+        #home-screen .mobile-nav-item { font-weight: 600; }
+        #home-screen .desktop-sidebar-item.active { background: var(--tb-tint); color: var(--tb-orange); }
+        #home-screen .desktop-sidebar-item.active svg { color: var(--tb-orange); }
+
+        /* ---------- Buyer-protection strip ---------- */
+        .tb-promise {
+            display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem 1.25rem;
+            padding: 1.25rem 0.75rem 0.5rem;
+            font-size: 0.6875rem; font-weight: 600; color: var(--tb-muted);
+        }
+        .tb-promise span { display: inline-flex; align-items: center; gap: 0.3125rem; }
+        .tb-promise svg { width: 13px; height: 13px; color: var(--tb-orange); flex-shrink: 0; }
+
+        /* ---------- Product detail page ---------- */
+        #home-screen .pdp-add-cart-btn { background: linear-gradient(135deg, #FF9500, #FF6A00); }
+        #home-screen .pdp-buy-now-btn { background: linear-gradient(135deg, #FF5000, #FF0036); }
+        #home-screen #pdp-bottom-price-integer,
+        #home-screen #pdp-bottom-price-decimal { color: var(--tb-price); }
+
+        /* Dark mode: keep the orange brand, swap the greys. The base
+           dark block near the top of this stylesheet already redefines
+           --slate/--bg-light/--border for #home-screen[data-theme="dark"]
+           and outranks the token block above (id + attribute), so only
+           the surfaces this skin paints a literal white need restating. */
+        #home-screen[data-theme="dark"] #mp-view-shop .mobile-section,
+        #home-screen[data-theme="dark"] .tb-cat-rail,
+        #home-screen[data-theme="dark"] .tb-user-card,
+        #home-screen[data-theme="dark"] .product-card { background: #1E293B; }
+        #home-screen[data-theme="dark"] .mobile-search-bar { background: #273449; }
+        #home-screen[data-theme="dark"] .mobile-search-bar input { color: #F1F5F9; background: transparent; }
+        #home-screen[data-theme="dark"] .category-icon-box,
+        #home-screen[data-theme="dark"] .tb-user-avatar { background: rgba(255, 80, 0, 0.16); }
+        #home-screen[data-theme="dark"] .category-label,
+        #home-screen[data-theme="dark"] .tb-cat-rail-item,
+        #home-screen[data-theme="dark"] .tb-user-name { color: #F1F5F9; }
+        #home-screen[data-theme="dark"] .tb-hotword { background: rgba(255, 80, 0, 0.16); color: #FF8A4C; }
+        #home-screen[data-theme="dark"] .tb-countdown b { background: #F1F5F9; color: #0F172A; }
+        #home-screen[data-theme="dark"] .tb-countdown i { color: #F1F5F9; }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -4069,6 +4404,7 @@
             <div class="mobile-search-bar">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 <input type="text" id="storefront-search-input" placeholder="Search products, stores…">
+                <button type="button" class="mobile-search-go" id="mp-search-go-btn">Search</button>
             </div>
 
             <div style="display:flex; gap:0.5rem; align-items:center;">
@@ -4129,14 +4465,47 @@
                          renderHomeBannerCarousel(); falls back to a single
                          hardcoded slide when no slides are configured, so this
                          area is never empty. -->
-                    <div class="discovery-banner-carousel" id="discovery-banner-carousel">
-                        <div class="discovery-banner-track" id="discovery-banner-track"></div>
-                        <div class="discovery-banner-dots" id="discovery-banner-dots"></div>
+                    <!-- Hot search words — the suggestions Taobao parks
+                         under its search bar. Tapping one prefills the
+                         storefront search; built from live data by
+                         renderTbHotwords(). -->
+                    <div class="tb-hotwords" id="tb-hotwords"></div>
+
+                    <!-- Taobao's three-part hero: category rail on the
+                         left, the banner carousel in the middle, the
+                         account card on the right. The rail and the card
+                         are desktop-only (see .tb-hero-row in the skin) —
+                         on phones the banner takes the whole row, which
+                         is what the Taobao app itself does. -->
+                    <div class="tb-hero-row">
+                        <nav class="tb-cat-rail" id="tb-cat-rail" aria-label="Shop by category"></nav>
+                        <div class="discovery-banner-carousel" id="discovery-banner-carousel">
+                            <div class="discovery-banner-track" id="discovery-banner-track"></div>
+                            <div class="discovery-banner-dots" id="discovery-banner-dots"></div>
+                        </div>
+                        <aside class="tb-user-card" id="tb-user-card"></aside>
                     </div>
 
                     <div class="mobile-section" id="mp-category-section">
                         <div class="mobile-section-header"><div class="mobile-section-title">Categories</div></div>
                         <div class="category-grid" id="mp-category-grid"></div>
+                    </div>
+
+                    <!-- Flash Deals — Taobao's horizontal seckill strip.
+                         Just a different view of products already in the
+                         feed (the steepest live discounts); the section
+                         hides itself when nothing is discounted rather
+                         than showing an empty module. See
+                         renderTbFlashDeals(). -->
+                    <div class="mobile-section" id="tb-flash-section" style="display:none;">
+                        <div class="mobile-section-header">
+                            <div class="mobile-section-title tb-flash-head">
+                                Flash Deals
+                                <span class="tb-countdown" id="tb-flash-countdown"></span>
+                            </div>
+                            <a class="mobile-view-all" data-mp-tab="deals">More ›</a>
+                        </div>
+                        <div class="tb-flash-row" id="tb-flash-row"></div>
                     </div>
 
                     <div class="mobile-section">
@@ -4168,6 +4537,16 @@
                             <a class="mobile-view-all" data-mp-tab="stores">View All ›</a>
                         </div>
                         <div id="mp-popular-stores-preview" class="store-row-scroll"></div>
+                    </div>
+
+                    <!-- Reassurance row closing the feed, the way Taobao
+                         closes its home page. Each line names something
+                         the app actually does, not a policy promise. -->
+                    <div class="tb-promise">
+                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Secure checkout</span>
+                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>Live order tracking</span>
+                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>Rated by real buyers</span>
+                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Message any vendor</span>
                     </div>
                 </div>
             </div>
@@ -12444,6 +12823,11 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 refreshMyAvatarDisplays();
             }
             void profileDropdown.offsetHeight;
+
+            // Taobao-style desktop account card in the hero's right
+            // column — same session state, rendered here so it follows
+            // every login and logout the same way the pills above do.
+            renderTbUserCard();
         }
 
         // Bottom nav tab switching — Home and Categories share the same
@@ -24500,6 +24884,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 `)].join('');
                 renderStorefrontProducts();
 
+                // Taobao-style home extras, off the data just loaded —
+                // the desktop category rail, the hot-word row and the
+                // Flash Deals strip (see the TAOBAO-STYLE HOME block).
+                renderTbCategoryRail(categories);
+                renderTbHotwords();
+                renderTbFlashDeals();
+
                 // Popular Stores preview on the Home tab — real data,
                 // capped to a handful for a compact preview row.
                 const storesData = await apiFetch('/api/marketplace/stores').catch(() => ({ stores: [] }));
@@ -25316,7 +25707,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                         <div class="product-card-vendor">${p.vendorName}</div>
                         ${renderStars(p.avgRating, p.reviewCount)}
                         <div class="product-card-price-row">
-                            <span class="product-card-price">$${p.price.toFixed(2)}</span>
+                            <span class="product-card-price">${formatTbPrice(p.price)}</span>
                             ${p.discountPercent ? `<span class="product-card-original-price">$${p.originalPrice.toFixed(2)}</span>` : ''}
                             ${p.unitsSold > 0 ? `<span class="product-card-sold">${p.unitsSold}+ sold</span>` : ''}
                         </div>
@@ -26812,6 +27203,195 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 if (answer) submitPdpAnswer(form.dataset.questionId, answer);
             });
         }
+
+        /* ==========================================================
+           TAOBAO-STYLE HOME — behaviour for the pieces the skin adds
+           (see "TAOBAO-STYLE SKIN" in the stylesheet): the hot-word
+           rail, the desktop category rail and account card, and the
+           Flash Deals strip with its countdown.
+
+           Everything here reads data the marketplace has already
+           loaded (storefrontProducts, currentUser) — no new endpoints
+           and no new state, so these render as soon as loadStorefront()
+           resolves and stay in step with it afterwards.
+           ========================================================== */
+
+        // Taobao sets the currency symbol and the cents small against a
+        // large whole number — that contrast is most of what makes a
+        // price read as a Taobao price. Used by the product cards and
+        // the Flash Deals strip; .tb-cur/.tb-dec are styled only inside
+        // #home-screen, so the same markup renders as a plain price
+        // anywhere else productCardHtml is reused.
+        function formatTbPrice(amount) {
+            const [whole, cents] = Number(amount).toFixed(2).split('.');
+            return `<span class="tb-cur">$</span>${whole}<span class="tb-dec">.${cents}</span>`;
+        }
+
+        // Hot search words — the equivalent of the suggestions Taobao
+        // parks under its search bar. Real signal rather than a hard-
+        // coded list: the best sellers currently on the storefront
+        // (trimmed to their first couple of words, which is how a
+        // shopper would actually type them) followed by the live
+        // categories, deduped.
+        function renderTbHotwords() {
+            const el = document.getElementById('tb-hotwords');
+            if (!el) return;
+            const bestSellers = [...storefrontProducts]
+                .sort((a, b) => (b.unitsSold || 0) - (a.unitsSold || 0))
+                .slice(0, 4)
+                .map(p => (p.name || '').split(/\s+/).slice(0, 2).join(' ').trim())
+                .filter(Boolean);
+            const categories = storefrontProducts.map(p => p.category).filter(Boolean);
+            const words = [...new Set([...bestSellers, ...categories])].slice(0, 8);
+            el.innerHTML = words.map((w, i) => `
+                <button type="button" class="tb-hotword${i === 0 ? ' is-hot' : ''}" data-word="${escapeHtmlAttr(w)}">${escapeHtmlAttr(w)}</button>
+            `).join('');
+        }
+
+        // Desktop-only vertical category rail — Taobao's left column.
+        // Shares selectedStorefrontCategory with the mobile icon grid,
+        // so whichever one you use, both stay in sync.
+        function renderTbCategoryRail(categories) {
+            const rail = document.getElementById('tb-cat-rail');
+            if (!rail) return;
+            const chevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+            rail.innerHTML = [
+                `<button type="button" class="tb-cat-rail-item" data-category=""><span>All Categories</span>${chevron}</button>`,
+                ...categories.map(c => `<button type="button" class="tb-cat-rail-item" data-category="${escapeHtmlAttr(c)}"><span>${escapeHtmlAttr(c)}</span>${chevron}</button>`)
+            ].join('');
+        }
+
+        // Flash Deals — the steepest live discounts on the storefront,
+        // in Taobao's horizontal seckill strip. Purely a different view
+        // of products that are already in the feed; the section hides
+        // itself entirely when nothing is discounted rather than
+        // showing an empty module.
+        function renderTbFlashDeals() {
+            const section = document.getElementById('tb-flash-section');
+            const row = document.getElementById('tb-flash-row');
+            if (!section || !row) return;
+            const deals = storefrontProducts
+                .filter(p => p.discountPercent > 0 && (p.stockQuantity || 0) > 0)
+                .sort((a, b) => b.discountPercent - a.discountPercent)
+                .slice(0, 12);
+            section.style.display = deals.length ? 'block' : 'none';
+            if (!deals.length) {
+                stopTbFlashCountdown();
+                return;
+            }
+            row.innerHTML = deals.map(p => `
+                <button type="button" class="tb-flash-card open-product-detail-btn" data-id="${p.id}">
+                    <img src="${p.imageDataUrl || 'assets/logo.png'}" alt="${escapeHtmlAttr(p.name)}">
+                    <div class="tb-flash-price">${formatTbPrice(p.price)}<span class="tb-flash-was">$${p.originalPrice.toFixed(2)}</span></div>
+                    <div class="tb-flash-name">${escapeHtmlAttr(p.name)}</div>
+                </button>
+            `).join('');
+            startTbFlashCountdown();
+        }
+
+        // The strip's countdown runs to local midnight — the same "today
+        // only" framing Taobao's daily deals use. Only ticks while there
+        // are deals on screen (see renderTbFlashDeals).
+        let tbFlashCountdownTimer = null;
+
+        function startTbFlashCountdown() {
+            const el = document.getElementById('tb-flash-countdown');
+            if (!el) return;
+            const pad = n => String(n).padStart(2, '0');
+            const tick = () => {
+                const now = new Date();
+                const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+                const left = Math.max(0, Math.floor((midnight - now) / 1000));
+                el.innerHTML = `<i>Ends in&nbsp;</i><b>${pad(Math.floor(left / 3600))}</b><i>:</i><b>${pad(Math.floor((left % 3600) / 60))}</b><i>:</i><b>${pad(left % 60)}</b>`;
+            };
+            tick();
+            if (tbFlashCountdownTimer) clearInterval(tbFlashCountdownTimer);
+            tbFlashCountdownTimer = setInterval(tick, 1000);
+        }
+
+        function stopTbFlashCountdown() {
+            if (tbFlashCountdownTimer) clearInterval(tbFlashCountdownTimer);
+            tbFlashCountdownTimer = null;
+        }
+
+        // Desktop-only account card in the hero's right column — Taobao
+        // puts the sign-in / "my stuff" panel there. Re-rendered from
+        // setMarketplaceHeaderState so it follows login and logout.
+        const TB_USER_LINKS = [
+            ['orders', 'Orders', '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path>'],
+            ['wishlist', 'Wishlist', '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>'],
+            ['stores', 'Stores', '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>'],
+            ['deals', 'Deals', '<path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line>']
+        ];
+
+        function renderTbUserCard() {
+            const card = document.getElementById('tb-user-card');
+            if (!card) return;
+            const hour = new Date().getHours();
+            const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+            const name = currentUser ? (currentUser.businessName || '') : '';
+            const head = currentUser
+                ? `<div class="tb-user-avatar">${escapeHtmlAttr((name || '?').charAt(0).toUpperCase())}</div>
+                   <div class="tb-user-greet">${greeting}</div>
+                   <div class="tb-user-name">${escapeHtmlAttr(name)}</div>
+                   <button type="button" class="tb-user-btn" data-mp-tab="orders">My Orders</button>
+                   <button type="button" class="tb-user-btn ghost" data-mp-tab="settings">Account Settings</button>`
+                : `<div class="tb-user-avatar">?</div>
+                   <div class="tb-user-greet">${greeting}</div>
+                   <div class="tb-user-name">Welcome to ONLib</div>
+                   <button type="button" class="tb-user-btn" id="tb-user-login-btn">Sign in</button>
+                   <button type="button" class="tb-user-btn ghost" data-mp-tab="stores">Browse stores</button>`;
+            card.innerHTML = `${head}
+                <div class="tb-user-links">
+                    ${TB_USER_LINKS.map(([tab, label, path]) => `
+                        <button type="button" class="tb-user-link" data-mp-tab="${tab}">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>${label}
+                        </button>
+                    `).join('')}
+                </div>`;
+        }
+
+        // Delegated wiring for the three containers above. Delegation
+        // (rather than the per-element listeners the static nav uses) is
+        // what these need — their contents are re-rendered on every
+        // storefront load and on every login/logout.
+        document.getElementById('tb-hotwords').addEventListener('click', (e) => {
+            const btn = e.target.closest('.tb-hotword');
+            if (!btn) return;
+            document.getElementById('storefront-search-input').value = btn.dataset.word;
+            renderStorefrontProducts();
+            document.getElementById('storefront-products-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+
+        document.getElementById('tb-cat-rail').addEventListener('click', (e) => {
+            const btn = e.target.closest('.tb-cat-rail-item');
+            if (!btn) return;
+            selectedStorefrontCategory = btn.dataset.category;
+            renderStorefrontProducts();
+        });
+
+        document.getElementById('tb-user-card').addEventListener('click', (e) => {
+            if (e.target.closest('#tb-user-login-btn')) {
+                document.getElementById('mp-topbar-login-btn').click();
+                return;
+            }
+            const tabBtn = e.target.closest('[data-mp-tab]');
+            if (tabBtn) setMarketplaceTab(tabBtn.dataset.mpTab);
+        });
+
+        document.getElementById('tb-flash-row').addEventListener('click', (e) => {
+            const card = e.target.closest('.tb-flash-card');
+            if (card) openProductDetail(card.dataset.id);
+        });
+
+        // The pill "Search" button the Taobao search bar ends in. The
+        // input already filters as you type, so this is the explicit
+        // commit — dismiss the keyboard, apply, jump to the results.
+        document.getElementById('mp-search-go-btn').addEventListener('click', () => {
+            document.getElementById('storefront-search-input').blur();
+            renderStorefrontProducts();
+            document.getElementById('storefront-products-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
 
         // PWA install support — safe no-op in browsers that don't support it.
         if ('serviceWorker' in navigator) {
