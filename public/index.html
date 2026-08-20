@@ -3681,7 +3681,21 @@
                fully visible, stacked, instead of overlapping/clipping
                or forcing a horizontal scrollbar. */
             #delivery-customer-app .dcust-topbar-row { flex-wrap: wrap; row-gap: 0.625rem; }
+            /* Forces "Back to service selector" onto a line by itself
+               rather than leaving it to chance whether it happens to fit
+               alongside whatever else is in the row (the Cart button,
+               added below, is short enough that it would otherwise pack
+               onto the same line as this — pushing Login/Sign Up to wrap
+               alone below instead of sitting next to Cart, the opposite
+               of the intended grouping). */
+            #delivery-customer-app .dcust-topbar-back-link { flex-basis: 100%; }
             #delivery-customer-app .dcust-login-btn { margin-left: auto; }
+            /* Cart only ever shows alongside Login/Sign Up (guest) or
+               alone (logged-in customer, where Login/Sign Up stays
+               hidden) — margin-left: auto here mirrors the login
+               button's own so it's still pushed to the right on its own
+               line in the logged-in case. */
+            #delivery-customer-app #dcust-restaurant-cart-btn { margin-left: auto; }
             #delivery-customer-app .dcust-search-input { min-height: 50px; padding-top: 0.8125rem; padding-bottom: 0.8125rem; }
             #delivery-customer-app .dcust-food-tab span { display: inline; }
             #delivery-customer-app .dcust-hero-inner { padding: 1.5rem; }
@@ -5204,6 +5218,17 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
                             <span>Back to service selector</span>
                         </button>
+                        <!-- Lives here (in the persistent topbar row), not
+                             inside #dcust-view-restaurant-menu below, so it
+                             can sit on the same wrapped line as "Login /
+                             Sign Up" on mobile instead of on its own line
+                             below the store's "← Back" button. Only ever
+                             shown while a store's menu is open —
+                             setDeliveryCustomerView() toggles its display
+                             the same way it toggles that view itself. -->
+                        <button type="button" class="btn-small btn-primary" id="dcust-restaurant-cart-btn" style="display:none; position:relative;">
+                            Cart <span id="dcust-restaurant-cart-count">(0)</span>
+                        </button>
                         <button type="button" class="btn-primary dcust-login-btn" id="dcust-topbar-login-btn" style="display:none;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                             <span>Login / Sign Up</span>
@@ -5396,9 +5421,6 @@
                     <div class="dcust-table-controls" style="margin-bottom:1rem;">
                         <button type="button" class="btn-small btn-secondary" id="dcust-restaurant-back-btn">&larr; Back</button>
                         <div class="section-title" style="margin:0;" id="dcust-restaurant-menu-title">Menu</div>
-                        <button type="button" class="btn-small btn-primary" id="dcust-restaurant-cart-btn" style="position:relative;">
-                            Cart <span id="dcust-restaurant-cart-count">(0)</span>
-                        </button>
                     </div>
                     <div class="dcust-food-tabs" style="margin-bottom:1.25rem;">
                         <button type="button" class="btn-small btn-primary dcust-vendor-page-tab active" data-vendor-page-tab="menu" id="dcust-vendor-tab-menu">Menu</button>
@@ -12531,7 +12553,28 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 if (mode === 'customer') dcustSidebar.style.removeProperty('display');
                 else dcustSidebar.style.display = 'none';
             }
-            document.getElementById('dcust-sidebar-toggle-btn').style.display = mode === 'customer' ? 'flex' : 'none';
+            // Same trap, same fix, one step further: this used to force
+            // an inline 'flex' for every logged-in customer at any
+            // width, which — being an inline style — always beat the
+            // stylesheet's own mobile-breakpoint rule that already
+            // existed for exactly this reason (`#delivery-customer-app
+            // .dcust-mobile-topbar .sidebar-toggle-btn { display: none;
+            // }`, in the "@media (max-width: 1023px)" block near the
+            // top of the stylesheet — "The hamburger opens a sidebar
+            // that's always display:none below the desktop breakpoint
+            // anyway — dead weight here"). With this inline override
+            // winning regardless, the button rendered anyway, pinned by
+            // its own `position: fixed` base rule to a fixed spot that
+            // visually collided with the notification bell sharing that
+            // corner of .dcust-mobile-topbar. Clearing the inline
+            // override instead lets that pre-existing responsive CSS
+            // rule actually take effect, same as the sidebar itself
+            // just above.
+            const dcustToggleBtn = document.getElementById('dcust-sidebar-toggle-btn');
+            if (dcustToggleBtn) {
+                if (mode === 'customer') dcustToggleBtn.style.removeProperty('display');
+                else dcustToggleBtn.style.display = 'none';
+            }
             document.getElementById('dcust-view-dashboard').style.display = 'block';
             document.getElementById('dcust-account-content').style.display = mode === 'customer' ? 'block' : 'none';
             document.getElementById('dcust-welcome-name').style.display = mode === 'customer' ? 'block' : 'none';
@@ -12639,6 +12682,11 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             document.getElementById('dcust-view-dashboard').style.display = view === 'dashboard' ? 'block' : 'none';
             document.getElementById('dcust-view-my-orders').style.display = view === 'my-orders' ? 'block' : 'none';
             document.getElementById('dcust-view-restaurant-menu').style.display = view === 'restaurant-menu' ? 'block' : 'none';
+            // Lives in the persistent topbar row now, not inside
+            // #dcust-view-restaurant-menu itself (see its HTML comment) —
+            // so it needs its own explicit show/hide here, tied to the
+            // same condition that shows that view.
+            document.getElementById('dcust-restaurant-cart-btn').style.display = view === 'restaurant-menu' ? 'inline-flex' : 'none';
             document.getElementById('dcust-nav-dashboard').classList.toggle('active', view === 'dashboard');
             document.getElementById('dcust-nav-my-orders').classList.toggle('active', view === 'my-orders');
             document.getElementById('dcust-mnav-dashboard').classList.toggle('active', view === 'dashboard');
