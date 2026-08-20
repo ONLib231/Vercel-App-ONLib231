@@ -1461,3 +1461,59 @@ ALTER TABLE disputes ADD CONSTRAINT disputes_category_check CHECK (category IN (
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue_reason TEXT;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue_at TIMESTAMPTZ;
+
+-- Zone-pair delivery fees. Supersedes the "does NOT feed into delivery
+-- fee calculation" note on saved_addresses.zone_id above: the founder
+-- asked for the delivery fee to be based on the CUSTOMER's (dropoff)
+-- location instead of the vendor's (pickup) location, and specifically
+-- wants it to reflect how far apart the vendor's zone and the
+-- customer's zone are. This app still has no geo/mapping data of any
+-- kind (see the delivery_zones comment above), so — same "honest
+-- substitute for real geolocation" philosophy as zones themselves —
+-- "distance" here is not computed, it's explicitly priced: the Super
+-- Admin sets a delivery fee for every (vendor zone, customer zone)
+-- pair that can occur. One row per pair; a pair with no row yet simply
+-- has no admin-set price. Multi-vendor carts are unaffected in
+-- structure — each vendor group in a cart still gets its own delivery
+-- fee line item, summed into the order total, exactly as before — the
+-- only change is that each vendor's fee is now looked up by
+-- (that vendor's zone, the customer's chosen dropoff zone) instead of
+-- being the vendor's own flat zone fee. When no pair price has been
+-- set yet for a given combination, or the customer's dropoff address
+-- has no zone assigned, checkout falls back to the vendor's existing
+-- flat zone fee (delivery_zones.fee) — this keeps today's behavior
+-- working unchanged for any pair the admin hasn't priced yet, rather
+-- than silently charging $0 or blocking checkout.
+CREATE TABLE IF NOT EXISTS zone_pair_fees (
+    id               TEXT PRIMARY KEY,
+    vendor_zone_id   TEXT NOT NULL REFERENCES delivery_zones(id) ON DELETE CASCADE,
+    customer_zone_id TEXT NOT NULL REFERENCES delivery_zones(id) ON DELETE CASCADE,
+    fee              NUMERIC(10,2) NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (vendor_zone_id, customer_zone_id)
+);
+CREATE INDEX IF NOT EXISTS idx_zone_pair_fees_vendor_zone ON zone_pair_fees (vendor_zone_id);
+CREATE INDEX IF NOT EXISTS idx_zone_pair_fees_customer_zone ON zone_pair_fees (customer_zone_id);
+
+-- Editable contact phone captured at Checkout (alongside the existing
+-- editable name, orders.sender_name, which already existed before this
+-- feature). Pre-filled from the logged-in customer's account but
+-- editable per order, same as the name field, so an order can be
+-- placed for someone else (e.g. a gift) without changing the account
+-- itself. Nullable: legacy orders placed before this feature have no
+-- phone on file.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sender_phone TEXT;
+
+-- Same "held here only while a Mobile Money payment is pending" pattern
+-- as pending_pickup_address/pending_dropoff_address above, now for the
+-- editable name/phone typed at Checkout: db.checkout() only writes
+-- straight into orders.sender_name/sender_phone when the real delivery
+-- order is created immediately (COD). For a pending Mobile Money order,
+-- the real order isn't created until payment is confirmed — see
+-- createDeliveryOrderForConfirmedPurchaseInTx in db.js — so the
+-- customer's typed name/phone has to be held here in the meantime, or
+-- confirmation would silently fall back to the account's own name with
+-- no phone at all instead of what the customer actually typed.
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS pending_sender_name TEXT;
+ALTER TABLE purchases ADD COLUMN IF NOT EXISTS pending_sender_phone TEXT;

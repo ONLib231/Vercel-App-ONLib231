@@ -19,6 +19,7 @@ function rowToOrder(r) {
     id: r.id,
     senderId: r.sender_id,
     senderName: r.sender_name,
+    senderPhone: r.sender_phone || null,
     pickupAddress: r.pickup_address,
     dropoffAddress: r.dropoff_address,
     itemDescription: r.item_description,
@@ -554,14 +555,21 @@ async function createDeliveryOrderForConfirmedPurchaseInTx(client, purchase) {
   }).join(', ');
   const { rows: custRows } = await client.query('SELECT business_name FROM users WHERE id = $1', [purchase.customer_id]);
   const deliveryOrderId = `ORD-${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(2).toString('hex').toUpperCase()}M`;
+  // Prefer the name/phone the customer actually typed at Checkout
+  // (stashed on the purchase while payment was pending — see
+  // schema.sql's comment on purchases.pending_sender_name), falling
+  // back to the account's own business name only if nothing was
+  // stashed (e.g. a purchase created before this feature existed).
+  const senderName = purchase.pending_sender_name || (custRows[0] ? custRows[0].business_name : 'Customer');
+  const senderPhone = purchase.pending_sender_phone || null;
   await client.query(
-    `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, delivery_fee)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', false, $8)`,
-    [deliveryOrderId, purchase.customer_id, custRows[0] ? custRows[0].business_name : 'Customer',
+    `INSERT INTO orders (id, sender_id, sender_name, sender_phone, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, delivery_fee)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', false, $9)`,
+    [deliveryOrderId, purchase.customer_id, senderName, senderPhone,
       purchase.pending_pickup_address, purchase.pending_dropoff_address, `Marketplace order: ${itemSummary}`, null, purchase.delivery_fee || 0]
   );
   await client.query(
-    `UPDATE purchases SET delivery_order_id = $1, pending_pickup_address = NULL, pending_dropoff_address = NULL WHERE id = $2`,
+    `UPDATE purchases SET delivery_order_id = $1, pending_pickup_address = NULL, pending_dropoff_address = NULL, pending_sender_name = NULL, pending_sender_phone = NULL WHERE id = $2`,
     [deliveryOrderId, purchase.id]
   );
   return deliveryOrderId;
@@ -1707,6 +1715,73 @@ const db = {
     }
   },
 
+  // ---- Zone-pair delivery fees (Super Admin managed) --------------------
+  // See schema.sql's comment on zone_pair_fees — the delivery fee charged
+  // to a customer is priced per (vendor's zone, customer's dropoff zone)
+  // pair, admin-set, rather than the vendor's flat zone fee alone.
+
+  rowToZonePairFee(r) {
+    return {
+      id: r.id,
+      vendorZoneId: r.vendor_zone_id,
+      customerZoneId: r.customer_zone_id,
+      fee: Number(r.fee),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  },
+
+  async getAllZonePairFees() {
+    const { rows } = await pool.query('SELECT * FROM zone_pair_fees ORDER BY created_at ASC');
+    return rows.map(this.rowToZonePairFee);
+  },
+
+  async getZonePairFee(vendorZoneId, customerZoneId) {
+    if (!vendorZoneId || !customerZoneId) return null;
+    const { rows } = await pool.query(
+      'SELECT * FROM zone_pair_fees WHERE vendor_zone_id = $1 AND customer_zone_id = $2',
+      [vendorZoneId, customerZoneId]
+    );
+    return rows[0] ? this.rowToZonePairFee(rows[0]) : null;
+  },
+
+  // Upsert by (vendorZoneId, customerZoneId) — the Super Admin UI is a
+  // grid where re-setting a cell should just update the price already
+  // there, matching how re-importing zones-by-code updates in place
+  // rather than duplicating (see importDeliveryZones above).
+  async setZonePairFee({ id, vendorZoneId, customerZoneId, fee }) {
+    const { rows } = await pool.query(
+      `INSERT INTO zone_pair_fees (id, vendor_zone_id, customer_zone_id, fee)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (vendor_zone_id, customer_zone_id)
+       DO UPDATE SET fee = EXCLUDED.fee, updated_at = now()
+       RETURNING *`,
+      [id, vendorZoneId, customerZoneId, fee]
+    );
+    return this.rowToZonePairFee(rows[0]);
+  },
+
+  async deleteZonePairFee(id) {
+    await pool.query('DELETE FROM zone_pair_fees WHERE id = $1', [id]);
+  },
+
+  // The actual per-vendor delivery-fee resolution used at checkout — see
+  // schema.sql's comment on zone_pair_fees for the fallback reasoning.
+  // Falls back to the vendor's own flat zone fee whenever a specific
+  // (vendor zone, customer zone) price hasn't been set by the admin yet,
+  // or the customer's dropoff has no resolvable zone at all — this keeps
+  // today's behavior working unchanged for any pair the admin hasn't
+  // priced, rather than silently charging $0 or blocking checkout.
+  async resolveDeliveryFee(vendorZoneId, customerZoneId) {
+    if (!vendorZoneId) return 0;
+    if (customerZoneId) {
+      const pair = await this.getZonePairFee(vendorZoneId, customerZoneId);
+      if (pair) return pair.fee;
+    }
+    const zone = await this.getDeliveryZoneById(vendorZoneId);
+    return zone ? zone.fee : 0;
+  },
+
   // ---- Login history ---------------------------------------------------
 
   async recordLogin({ id, userId, ipAddress, device, browser }) {
@@ -2546,7 +2621,7 @@ const db = {
   // instead and turned into a real order later, only once
   // confirmMomoPaymentAndCreateOrder sees the payment succeed.
   async checkout({
-    customerId, customerName, vendorId, items, pickupAddress, dropoffAddress, createDeliveryOrder,
+    customerId, customerName, customerPhone = null, vendorId, items, pickupAddress, dropoffAddress, createDeliveryOrder,
     paymentMethod = 'cod', paymentStatus = 'not_applicable', momoReferenceId = null, momoPhone = null,
     paymentProvider = null, couponCode = null, deliveryFee = 0, externalPaymentReference = null,
     checkoutBatchId = null, skipReferenceGeneration = false,
@@ -2713,9 +2788,9 @@ const db = {
           return `${li.quantity}x ${li.productName}${variantBits ? ` (${variantBits})` : ''}`;
         }).join(', ');
         await client.query(
-          `INSERT INTO orders (id, sender_id, sender_name, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, delivery_fee)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', false, $8)`,
-          [deliveryOrderId, customerId, customerName, pickupAddress, dropoffAddress, `Marketplace order: ${itemSummary}`, null, deliveryFee]
+          `INSERT INTO orders (id, sender_id, sender_name, sender_phone, pickup_address, dropoff_address, item_description, amount, status, placed_by_admin, delivery_fee)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', false, $9)`,
+          [deliveryOrderId, customerId, customerName, customerPhone, pickupAddress, dropoffAddress, `Marketplace order: ${itemSummary}`, null, deliveryFee]
         );
       }
 
@@ -2724,6 +2799,8 @@ const db = {
       // already has these, so there's nothing left to hold onto.
       const pendingPickupAddress = !createDeliveryOrder ? pickupAddress : null;
       const pendingDropoffAddress = !createDeliveryOrder ? dropoffAddress : null;
+      const pendingSenderName = !createDeliveryOrder ? customerName : null;
+      const pendingSenderPhone = !createDeliveryOrder ? customerPhone : null;
 
       // The flat platform service fee, snapshotted at checkout — read
       // fresh inside this same transaction rather than trusting a
@@ -2736,9 +2813,9 @@ const db = {
       const serviceFee = feeRes.rows[0] ? Number(feeRes.rows[0].service_fee) : 0;
 
       await client.query(
-        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, payment_provider, payment_reference, pending_pickup_address, pending_dropoff_address, coupon_id, coupon_code, discount_amount, delivery_fee, checkout_batch_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
-        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, paymentProvider, paymentReference, pendingPickupAddress, pendingDropoffAddress, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount, deliveryFee, checkoutBatchId]
+        `INSERT INTO purchases (id, customer_id, vendor_id, total_amount, service_fee, delivery_order_id, payment_method, payment_status, momo_reference_id, momo_phone, payment_provider, payment_reference, pending_pickup_address, pending_dropoff_address, pending_sender_name, pending_sender_phone, coupon_id, coupon_code, discount_amount, delivery_fee, checkout_batch_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+        [purchaseId, customerId, vendorId, totalAmount, serviceFee, deliveryOrderId, paymentMethod, paymentStatus, momoReferenceId, momoPhone, paymentProvider, paymentReference, pendingPickupAddress, pendingDropoffAddress, pendingSenderName, pendingSenderPhone, coupon ? coupon.id : null, coupon ? coupon.code : null, discountAmount, deliveryFee, checkoutBatchId]
       );
       for (const li of lineItems) {
         await client.query(

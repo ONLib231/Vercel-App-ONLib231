@@ -1730,6 +1730,74 @@ app.delete('/api/super-admin/delivery-regions/:id', requireAuth, requireSuperAdm
   }
 });
 
+// ============================================================
+// Zone-pair delivery fees (Super Admin) — see schema.sql's comment on
+// zone_pair_fees. The delivery fee charged to a customer is priced per
+// (vendor zone, customer zone) pair instead of the vendor's flat zone
+// fee alone; multi-vendor carts still get one fee per vendor group,
+// summed, exactly as before this feature.
+// ============================================================
+app.get('/api/super-admin/zone-pair-fees', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const pairs = await db.getAllZonePairFees();
+    res.json({ pairs });
+  } catch (err) {
+    console.error('GET /api/super-admin/zone-pair-fees failed', err);
+    res.status(500).json({ error: 'Failed to load zone-pair delivery fees' });
+  }
+});
+
+app.post('/api/super-admin/zone-pair-fees', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { vendorZoneId, customerZoneId, fee } = req.body || {};
+  if (!vendorZoneId || !customerZoneId) {
+    return res.status(400).json({ error: 'A vendor zone and a customer zone are both required' });
+  }
+  const feeNum = Number(fee);
+  if (!Number.isFinite(feeNum) || feeNum < 0) return res.status(400).json({ error: 'A valid delivery fee is required' });
+  try {
+    const [vendorZone, customerZone] = await Promise.all([
+      db.getDeliveryZoneById(vendorZoneId),
+      db.getDeliveryZoneById(customerZoneId),
+    ]);
+    if (!vendorZone) return res.status(400).json({ error: 'Vendor zone not found' });
+    if (!customerZone) return res.status(400).json({ error: 'Customer zone not found' });
+    const pair = await db.setZonePairFee({ id: crypto.randomUUID(), vendorZoneId, customerZoneId, fee: feeNum });
+    await logAudit(req, 'zone_pair_fee.set', {
+      targetType: 'zone_pair_fee', targetId: pair.id,
+      targetLabel: `${vendorZone.name} → ${customerZone.name}`,
+    });
+    res.json({ ok: true, pair });
+  } catch (err) {
+    console.error('POST /api/super-admin/zone-pair-fees failed', err);
+    res.status(500).json({ error: 'Failed to save zone-pair delivery fee' });
+  }
+});
+
+app.delete('/api/super-admin/zone-pair-fees/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    await db.deleteZonePairFee(req.params.id);
+    await logAudit(req, 'zone_pair_fee.delete', { targetType: 'zone_pair_fee', targetId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/super-admin/zone-pair-fees/:id failed', err);
+    res.status(500).json({ error: 'Failed to delete zone-pair delivery fee' });
+  }
+});
+
+// Public — every admin-set zone pair, so checkout can show the real
+// per-vendor fee (based on the customer's chosen dropoff zone) before
+// the order is placed, same reasoning as the public /api/delivery-zones
+// route above.
+app.get('/api/delivery-zone-pair-fees', async (req, res) => {
+  try {
+    const pairs = await db.getAllZonePairFees();
+    res.json({ pairs });
+  } catch (err) {
+    console.error('GET /api/delivery-zone-pair-fees failed', err);
+    res.status(500).json({ error: 'Failed to load zone-pair delivery fees' });
+  }
+});
+
 // Bulk import — lets the Super Admin paste a whole Region/Zone list
 // (e.g. copied from a planning doc) instead of adding each zone one at
 // a time. Expected format, one region header followed by its zones:
@@ -5008,6 +5076,14 @@ app.post('/api/addresses', requireAuth, async (req, res) => {
   if (!label || !label.trim() || !address || !address.trim()) {
     return res.status(400).json({ error: 'Label and address are both required' });
   }
+  // Required, not just validated-if-present, as of the zone-pair delivery
+  // fee feature — a saved address' zone now drives real checkout pricing
+  // (see schema.sql's comment on zone_pair_fees), so a brand-new saved
+  // address can no longer be created without one. Existing addresses
+  // saved before this requirement keep working (see the PUT route below,
+  // and Checkout's own dropoff picker, which simply hides a zoneless
+  // saved address instead of breaking on it).
+  if (!zoneId) return res.status(400).json({ error: 'A delivery zone is required' });
   if (!(await validateOptionalZoneId(zoneId))) {
     return res.status(400).json({ error: 'Selected delivery zone was not found' });
   }
@@ -5028,6 +5104,13 @@ app.put('/api/addresses/:id', requireAuth, async (req, res) => {
   if (!label || !label.trim() || !address || !address.trim()) {
     return res.status(400).json({ error: 'Label and address are both required' });
   }
+  // zoneId omitted entirely (e.g. the "Set as Default" quick action,
+  // which only ever sends label/address/isDefault) still means "leave
+  // whatever zone this address already has unchanged" — but once the
+  // field IS included, same as the address-edit form always sends now,
+  // it can no longer be cleared to empty (see the POST route's comment
+  // above for why).
+  if (zoneId !== undefined && !zoneId) return res.status(400).json({ error: 'A delivery zone is required' });
   if (zoneId !== undefined && !(await validateOptionalZoneId(zoneId))) {
     return res.status(400).json({ error: 'Selected delivery zone was not found' });
   }
@@ -5405,18 +5488,35 @@ app.post('/api/marketplace/checkout/multi', requireAuth, async (req, res) => {
   if (platformSettings.maintenanceMode) {
     return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
   }
-  const { vendorGroups, dropoffAddress, couponCode } = req.body || {};
+  const { vendorGroups, dropoffAddress, dropoffZoneId, customerName, customerPhone, couponCode } = req.body || {};
   if (!Array.isArray(vendorGroups) || vendorGroups.length === 0) {
     return res.status(400).json({ error: 'At least one vendor is required' });
   }
   if (!dropoffAddress) {
     return res.status(400).json({ error: 'Dropoff address is required' });
   }
+  // A delivery zone is now required, not just a bonus that improves the
+  // fee lookup — the frontend's Checkout no longer lets a customer type
+  // a one-off address with no zone (see the Dropoff Address form-group's
+  // comment in index.html), so this is a real server-side backstop, not
+  // just belt-and-suspenders against a stale client.
+  if (!dropoffZoneId) {
+    return res.status(400).json({ error: 'A delivery zone is required — please select a saved address with a delivery zone' });
+  }
   for (const g of vendorGroups) {
     if (!g.vendorId || !Array.isArray(g.items) || g.items.length === 0 || !g.pickupAddress) {
       return res.status(400).json({ error: 'Each vendor needs its own items and pickup address' });
     }
   }
+  // Editable at Checkout, pre-filled from the account on the frontend —
+  // falls back to the account's own name/phone here too (the JWT
+  // payload itself doesn't carry phone, so a fresh row is fetched),
+  // so a request that omits them (or an older client) behaves exactly
+  // as before this feature.
+  const accountUser = (!customerName || !customerName.trim() || !customerPhone || !customerPhone.trim())
+    ? await db.getUserById(req.user.id) : null;
+  const senderName = (customerName && customerName.trim()) ? customerName.trim() : req.user.businessName;
+  const senderPhone = (customerPhone && customerPhone.trim()) ? customerPhone.trim() : (accountUser ? accountUser.phone : null);
   const checkoutBatchId = vendorGroups.length > 1 ? crypto.randomUUID() : null;
   const results = [];
   const errors = [];
@@ -5424,10 +5524,16 @@ app.post('/api/marketplace/checkout/multi', requireAuth, async (req, res) => {
     try {
       const vendor = await db.getUserById(g.vendorId);
       const zone = vendor && vendor.deliveryZoneId ? await db.getDeliveryZoneById(vendor.deliveryZoneId) : null;
-      const deliveryFee = zone ? zone.fee : 0;
+      // Priced by (this vendor's zone, the customer's dropoff zone) —
+      // see schema.sql's comment on zone_pair_fees. Falls back to the
+      // vendor's own flat zone fee when no pair price is set yet or the
+      // customer's dropoff has no resolvable zone, so today's behavior
+      // keeps working unchanged until the admin prices that pair.
+      const deliveryFee = await db.resolveDeliveryFee(vendor && vendor.deliveryZoneId, dropoffZoneId);
       const result = await db.checkout({
         customerId: req.user.id,
-        customerName: req.user.businessName,
+        customerName: senderName,
+        customerPhone: senderPhone,
         vendorId: g.vendorId,
         items: g.items,
         pickupAddress: g.pickupAddress,
@@ -5654,12 +5760,20 @@ app.post('/api/marketplace/checkout/multi/momo-manual', requireAuth, async (req,
   if (platformSettings.maintenanceMode) {
     return res.status(503).json({ error: platformSettings.maintenanceMessage || 'Checkout is temporarily paused for maintenance. Please try again shortly.' });
   }
-  const { vendorGroups, dropoffAddress, provider, couponCode } = req.body || {};
+  const { vendorGroups, dropoffAddress, dropoffZoneId, customerName, customerPhone, provider, couponCode } = req.body || {};
   if (!Array.isArray(vendorGroups) || vendorGroups.length === 0) {
     return res.status(400).json({ error: 'At least one vendor is required' });
   }
   if (!dropoffAddress) {
     return res.status(400).json({ error: 'Dropoff address is required' });
+  }
+  // A delivery zone is now required, not just a bonus that improves the
+  // fee lookup — the frontend's Checkout no longer lets a customer type
+  // a one-off address with no zone (see the Dropoff Address form-group's
+  // comment in index.html), so this is a real server-side backstop, not
+  // just belt-and-suspenders against a stale client.
+  if (!dropoffZoneId) {
+    return res.status(400).json({ error: 'A delivery zone is required — please select a saved address with a delivery zone' });
   }
   for (const g of vendorGroups) {
     if (!g.vendorId || !Array.isArray(g.items) || g.items.length === 0 || !g.pickupAddress) {
@@ -5670,6 +5784,12 @@ app.post('/api/marketplace/checkout/multi/momo-manual', requireAuth, async (req,
   if (!momoProvider || !momoProvider.isEnabled) {
     return res.status(400).json({ error: 'That Mobile Money provider is not available right now' });
   }
+  // Editable at Checkout, pre-filled from the account on the frontend —
+  // see the identical comment on /api/marketplace/checkout/multi above.
+  const accountUser = (!customerName || !customerName.trim() || !customerPhone || !customerPhone.trim())
+    ? await db.getUserById(req.user.id) : null;
+  const senderName = (customerName && customerName.trim()) ? customerName.trim() : req.user.businessName;
+  const senderPhone = (customerPhone && customerPhone.trim()) ? customerPhone.trim() : (accountUser ? accountUser.phone : null);
   const checkoutBatchId = vendorGroups.length > 1 ? crypto.randomUUID() : null;
   let sharedReference = null;
   const results = [];
@@ -5678,10 +5798,13 @@ app.post('/api/marketplace/checkout/multi/momo-manual', requireAuth, async (req,
     try {
       const vendor = await db.getUserById(g.vendorId);
       const zone = vendor && vendor.deliveryZoneId ? await db.getDeliveryZoneById(vendor.deliveryZoneId) : null;
-      const deliveryFee = zone ? zone.fee : 0;
+      // See /api/marketplace/checkout/multi above for the zone-pair fee
+      // + fallback reasoning.
+      const deliveryFee = await db.resolveDeliveryFee(vendor && vendor.deliveryZoneId, dropoffZoneId);
       const result = await db.checkout({
         customerId: req.user.id,
-        customerName: req.user.businessName,
+        customerName: senderName,
+        customerPhone: senderPhone,
         vendorId: g.vendorId,
         items: g.items,
         pickupAddress: g.pickupAddress,

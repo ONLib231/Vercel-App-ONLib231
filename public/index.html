@@ -3705,341 +3705,6 @@
             #delivery-customer-app .dcust-trust-item { padding: 0; }
             #delivery-customer-app .dcust-wide-card-grid { grid-template-columns: 1fr; }
         }
-
-        /* ==========================================================
-           TAOBAO-STYLE SKIN — ONLib Marketplace (#home-screen)
-           ----------------------------------------------------------
-           A visual layer over the existing marketplace components,
-           modelled on taobao.com: orange (#FF5000) as the single brand
-           colour, red (#FF0036) reserved for prices, a near-white page
-           carrying white content "modules", a dense borderless product
-           waterfall, and the three-column desktop hero (category rail |
-           banner | account card).
-
-           Deliberately scoped to #home-screen only. ONLib Delivery, the
-           vendor dashboard and the admin dashboard share many of these
-           class names (.mobile-topbar, .product-card, ...) and stay on
-           the original navy/red palette — this is the shopper-facing
-           storefront's identity, not the whole product's.
-
-           Written as a final override block rather than by editing the
-           rules above, so the original theme stays intact and readable
-           and this whole skin can be lifted out in one piece.
-           ========================================================== */
-        #home-screen {
-            --tb-orange: #FF5000;
-            --tb-orange-lit: #FF7A00;
-            --tb-orange-dark: #E04600;
-            --tb-tint: #FFF1EB;
-            --tb-price: #FF0036;
-            --tb-ink: #1F1F1F;
-            --tb-muted: #7A7A7A;
-            --tb-faint: #B5B5B5;
-            --tb-surface: #F5F5F5;
-            --tb-line: #EDEDED;
-            --tb-night: #11192D;
-
-            /* Remap the tokens the existing components already consume,
-               so all of them repaint from this single place instead of
-               each needing its own override below. */
-            --golib-red: var(--tb-orange);
-            --golib-red-dark: var(--tb-orange-dark);
-            --golib-navy: var(--tb-night);
-            --golib-navy-light: #1D2A47;
-            --golib-blue: var(--tb-orange);
-            --golib-blue-dark: var(--tb-orange-dark);
-            --primary: var(--tb-orange);
-            --primary-dark: var(--tb-orange-dark);
-            --slate: var(--tb-ink);
-            --slate-light: var(--tb-muted);
-            --slate-lighter: var(--tb-faint);
-            --bg-light: var(--tb-surface);
-            --border: var(--tb-line);
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-            --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.06);
-            --shadow-lg: 0 6px 20px rgba(0, 0, 0, 0.08);
-        }
-
-        /* ---------- Header: orange bar + white pill search ---------- */
-        #home-screen .mobile-topbar {
-            background: linear-gradient(180deg, #FF5000 0%, #FF7300 100%);
-            border-bottom: none; color: #fff;
-        }
-        #home-screen .mobile-icon-btn,
-        #home-screen .mp-back-to-chooser-btn {
-            background: rgba(255, 255, 255, 0.18);
-            border-color: rgba(255, 255, 255, 0.35);
-            color: #fff;
-        }
-        #home-screen .mobile-icon-badge {
-            background: #fff; color: var(--tb-orange); border-color: rgba(255, 255, 255, 0.55);
-        }
-        #home-screen .mp-topbar-auth-link,
-        #home-screen .mp-topbar-auth-link:not(.primary) { color: #fff; }
-        #home-screen .mp-topbar-divider { background: rgba(255, 255, 255, 0.35); }
-        #home-screen .mobile-search-bar {
-            background: #fff; border: none; border-radius: 9999px; box-shadow: none;
-            gap: 0.5rem; padding: 0.25rem 0.25rem 0.25rem 0.9375rem;
-        }
-        #home-screen .mobile-search-bar svg { color: var(--tb-faint); }
-        #home-screen .mobile-search-bar input { font-size: 0.875rem; }
-        #home-screen .mobile-search-bar input::placeholder { color: var(--tb-faint); }
-        .mobile-search-go {
-            flex-shrink: 0; border: none; cursor: pointer; height: 36px; padding: 0 1.125rem;
-            border-radius: 9999px; background: linear-gradient(135deg, #FF5000, #FF7A00);
-            color: #fff; font-weight: 700; font-size: 0.8125rem; font-family: inherit;
-        }
-        .mobile-search-go:hover { background: linear-gradient(135deg, #E04600, #FF6A00); }
-
-        /* ---------- Hot search words ---------- */
-        .tb-hotwords {
-            display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.75rem 0 0.125rem;
-            scrollbar-width: none; -ms-overflow-style: none;
-        }
-        .tb-hotwords::-webkit-scrollbar { display: none; }
-        .tb-hotwords:empty { display: none; }
-        .tb-hotword {
-            flex-shrink: 0; border: none; cursor: pointer; font-family: inherit;
-            background: var(--tb-tint); color: #C9400A; font-size: 0.75rem; font-weight: 600;
-            padding: 0.375rem 0.75rem; border-radius: 9999px; white-space: nowrap;
-        }
-        .tb-hotword.is-hot { background: linear-gradient(135deg, #FF5000, #FF7A00); color: #fff; }
-
-        /* ---------- Hero row: rail | banner | account card ----------
-           One column on phones (banner only — the rail's job is done by
-           the icon grid below it, and the account card's by the Account
-           tab). The rail joins at 1024px, the account card at 1280px,
-           matching how much width the desktop sidebar leaves over. */
-        .tb-hero-row { margin-top: 0.625rem; }
-        .tb-cat-rail, .tb-user-card { display: none; }
-        @media (min-width: 1024px) {
-            .tb-hero-row {
-                display: grid; grid-template-columns: 184px minmax(0, 1fr);
-                gap: 0.75rem; align-items: stretch;
-            }
-            .tb-cat-rail {
-                display: flex; flex-direction: column; background: #fff;
-                border: 1px solid var(--tb-line); border-radius: 0.75rem;
-                padding: 0.5rem 0; overflow: hidden;
-            }
-            .tb-cat-rail-item {
-                display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-                width: 100%; background: none; border: none; cursor: pointer; font-family: inherit;
-                padding: 0.4375rem 0.875rem; font-size: 0.8125rem; font-weight: 500;
-                color: var(--tb-ink); text-align: left;
-            }
-            .tb-cat-rail-item span {
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-            }
-            .tb-cat-rail-item svg { width: 13px; height: 13px; opacity: 0.35; flex-shrink: 0; }
-            .tb-cat-rail-item:hover { background: var(--tb-tint); color: var(--tb-orange); }
-            .tb-cat-rail-item:hover svg { opacity: 0.9; }
-        }
-        @media (min-width: 1280px) {
-            .tb-hero-row { grid-template-columns: 184px minmax(0, 1fr) 218px; }
-            .tb-user-card {
-                display: flex; flex-direction: column; background: #fff;
-                border: 1px solid var(--tb-line); border-radius: 0.75rem;
-                padding: 1.125rem 0.875rem; text-align: center;
-            }
-        }
-        .tb-user-avatar {
-            width: 54px; height: 54px; border-radius: 50%; margin: 0 auto 0.5rem;
-            background: var(--tb-tint); color: var(--tb-orange);
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 800; font-size: 1.25rem;
-        }
-        .tb-user-greet { font-size: 0.75rem; color: var(--tb-muted); }
-        .tb-user-name {
-            font-size: 0.9375rem; font-weight: 700; color: var(--tb-ink); margin-bottom: 0.875rem;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        }
-        .tb-user-btn {
-            width: 100%; height: 34px; border: none; cursor: pointer; font-family: inherit;
-            border-radius: 9999px; font-weight: 700; font-size: 0.8125rem;
-            background: linear-gradient(135deg, #FF5000, #FF7A00); color: #fff;
-        }
-        .tb-user-btn.ghost {
-            background: #fff; color: var(--tb-orange);
-            border: 1px solid var(--tb-orange); margin-top: 0.5rem;
-        }
-        .tb-user-links {
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.25rem;
-            margin-top: 1rem; padding-top: 0.875rem; border-top: 1px dashed #E0E0E0;
-        }
-        .tb-user-link {
-            background: none; border: none; cursor: pointer; font-family: inherit;
-            display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
-            font-size: 0.625rem; font-weight: 600; color: var(--tb-muted);
-        }
-        .tb-user-link svg { width: 17px; height: 17px; color: var(--tb-orange); }
-        .tb-user-link:hover { color: var(--tb-orange); }
-
-        /* ---------- Banner ---------- */
-        #home-screen .discovery-banner-carousel { border-radius: 0.75rem; height: 100%; }
-        #home-screen .discovery-banner-track { height: 100%; }
-        #home-screen .discovery-banner { min-height: 176px; padding: 1.25rem; }
-        #home-screen .discovery-banner-headline { color: #fff; }
-        #home-screen .discovery-banner-cta { border-radius: 9999px; padding: 0.5rem 1.375rem; }
-        #home-screen .discovery-banner-dots {
-            left: auto; right: 0.875rem; bottom: 0.875rem; justify-content: flex-end;
-        }
-        #home-screen .discovery-banner-dot { background: rgba(255, 255, 255, 0.5); }
-        #home-screen .discovery-banner-dot.active { background: var(--tb-orange); width: 22px; }
-        @media (min-width: 1024px) {
-            #home-screen .discovery-banner { min-height: 296px; padding: 2rem; }
-            #home-screen .discovery-banner-headline { font-size: 1.75rem; }
-        }
-
-        /* ---------- Content modules (white blocks on grey) ---------- */
-        #home-screen #mp-view-shop .mobile-section {
-            background: #fff; border-radius: 0.75rem; padding: 0.875rem; margin-top: 0.625rem;
-        }
-        #home-screen .mobile-section-header { margin-bottom: 0.75rem; }
-        #home-screen .mobile-section-title {
-            font-size: 1rem; font-weight: 800; display: flex; align-items: center; gap: 0.5rem;
-        }
-        #home-screen #mp-view-shop .mobile-section-title::before {
-            content: ''; width: 4px; height: 15px; border-radius: 2px; flex-shrink: 0;
-            background: linear-gradient(180deg, #FF5000, #FF9500);
-        }
-        #home-screen .mobile-view-all { color: var(--tb-muted); font-weight: 500; font-size: 0.75rem; }
-        #home-screen .mobile-view-all:hover { color: var(--tb-orange); }
-
-        /* ---------- Category icon grid (5-up, round tinted tiles) ---------- */
-        #home-screen .category-grid {
-            display: grid; grid-template-columns: repeat(5, 1fr);
-            gap: 0.875rem 0.25rem; overflow: visible;
-        }
-        #home-screen .category-item { width: auto; gap: 0.375rem; }
-        #home-screen .category-icon-box {
-            width: 46px; height: 46px; border-radius: 50%;
-            background: var(--tb-tint); border: none; box-shadow: none;
-        }
-        #home-screen .category-icon-box svg { width: 22px; height: 22px; color: var(--tb-orange); }
-        #home-screen .category-item.active-category .category-icon-box {
-            background: linear-gradient(135deg, #FF5000, #FF7A00);
-        }
-        #home-screen .category-label {
-            font-size: 0.6875rem; font-weight: 500; color: var(--tb-ink);
-            max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        }
-        @media (min-width: 768px) {
-            #home-screen .category-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); }
-        }
-
-        /* ---------- Flash deals strip ---------- */
-        .tb-flash-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-        .tb-countdown { display: inline-flex; align-items: center; gap: 2px; }
-        .tb-countdown b {
-            background: var(--tb-ink); color: #fff; font-size: 0.625rem; font-weight: 700;
-            border-radius: 3px; padding: 2px 4px; font-variant-numeric: tabular-nums;
-        }
-        .tb-countdown i { font-style: normal; color: var(--tb-ink); font-size: 0.625rem; font-weight: 700; }
-        .tb-flash-row {
-            display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.25rem;
-            scrollbar-width: none; -ms-overflow-style: none;
-        }
-        .tb-flash-row::-webkit-scrollbar { display: none; }
-        .tb-flash-card {
-            flex: 0 0 98px; width: 98px; background: none; border: none; padding: 0;
-            cursor: pointer; text-align: left; font-family: inherit;
-        }
-        .tb-flash-card img {
-            width: 98px; height: 98px; object-fit: cover; display: block;
-            border-radius: 0.5rem; background: var(--tb-surface);
-        }
-        .tb-flash-price {
-            color: var(--tb-price); font-weight: 800; font-size: 0.875rem; margin-top: 0.3125rem;
-        }
-        .tb-flash-was {
-            color: var(--tb-faint); text-decoration: line-through;
-            font-size: 0.6875rem; font-weight: 500; margin-left: 0.25rem;
-        }
-        .tb-flash-name {
-            font-size: 0.6875rem; color: var(--tb-muted);
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-        }
-
-        /* ---------- Product waterfall ---------- */
-        #home-screen .product-grid { gap: 0.625rem; }
-        #home-screen .product-card {
-            background: #fff; border: none; border-radius: 0.625rem; box-shadow: none;
-        }
-        #home-screen .product-card-image {
-            background: var(--tb-surface); object-fit: cover; aspect-ratio: 1 / 1; height: auto;
-        }
-        #home-screen .product-card-body { padding: 0.5rem 0.375rem 0.625rem; gap: 0.25rem; }
-        #home-screen .product-card-name {
-            font-size: 0.8125rem; font-weight: 400; color: var(--tb-ink);
-            line-height: 1.35; margin-top: 0;
-        }
-        #home-screen .product-card-price-row { flex-wrap: wrap; gap: 0.375rem; }
-        #home-screen .product-card-price {
-            color: var(--tb-price); font-size: 1.0625rem; font-weight: 800;
-            font-variant-numeric: tabular-nums;
-        }
-        #home-screen .tb-cur { font-size: 0.75rem; font-weight: 700; margin-right: 1px; }
-        #home-screen .tb-dec { font-size: 0.75rem; font-weight: 700; }
-        #home-screen .product-card-original-price { color: var(--tb-faint); font-size: 0.6875rem; }
-        #home-screen .product-card-sold { color: var(--tb-muted); font-size: 0.6875rem; }
-        #home-screen .product-card-discount-badge {
-            background: linear-gradient(135deg, #FF0036, #FF5000); border-radius: 0.25rem;
-            font-size: 0.625rem; padding: 0.125rem 0.375rem;
-        }
-        #home-screen .product-card-featured-badge {
-            background: linear-gradient(135deg, #FF7A00, #FF5000); border-radius: 0.25rem;
-            font-size: 0.625rem; padding: 0.125rem 0.375rem; box-shadow: none;
-        }
-        #home-screen .product-card-outofstock-badge { border-radius: 0.25rem; font-size: 0.625rem; }
-        @media (min-width: 768px) {
-            #home-screen .product-grid { grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); }
-        }
-
-        /* ---------- Filter bar, stores row, nav chrome ---------- */
-        #home-screen .storefront-filter-bar .form-input {
-            border-radius: 9999px; font-size: 0.8125rem; padding: 0.5rem 0.875rem;
-        }
-        #home-screen .store-card { border: 1px solid var(--tb-line); box-shadow: none; border-radius: 0.75rem; }
-        #home-screen .store-card-avatar { background: linear-gradient(135deg, #FF5000, #FF7A00); }
-        #home-screen .mobile-nav-item { font-weight: 600; }
-        #home-screen .desktop-sidebar-item.active { background: var(--tb-tint); color: var(--tb-orange); }
-        #home-screen .desktop-sidebar-item.active svg { color: var(--tb-orange); }
-
-        /* ---------- Buyer-protection strip ---------- */
-        .tb-promise {
-            display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem 1.25rem;
-            padding: 1.25rem 0.75rem 0.5rem;
-            font-size: 0.6875rem; font-weight: 600; color: var(--tb-muted);
-        }
-        .tb-promise span { display: inline-flex; align-items: center; gap: 0.3125rem; }
-        .tb-promise svg { width: 13px; height: 13px; color: var(--tb-orange); flex-shrink: 0; }
-
-        /* ---------- Product detail page ---------- */
-        #home-screen .pdp-add-cart-btn { background: linear-gradient(135deg, #FF9500, #FF6A00); }
-        #home-screen .pdp-buy-now-btn { background: linear-gradient(135deg, #FF5000, #FF0036); }
-        #home-screen #pdp-bottom-price-integer,
-        #home-screen #pdp-bottom-price-decimal { color: var(--tb-price); }
-
-        /* Dark mode: keep the orange brand, swap the greys. The base
-           dark block near the top of this stylesheet already redefines
-           --slate/--bg-light/--border for #home-screen[data-theme="dark"]
-           and outranks the token block above (id + attribute), so only
-           the surfaces this skin paints a literal white need restating. */
-        #home-screen[data-theme="dark"] #mp-view-shop .mobile-section,
-        #home-screen[data-theme="dark"] .tb-cat-rail,
-        #home-screen[data-theme="dark"] .tb-user-card,
-        #home-screen[data-theme="dark"] .product-card { background: #1E293B; }
-        #home-screen[data-theme="dark"] .mobile-search-bar { background: #273449; }
-        #home-screen[data-theme="dark"] .mobile-search-bar input { color: #F1F5F9; background: transparent; }
-        #home-screen[data-theme="dark"] .category-icon-box,
-        #home-screen[data-theme="dark"] .tb-user-avatar { background: rgba(255, 80, 0, 0.16); }
-        #home-screen[data-theme="dark"] .category-label,
-        #home-screen[data-theme="dark"] .tb-cat-rail-item,
-        #home-screen[data-theme="dark"] .tb-user-name { color: #F1F5F9; }
-        #home-screen[data-theme="dark"] .tb-hotword { background: rgba(255, 80, 0, 0.16); color: #FF8A4C; }
-        #home-screen[data-theme="dark"] .tb-countdown b { background: #F1F5F9; color: #0F172A; }
-        #home-screen[data-theme="dark"] .tb-countdown i { color: #F1F5F9; }
     </style>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -4404,7 +4069,6 @@
             <div class="mobile-search-bar">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 <input type="text" id="storefront-search-input" placeholder="Search products, stores…">
-                <button type="button" class="mobile-search-go" id="mp-search-go-btn">Search</button>
             </div>
 
             <div style="display:flex; gap:0.5rem; align-items:center;">
@@ -4465,47 +4129,14 @@
                          renderHomeBannerCarousel(); falls back to a single
                          hardcoded slide when no slides are configured, so this
                          area is never empty. -->
-                    <!-- Hot search words — the suggestions Taobao parks
-                         under its search bar. Tapping one prefills the
-                         storefront search; built from live data by
-                         renderTbHotwords(). -->
-                    <div class="tb-hotwords" id="tb-hotwords"></div>
-
-                    <!-- Taobao's three-part hero: category rail on the
-                         left, the banner carousel in the middle, the
-                         account card on the right. The rail and the card
-                         are desktop-only (see .tb-hero-row in the skin) —
-                         on phones the banner takes the whole row, which
-                         is what the Taobao app itself does. -->
-                    <div class="tb-hero-row">
-                        <nav class="tb-cat-rail" id="tb-cat-rail" aria-label="Shop by category"></nav>
-                        <div class="discovery-banner-carousel" id="discovery-banner-carousel">
-                            <div class="discovery-banner-track" id="discovery-banner-track"></div>
-                            <div class="discovery-banner-dots" id="discovery-banner-dots"></div>
-                        </div>
-                        <aside class="tb-user-card" id="tb-user-card"></aside>
+                    <div class="discovery-banner-carousel" id="discovery-banner-carousel">
+                        <div class="discovery-banner-track" id="discovery-banner-track"></div>
+                        <div class="discovery-banner-dots" id="discovery-banner-dots"></div>
                     </div>
 
                     <div class="mobile-section" id="mp-category-section">
                         <div class="mobile-section-header"><div class="mobile-section-title">Categories</div></div>
                         <div class="category-grid" id="mp-category-grid"></div>
-                    </div>
-
-                    <!-- Flash Deals — Taobao's horizontal seckill strip.
-                         Just a different view of products already in the
-                         feed (the steepest live discounts); the section
-                         hides itself when nothing is discounted rather
-                         than showing an empty module. See
-                         renderTbFlashDeals(). -->
-                    <div class="mobile-section" id="tb-flash-section" style="display:none;">
-                        <div class="mobile-section-header">
-                            <div class="mobile-section-title tb-flash-head">
-                                Flash Deals
-                                <span class="tb-countdown" id="tb-flash-countdown"></span>
-                            </div>
-                            <a class="mobile-view-all" data-mp-tab="deals">More ›</a>
-                        </div>
-                        <div class="tb-flash-row" id="tb-flash-row"></div>
                     </div>
 
                     <div class="mobile-section">
@@ -4537,16 +4168,6 @@
                             <a class="mobile-view-all" data-mp-tab="stores">View All ›</a>
                         </div>
                         <div id="mp-popular-stores-preview" class="store-row-scroll"></div>
-                    </div>
-
-                    <!-- Reassurance row closing the feed, the way Taobao
-                         closes its home page. Each line names something
-                         the app actually does, not a policy promise. -->
-                    <div class="tb-promise">
-                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Secure checkout</span>
-                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>Live order tracking</span>
-                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>Rated by real buyers</span>
-                        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Message any vendor</span>
                     </div>
                 </div>
             </div>
@@ -7485,17 +7106,72 @@
                              a hardcoded 2-option list. -->
                         <div class="payment-method-options" id="checkout-momo-provider-options"></div>
                     </div>
+                    <!-- Editable contact info — pre-filled from the logged-in
+                         account (see openCheckoutModal) but editable per
+                         order, so an order can be placed for someone else
+                         (e.g. a gift) without changing the account itself.
+                         Sent to the server as customerName/customerPhone;
+                         see db.checkout()/orders.sender_name+sender_phone. -->
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-input" id="checkout-customer-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Contact Phone</label>
+                        <input type="tel" class="form-input" id="checkout-customer-phone" required>
+                    </div>
                     <div class="form-group">
                         <label class="form-label">Pickup Address (vendor/store)</label>
                         <input type="text" class="form-input" id="checkout-pickup-address" required>
                         <p id="checkout-pickup-subtext" style="color:var(--slate-light); font-size:0.8125rem; margin-top:0.5rem; margin-bottom:0; display:none;"></p>
                     </div>
+                    <!-- Dropoff Address — a saved address is required, and
+                         only a saved address that already has a delivery
+                         zone attached can be picked; there's no more free-
+                         typing a one-off address here. This is what makes
+                         the zone-pair delivery fee (see zonePairFeeFor()
+                         below) a real, forced calculation instead of an
+                         optional one that quietly falls back to the
+                         vendor's flat fee whenever a customer skipped
+                         picking a zone. A saved address with no zone yet
+                         (from before this requirement existed) simply
+                         doesn't appear in the list below — see
+                         populateCheckoutAddressSelect() — until it's given
+                         one from Settings or from "+ Add a new address"
+                         here. -->
                     <div class="form-group">
                         <label class="form-label">Dropoff Address (you)</label>
-                        <select class="form-input" id="checkout-saved-address-select" style="margin-bottom:0.625rem;">
-                            <option value="">— Type a new address below —</option>
+                        <select class="form-input" id="checkout-saved-address-select">
+                            <option value="">— Select a delivery address —</option>
                         </select>
-                        <input type="text" class="form-input" id="checkout-dropoff-address" required>
+                        <p id="checkout-no-zoned-addresses-hint" style="display:none; color:var(--slate-light); font-size:0.8125rem; margin-top:0.5rem; margin-bottom:0;">You don't have a saved address with a delivery zone yet — add one below.</p>
+                        <div id="checkout-dropoff-summary" style="display:none; margin-top:0.5rem; padding:0.5rem 0.75rem; background:var(--bg-light,#f0f9ff); border-radius:0.5rem; font-size:0.875rem;"></div>
+                        <input type="hidden" id="checkout-dropoff-zone-id">
+                        <input type="hidden" id="checkout-dropoff-address">
+
+                        <!-- Inline "add a new address" — shown when
+                             "+ Add a new address" is picked above (or
+                             automatically, when there's nothing zoned to
+                             pick from yet). Saves a real entry to the
+                             customer's own address book (same endpoint
+                             Settings uses) rather than a one-off value, so
+                             it's there for next time too — and, like every
+                             other saved address now, can't be saved
+                             without a zone (see zoneSearchPickerHtml). -->
+                        <div id="checkout-new-address-form" style="display:none; margin-top:0.75rem; padding:0.875rem; background:var(--bg-light); border-radius:0.75rem;">
+                            <div class="form-group">
+                                <label class="form-label">Label</label>
+                                <input type="text" class="form-input" id="checkout-new-address-label" placeholder="e.g. Home, Office">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Address</label>
+                                <textarea class="form-input" id="checkout-new-address-text" rows="2" placeholder="Street, city, landmark…"></textarea>
+                            </div>
+                            <!-- Populated by initZoneSearchPickers() with prefix "checkout-new-address" -->
+                            <div id="checkout-new-address-zone-picker-container"></div>
+                            <div class="auth-error" id="checkout-new-address-error" style="display:none;"></div>
+                            <button type="button" class="btn-small btn-secondary" id="checkout-new-address-save-btn">Save &amp; Use This Address</button>
+                        </div>
                     </div>
                     <!-- Step 2: Billing & Confirmation — populated by
                          updateCheckoutSummary() with a real Subtotal/Fee/
@@ -9701,6 +9377,38 @@
                 </div>
                 <div class="auth-error" id="delivery-zones-error" style="display:none; margin-top:0.75rem;"></div>
             </div>
+
+            <!-- Zone-pair delivery fees — see schema.sql's comment on
+                 zone_pair_fees. Priced per (vendor zone, customer zone)
+                 pair instead of the vendor's flat zone fee alone, so the
+                 fee charged reflects how far apart the vendor and the
+                 customer actually are, using the same real admin-defined
+                 zones above (still no geo/mapping data involved — see
+                 delivery_zones' own comment for why). Any pair without a
+                 price set here falls back to the vendor's flat zone fee,
+                 so existing checkouts keep working while this list is
+                 still being filled in. -->
+            <div style="border-top:1px solid var(--border); margin-top:1.5rem; padding-top:1.5rem;">
+                <h4 style="font-weight:700; margin-bottom:0.375rem;">🔀 Delivery Fee by Zone Pair</h4>
+                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:1rem;">Set the delivery fee charged when a vendor in one zone ships to a customer in another. Any pair left unset falls back to the vendor's own flat zone fee above.</p>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:0.75rem;">
+                    <div style="flex:1; min-width:140px;">
+                        <label class="form-label" style="font-size:0.75rem;">Vendor Zone</label>
+                        <select class="form-input" id="zone-pair-fee-vendor-zone-select"></select>
+                    </div>
+                    <div style="flex:1; min-width:140px;">
+                        <label class="form-label" style="font-size:0.75rem;">Customer Zone</label>
+                        <select class="form-input" id="zone-pair-fee-customer-zone-select"></select>
+                    </div>
+                    <div style="width:100px;">
+                        <label class="form-label" style="font-size:0.75rem;">Fee</label>
+                        <input type="number" class="form-input" id="zone-pair-fee-amount-input" min="0" step="0.01" placeholder="0.00">
+                    </div>
+                    <button type="button" class="btn-small btn-secondary" id="zone-pair-fee-add-btn">Set Fee</button>
+                </div>
+                <div id="zone-pair-fees-list"></div>
+                <div class="auth-error" id="zone-pair-fees-error" style="display:none; margin-top:0.75rem;"></div>
+            </div>
         </div>
     </div>
 
@@ -11114,6 +10822,13 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 deliveryZonesCache = [];
                 deliveryRegionsCache = [];
             }
+            try {
+                const pairFeesData = await apiFetch('/api/delivery-zone-pair-fees');
+                zonePairFeesCache = pairFeesData.pairs || [];
+            } catch (err) {
+                console.error('Failed to load zone-pair delivery fees', err);
+                zonePairFeesCache = [];
+            }
         }
 
         // Real, Super-Admin-defined delivery zones (see schema.sql's
@@ -11125,6 +10840,27 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
         // lives on the zone.
         let deliveryZonesCache = [];
         let deliveryRegionsCache = [];
+        // Real, Super-Admin-defined delivery fee per (vendor zone,
+        // customer zone) pair — see schema.sql's comment on
+        // zone_pair_fees. Loaded alongside deliveryZonesCache above.
+        let zonePairFeesCache = [];
+        // The actual per-vendor delivery-fee preview shown in the Cart/
+        // Checkout summary — mirrors db.resolveDeliveryFee() server-side
+        // exactly (same fallback order), so the number shown here always
+        // matches what checkout actually charges. `customerZoneId` is
+        // whatever's currently in #checkout-dropoff-zone-id — empty
+        // until a saved address with a zone is picked (see
+        // wireStorefrontEvents()'s listeners on that field), in which
+        // case this just falls back to the vendor's flat zone fee,
+        // same as getVendorZoneFee() alone did before this feature.
+        function zonePairFeeFor(vendorDeliveryZoneId, customerZoneId) {
+            if (!vendorDeliveryZoneId) return 0;
+            if (customerZoneId) {
+                const pair = zonePairFeesCache.find(p => p.vendorZoneId === vendorDeliveryZoneId && p.customerZoneId === customerZoneId);
+                if (pair) return pair.fee;
+            }
+            return getVendorZoneFee(vendorDeliveryZoneId);
+        }
         function getVendorZoneFee(vendorDeliveryZoneId) {
             const zone = deliveryZonesCache.find(z => z.id === vendorDeliveryZoneId);
             return zone ? zone.fee : 0;
@@ -11151,10 +10887,17 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
         // input holding the selected zone id), ${prefix}-zone-selected /
         // ${prefix}-zone-selected-text (the "you picked this" chip shown
         // after selecting, with a Change link back to search).
-        function zoneSearchPickerHtml(prefix, labelText) {
+        function zoneSearchPickerHtml(prefix, labelText, required = false) {
+            // `required` covers the customer-facing saved-address forms
+            // (address-form, dcust-address-form, checkout-new-address) —
+            // a saved address' delivery zone drives real money now (the
+            // zone-pair delivery fee), so those can no longer be saved
+            // zoneless. Every other instance of this picker (vendor/
+            // delivery-company Home Base, a customer's own preferred
+            // zone in Settings) stays optional, unchanged.
             return `
                 <div class="form-group">
-                    <label class="form-label">${labelText} <span style="color:var(--slate-light); font-weight:400;">(optional)</span></label>
+                    <label class="form-label">${labelText} ${required ? '<span style="color:#dc2626; font-weight:400;">(required)</span>' : '<span style="color:var(--slate-light); font-weight:400;">(optional)</span>'}</label>
                     <input type="text" class="form-input zone-picker-input" id="${prefix}-zone-search" placeholder="Search by zone code, name, or region…" autocomplete="off">
                     <input type="hidden" id="${prefix}-zone-id">
                     <div class="zone-picker-results" id="${prefix}-zone-results" style="display:none; border:1px solid var(--border); border-radius:0.5rem; margin-top:0.375rem; max-height:220px; overflow-y:auto; background:white; position:relative; z-index:5;"></div>
@@ -11253,20 +10996,24 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
         // role's picker that doesn't exist yet) are skipped harmlessly.
         function initZoneSearchPickers() {
             const pickers = [
-                ['register-vendor', 'Delivery Zone'],
-                ['register-delivery-company', 'Delivery Zone (Home Base)'],
-                ['register-customer', 'Delivery Zone'],
-                ['vendor-settings', 'Delivery Zone'],
-                ['dc-settings', 'Delivery Zone (Home Base)'],
-                ['address-form', 'Delivery Zone'],
-                ['dcust-address-form', 'Delivery Zone'],
-                ['mp-settings', 'Delivery Zone (Home Base)'],
-                ['dcust-settings', 'Delivery Zone (Home Base)'],
+                ['register-vendor', 'Delivery Zone', false],
+                ['register-delivery-company', 'Delivery Zone (Home Base)', false],
+                ['register-customer', 'Delivery Zone', false],
+                ['vendor-settings', 'Delivery Zone', false],
+                ['dc-settings', 'Delivery Zone (Home Base)', false],
+                // Required — see zoneSearchPickerHtml's own comment: a
+                // saved address' zone now drives real delivery-fee
+                // pricing, so it can no longer be left unset.
+                ['address-form', 'Delivery Zone', true],
+                ['dcust-address-form', 'Delivery Zone', true],
+                ['checkout-new-address', 'Delivery Zone', true],
+                ['mp-settings', 'Delivery Zone (Home Base)', false],
+                ['dcust-settings', 'Delivery Zone (Home Base)', false],
             ];
-            pickers.forEach(([prefix, label]) => {
+            pickers.forEach(([prefix, label, required]) => {
                 const container = document.getElementById(`${prefix}-zone-picker-container`);
                 if (!container) return;
-                container.innerHTML = zoneSearchPickerHtml(prefix, label);
+                container.innerHTML = zoneSearchPickerHtml(prefix, label, required);
                 wireZoneSearchPicker(prefix);
             });
         }
@@ -12823,11 +12570,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 refreshMyAvatarDisplays();
             }
             void profileDropdown.offsetHeight;
-
-            // Taobao-style desktop account card in the hero's right
-            // column — same session state, rendered here so it follows
-            // every login and logout the same way the pills above do.
-            renderTbUserCard();
         }
 
         // Bottom nav tab switching — Home and Categories share the same
@@ -13378,11 +13120,22 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             const btn = document.getElementById('dcust-address-form-save-btn');
             errorEl.style.display = 'none';
             const id = document.getElementById('dcust-address-form-id').value;
+            const zoneId = document.getElementById('dcust-address-form-zone-id').value || null;
+            // Required — see zoneSearchPickerHtml's own comment: a saved
+            // address' zone now drives real checkout delivery-fee pricing,
+            // so it can no longer be saved without one (the server
+            // enforces this too — this is just the faster, friendlier
+            // check).
+            if (!zoneId) {
+                errorEl.textContent = 'Search for and select a delivery zone.';
+                errorEl.style.display = 'block';
+                return;
+            }
             const body = JSON.stringify({
                 label: document.getElementById('dcust-address-form-label').value.trim(),
                 address: document.getElementById('dcust-address-form-address').value.trim(),
                 isDefault: document.getElementById('dcust-address-form-default').checked,
-                zoneId: document.getElementById('dcust-address-form-zone-id').value || null,
+                zoneId,
             });
             btn.disabled = true;
             btn.textContent = 'Saving…';
@@ -16789,6 +16542,15 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             });
             document.getElementById('submit-delivery-zones-import-btn').addEventListener('click', submitDeliveryZonesImport);
 
+            // ---- Zone-pair Delivery Fees ----
+            document.getElementById('zone-pair-fee-add-btn').addEventListener('click', addZonePairFee);
+            document.getElementById('zone-pair-fees-list').addEventListener('click', (e) => {
+                const row = e.target.closest('.zone-pair-fee-row');
+                if (row && e.target.classList.contains('zone-pair-fee-delete-btn')) {
+                    deleteZonePairFeeRow(row.dataset.id);
+                }
+            });
+
             // ---- Help & Support ----
             document.getElementById('open-help-support-btn').addEventListener('click', () => {
                 renderHelpSupport();
@@ -19164,7 +18926,11 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 showToast(err.message, 'error');
             }
             loadMomoProvidersPanel();
-            loadDeliveryZonesPanel();
+            // Zone-pair fees needs the zone list loaded first (its two
+            // dropdowns are built from deliveryZonesPanelCache) — awaited
+            // in sequence rather than fired in parallel with it.
+            await loadDeliveryZonesPanel();
+            loadZonePairFeesPanel();
         }
 
         // ---- Mobile Money Providers (Super Admin) --------------------
@@ -19293,6 +19059,10 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
 
         function renderDeliveryZonesPanel() {
             const container = document.getElementById('delivery-zones-list');
+            // Keep the Zone-pair Fees dropdowns in sync with whatever
+            // zones currently exist, whether this render came from a
+            // fresh load or a save/delete elsewhere in this panel.
+            renderZonePairFeeZoneOptions();
             if (deliveryZonesPanelCache.length === 0 && deliveryRegionsPanelCache.length === 0) {
                 container.innerHTML = '<p style="color:var(--slate-light); font-size:0.875rem;">No delivery zones yet — vendors have no real fee to charge until you add one, or import a list.</p>';
                 return;
@@ -19425,6 +19195,107 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Import';
+            }
+        }
+
+        // ---- Zone-pair delivery fees (Super Admin) — see schema.sql's
+        // comment on zone_pair_fees. Same panel pattern as Delivery Zones
+        // above, but each row is an (vendor zone, customer zone, fee)
+        // triple instead of a single zone.
+        let zonePairFeesPanelCache = [];
+
+        function renderZonePairFeeZoneOptions() {
+            const vendorSelect = document.getElementById('zone-pair-fee-vendor-zone-select');
+            const customerSelect = document.getElementById('zone-pair-fee-customer-zone-select');
+            if (!vendorSelect || !customerSelect) return;
+            const optionsHtml = deliveryZonesPanelCache.length
+                ? deliveryZonesPanelCache.map(z => `<option value="${z.id}">${escapeHtmlAttr(z.code ? `${z.code} — ${z.name}` : z.name)}</option>`).join('')
+                : '<option value="">— No zones yet —</option>';
+            // Preserve whatever was selected, if it still exists, rather
+            // than resetting the pickers every time a save/delete
+            // elsewhere in the Delivery Zones panel triggers a re-render.
+            const prevVendor = vendorSelect.value;
+            const prevCustomer = customerSelect.value;
+            vendorSelect.innerHTML = optionsHtml;
+            customerSelect.innerHTML = optionsHtml;
+            if (deliveryZonesPanelCache.some(z => z.id === prevVendor)) vendorSelect.value = prevVendor;
+            if (deliveryZonesPanelCache.some(z => z.id === prevCustomer)) customerSelect.value = prevCustomer;
+        }
+
+        async function loadZonePairFeesPanel() {
+            const container = document.getElementById('zone-pair-fees-list');
+            const errorEl = document.getElementById('zone-pair-fees-error');
+            errorEl.style.display = 'none';
+            try {
+                const data = await apiFetch('/api/super-admin/zone-pair-fees');
+                zonePairFeesPanelCache = data.pairs || [];
+                renderZonePairFeesList();
+            } catch (err) {
+                container.innerHTML = '';
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        function zoneLabel(zoneId) {
+            const zone = deliveryZonesPanelCache.find(z => z.id === zoneId);
+            if (!zone) return '(deleted zone)';
+            return zone.code ? `${zone.code} — ${zone.name}` : zone.name;
+        }
+
+        function renderZonePairFeesList() {
+            const container = document.getElementById('zone-pair-fees-list');
+            if (zonePairFeesPanelCache.length === 0) {
+                container.innerHTML = '<p style="color:var(--slate-light); font-size:0.875rem;">No zone-pair fees set yet — every vendor currently falls back to their own flat zone fee.</p>';
+                return;
+            }
+            container.innerHTML = zonePairFeesPanelCache.map(p => `
+                <div class="zone-pair-fee-row" data-id="${p.id}" style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; border:1px solid var(--border); border-radius:0.625rem; padding:0.625rem 0.75rem; margin-bottom:0.5rem; background:#fff;">
+                    <span style="flex:1; min-width:220px; font-size:0.875rem;"><strong>${escapeHtmlAttr(zoneLabel(p.vendorZoneId))}</strong> → <strong>${escapeHtmlAttr(zoneLabel(p.customerZoneId))}</strong></span>
+                    <span style="font-weight:700;">$${Number(p.fee).toFixed(2)}</span>
+                    <button type="button" class="btn-small zone-pair-fee-delete-btn" style="background:#fee2e2; color:#991b1b;">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        async function addZonePairFee() {
+            const errorEl = document.getElementById('zone-pair-fees-error');
+            errorEl.style.display = 'none';
+            const vendorZoneId = document.getElementById('zone-pair-fee-vendor-zone-select').value;
+            const customerZoneId = document.getElementById('zone-pair-fee-customer-zone-select').value;
+            const fee = Number(document.getElementById('zone-pair-fee-amount-input').value);
+            if (!vendorZoneId || !customerZoneId) {
+                errorEl.textContent = 'Choose both a vendor zone and a customer zone.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            if (!Number.isFinite(fee) || fee < 0) {
+                errorEl.textContent = 'Enter a valid delivery fee.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            try {
+                await apiFetch('/api/super-admin/zone-pair-fees', {
+                    method: 'POST',
+                    body: JSON.stringify({ vendorZoneId, customerZoneId, fee }),
+                });
+                document.getElementById('zone-pair-fee-amount-input').value = '';
+                showToast('Zone-pair fee saved', 'success');
+                loadZonePairFeesPanel();
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+
+        async function deleteZonePairFeeRow(id) {
+            if (!confirm('Remove this zone-pair fee? Checkout will fall back to the vendor\'s own flat zone fee for this pair until it\'s set again.')) return;
+            try {
+                await apiFetch(`/api/super-admin/zone-pair-fees/${id}`, { method: 'DELETE' });
+                showToast('Zone-pair fee removed', 'success');
+                loadZonePairFeesPanel();
+            } catch (err) {
+                showToast(err.message, 'error');
             }
         }
 
@@ -21752,6 +21623,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 </div>
                 <div class="order-details">
                     ${order.senderName ? `<div class="order-detail"><span class="order-detail-label">Sender:</span><span class="order-detail-value">${order.senderName}</span></div>` : ''}
+                    ${order.senderPhone ? `<div class="order-detail"><span class="order-detail-label">Contact Phone:</span><span class="order-detail-value"><a href="tel:${order.senderPhone}">${order.senderPhone}</a></span></div>` : ''}
                     <div class="order-detail"><span class="order-detail-label">Pickup:</span><span class="order-detail-value">${order.pickupAddress}${order.pickedUpAt ? ` <span class="order-timestamp">- ${formatTime(order.pickedUpAt)} </span>` : ''}</span></div>
                     <div class="order-detail"><span class="order-detail-label">Dropoff:</span><span class="order-detail-value">${order.dropoffAddress}${order.deliveredAt ? ` <span class="order-timestamp">- ${formatTime(order.deliveredAt)} </span>` : ''}</span></div>
                     <div class="order-detail"><span class="order-detail-label">Item:</span><span class="order-detail-value">${order.itemDescription}</span></div>
@@ -21831,6 +21703,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 <div class="order-header"><span class="order-id">${order.id}</span><span class="status-badge ${statusClass}">${statusText}</span></div>
                 <div class="order-details">
                     ${order.senderName ? `<div class="order-detail"><span class="order-detail-label">Sender:</span><span class="order-detail-value">${order.senderName}</span></div>` : ''}
+                    ${order.senderPhone ? `<div class="order-detail"><span class="order-detail-label">Contact Phone:</span><span class="order-detail-value"><a href="tel:${order.senderPhone}">${order.senderPhone}</a></span></div>` : ''}
                     <div class="order-detail"><span class="order-detail-label">Pickup:</span><span class="order-detail-value">${order.pickupAddress}</span></div>
                     <div class="order-detail"><span class="order-detail-label">Dropoff:</span><span class="order-detail-value">${order.dropoffAddress}</span></div>
                     <div class="order-detail"><span class="order-detail-label">Item:</span><span class="order-detail-value">${order.itemDescription}</span></div>
@@ -24884,13 +24757,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 `)].join('');
                 renderStorefrontProducts();
 
-                // Taobao-style home extras, off the data just loaded —
-                // the desktop category rail, the hot-word row and the
-                // Flash Deals strip (see the TAOBAO-STYLE HOME block).
-                renderTbCategoryRail(categories);
-                renderTbHotwords();
-                renderTbFlashDeals();
-
                 // Popular Stores preview on the Home tab — real data,
                 // capped to a handful for a compact preview row.
                 const storesData = await apiFetch('/api/marketplace/stores').catch(() => ({ stores: [] }));
@@ -25707,7 +25573,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                         <div class="product-card-vendor">${p.vendorName}</div>
                         ${renderStars(p.avgRating, p.reviewCount)}
                         <div class="product-card-price-row">
-                            <span class="product-card-price">${formatTbPrice(p.price)}</span>
+                            <span class="product-card-price">$${p.price.toFixed(2)}</span>
                             ${p.discountPercent ? `<span class="product-card-original-price">$${p.originalPrice.toFixed(2)}</span>` : ''}
                             ${p.unitsSold > 0 ? `<span class="product-card-sold">${p.unitsSold}+ sold</span>` : ''}
                         </div>
@@ -26117,9 +25983,12 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             const discount = appliedCoupon ? appliedCoupon.discountAmount : 0;
             const vendorGroups = groupCartByVendor();
             const isMultiVendor = vendorGroups.length > 1;
-            // Real per-vendor fee from that vendor's assigned zone (see
-            // getVendorZoneFee) — summed for the combined Delivery Fee
-            // line, never a flat guess.
+            // The Cart Modal doesn't know the customer's dropoff zone yet
+            // (that's picked at Checkout) — so this shows each vendor's
+            // flat zone fee as an estimate (see getVendorZoneFee); the
+            // Checkout Modal's own summary (updateCheckoutSummary) shows
+            // the real zone-pair fee once a dropoff is chosen, via
+            // zonePairFeeFor.
             const deliveryFeeTotal = vendorGroups.reduce((sum, g) => sum + getVendorZoneFee(g.vendorDeliveryZoneId), 0);
             const total = subtotal - discount + serviceFee + deliveryFeeTotal;
             container.innerHTML = cart.map(c => {
@@ -26168,7 +26037,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>
                     ${discount > 0 ? `<div style="display:flex; justify-content:space-between; color:#15803d;"><span>Discount (${appliedCoupon.code})</span><span>−$${discount.toFixed(2)}</span></div>` : ''}
                     <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Service Fee</span><span>$${serviceFee.toFixed(2)}</span></div>
-                    <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Delivery Fee</span><span>$${deliveryFeeTotal.toFixed(2)}</span></div>
+                    <div style="display:flex; justify-content:space-between; color: var(--slate-light);"><span>Delivery Fee (estimated)</span><span>$${deliveryFeeTotal.toFixed(2)}</span></div>
                     <div style="display:flex; justify-content:space-between; font-weight: 800; font-size: 1.125rem; margin-top: 0.375rem;"><span>Total</span><span>$${total.toFixed(2)}</span></div>
                 </div>`;
         }
@@ -26433,6 +26302,10 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             // opens.
             document.getElementById('checkout-form-page').style.display = 'block';
             document.getElementById('checkout-momo-reference-page').style.display = 'none';
+            // Pre-filled from the logged-in account, editable per order —
+            // see the form fields' own comment in the HTML above.
+            document.getElementById('checkout-customer-name').value = currentUser.businessName || '';
+            document.getElementById('checkout-customer-phone').value = currentUser.phone || '';
             document.querySelector('input[name="checkout-payment-method"][value="cod"]').checked = true;
             document.getElementById('checkout-momo-provider-group').style.display = 'none';
             renderMomoProviderOptions();
@@ -26487,24 +26360,122 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
 
             // Real saved-address quick-picker — fetches fresh so a newly
             // added/edited address always shows up here immediately.
-            const select = document.getElementById('checkout-saved-address-select');
-            select.innerHTML = '<option value="">— Type a new address below —</option>';
+            // Reset the inline "add a new address" mini-form every time
+            // the modal opens, so a half-filled draft from a previous
+            // checkout attempt never lingers.
+            document.getElementById('checkout-new-address-form').style.display = 'none';
+            document.getElementById('checkout-new-address-label').value = '';
+            document.getElementById('checkout-new-address-text').value = '';
+            document.getElementById('checkout-new-address-error').style.display = 'none';
+            clearZoneForPicker('checkout-new-address');
             try {
                 const data = await apiFetch('/api/addresses');
                 savedAddressesCache = data.addresses || [];
-                savedAddressesCache.forEach(a => {
-                    select.innerHTML += `<option value="${a.id}">${a.label} — ${a.address}</option>`;
-                });
-                const defaultAddress = savedAddressesCache.find(a => a.isDefault);
-                if (defaultAddress) {
-                    select.value = defaultAddress.id;
-                    document.getElementById('checkout-dropoff-address').value = defaultAddress.address;
-                }
             } catch (err) {
                 console.error('Failed to load saved addresses for checkout', err);
+                savedAddressesCache = [];
             }
+            populateCheckoutAddressSelect();
+            updateCheckoutSummary();
 
             document.getElementById('checkout-modal').classList.add('active');
+        }
+
+        // Builds the Dropoff Address dropdown from only the saved
+        // addresses that already have a delivery zone attached (see this
+        // form-group's own comment in the HTML above — a zoneless saved
+        // address can't be picked here until it's given one), plus a
+        // "+ Add a new address" option. Re-run after loading addresses on
+        // open, and again after saving a brand-new address inline, so the
+        // list and selection both stay current.
+        function populateCheckoutAddressSelect(selectId) {
+            const select = document.getElementById('checkout-saved-address-select');
+            const zonedAddresses = savedAddressesCache.filter(a => a.zoneId);
+            select.innerHTML = '<option value="">— Select a delivery address —</option>'
+                + zonedAddresses.map(a => `<option value="${a.id}">${escapeHtmlAttr(a.label)} — ${escapeHtmlAttr(a.address)}</option>`).join('')
+                + '<option value="__new__">+ Add a new address</option>';
+            document.getElementById('checkout-no-zoned-addresses-hint').style.display = zonedAddresses.length === 0 ? 'block' : 'none';
+
+            const targetId = selectId || (zonedAddresses.find(a => a.isDefault) || zonedAddresses[0] || {}).id;
+            if (targetId && zonedAddresses.some(a => a.id === targetId)) {
+                select.value = targetId;
+                applyCheckoutSelectedAddress(targetId);
+            } else if (zonedAddresses.length === 0) {
+                // Nothing to pick from yet — go straight to "add a new
+                // address" instead of leaving the customer stuck on an
+                // empty dropdown with no path forward.
+                select.value = '__new__';
+                showCheckoutNewAddressForm();
+            } else {
+                select.value = '';
+                setCheckoutDropoffAddress(null);
+            }
+        }
+
+        // Applies a selected saved address's id/address/zone to the
+        // hidden checkout fields and the read-only summary line — the
+        // single place both the dropdown's change handler and
+        // populateCheckoutAddressSelect() funnel through, so they can
+        // never disagree about what's currently selected.
+        function applyCheckoutSelectedAddress(addressId) {
+            const address = savedAddressesCache.find(a => a.id === addressId);
+            setCheckoutDropoffAddress(address || null);
+            document.getElementById('checkout-new-address-form').style.display = 'none';
+        }
+
+        function setCheckoutDropoffAddress(address) {
+            document.getElementById('checkout-dropoff-address').value = address ? address.address : '';
+            document.getElementById('checkout-dropoff-zone-id').value = address ? (address.zoneId || '') : '';
+            const summary = document.getElementById('checkout-dropoff-summary');
+            if (address) {
+                summary.textContent = `${address.label} — ${address.address} (${getVendorZoneName(address.zoneId) || 'Unknown zone'})`;
+                summary.style.display = 'block';
+            } else {
+                summary.style.display = 'none';
+            }
+            updateCheckoutSummary();
+        }
+
+        function showCheckoutNewAddressForm() {
+            document.getElementById('checkout-new-address-form').style.display = 'block';
+            setCheckoutDropoffAddress(null);
+        }
+
+        async function saveCheckoutNewAddress() {
+            const errorEl = document.getElementById('checkout-new-address-error');
+            const btn = document.getElementById('checkout-new-address-save-btn');
+            errorEl.style.display = 'none';
+            const label = document.getElementById('checkout-new-address-label').value.trim() || 'Address';
+            const address = document.getElementById('checkout-new-address-text').value.trim();
+            const zoneId = document.getElementById('checkout-new-address-zone-id').value || null;
+            if (!address) {
+                errorEl.textContent = 'Enter the delivery address.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            if (!zoneId) {
+                errorEl.textContent = 'Search for and select a delivery zone.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+            try {
+                const result = await apiFetch('/api/addresses', {
+                    method: 'POST',
+                    body: JSON.stringify({ label, address, zoneId, isDefault: savedAddressesCache.length === 0 }),
+                });
+                const data = await apiFetch('/api/addresses');
+                savedAddressesCache = data.addresses || [];
+                populateCheckoutAddressSelect(result.address ? result.address.id : undefined);
+                showToast('Address saved', 'success');
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Save & Use This Address';
+            }
         }
 
         // Shared between the checkout provider picker, the Step 3
@@ -26554,7 +26525,11 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             const discount = appliedCoupon ? appliedCoupon.discountAmount : 0;
             const vendorGroups = groupCartByVendor();
             const isMultiVendor = vendorGroups.length > 1;
-            const deliveryFeeTotal = vendorGroups.reduce((sum, g) => sum + getVendorZoneFee(g.vendorDeliveryZoneId), 0);
+            // Priced by (vendor zone, customer's chosen dropoff zone) — see
+            // zonePairFeeFor()'s own comment. The dropoff zone is whatever
+            // the customer has currently selected/typed in this same form.
+            const customerZoneId = document.getElementById('checkout-dropoff-zone-id').value || null;
+            const deliveryFeeTotal = vendorGroups.reduce((sum, g) => sum + zonePairFeeFor(g.vendorDeliveryZoneId, customerZoneId), 0);
             const total = subtotal - discount + serviceFee + deliveryFeeTotal;
             const itemCount = cart.reduce((s, c) => s + c.quantity, 0);
 
@@ -26569,7 +26544,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     ${vendorGroups.map(g => `
                         <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--slate-light); margin-bottom:0.2rem;">
                             <span>${g.vendorName}${getVendorZoneName(g.vendorDeliveryZoneId) ? ` (${getVendorZoneName(g.vendorDeliveryZoneId)})` : ''}</span>
-                            <span>$${getVendorZoneFee(g.vendorDeliveryZoneId).toFixed(2)}</span>
+                            <span>$${zonePairFeeFor(g.vendorDeliveryZoneId, customerZoneId).toFixed(2)}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -26607,6 +26582,23 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             btn.disabled = true;
             btn.textContent = 'Placing Order…';
             const dropoffAddress = document.getElementById('checkout-dropoff-address').value;
+            // Both are only ever set together, from picking a real saved
+            // (zoned) address or completing the inline "add a new
+            // address" form — there's no more free-typing path that could
+            // leave one set and the other blank. This check is the actual
+            // "force zone pick" enforcement on the client; the server
+            // enforces it again independently (see
+            // /api/marketplace/checkout/multi's own dropoffZoneId check).
+            const dropoffZoneId = document.getElementById('checkout-dropoff-zone-id').value || undefined;
+            if (!dropoffAddress || !dropoffZoneId) {
+                errorEl.textContent = 'Please select a delivery address with a delivery zone (or add a new one) before placing your order.';
+                errorEl.style.display = 'block';
+                btn.disabled = false;
+                updateCheckoutSummary(); // restores the button's real label (Place Order / Confirm & Pay $X)
+                return;
+            }
+            const customerName = document.getElementById('checkout-customer-name').value.trim();
+            const customerPhone = document.getElementById('checkout-customer-phone').value.trim();
             // Each vendor group uses ITS OWN real stored pickup address
             // (see openCheckoutModal's auto-populate comment) — the
             // single #checkout-pickup-address field is only a display
@@ -26623,7 +26615,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     const provider = document.querySelector('input[name="checkout-momo-provider"]:checked').value;
                     const result = await apiFetch('/api/marketplace/checkout/multi/momo-manual', {
                         method: 'POST',
-                        body: JSON.stringify({ vendorGroups, dropoffAddress, provider, couponCode: appliedCoupon ? appliedCoupon.code : undefined }),
+                        body: JSON.stringify({ vendorGroups, dropoffAddress, dropoffZoneId, customerName, customerPhone, provider, couponCode: appliedCoupon ? appliedCoupon.code : undefined }),
                     });
                     if (result.errors && result.errors.length) {
                         showToast(`${result.errors.length} vendor(s) couldn't be checked out — the rest were placed.`, 'error');
@@ -26643,7 +26635,7 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 }
                 const result = await apiFetch('/api/marketplace/checkout/multi', {
                     method: 'POST',
-                    body: JSON.stringify({ vendorGroups, dropoffAddress, couponCode: appliedCoupon ? appliedCoupon.code : undefined }),
+                    body: JSON.stringify({ vendorGroups, dropoffAddress, dropoffZoneId, customerName, customerPhone, couponCode: appliedCoupon ? appliedCoupon.code : undefined }),
                 });
                 cart = [];
                 appliedCoupon = null;
@@ -26826,11 +26818,22 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 const btn = document.getElementById('address-form-save-btn');
                 errorEl.style.display = 'none';
                 const id = document.getElementById('address-form-id').value;
+                const zoneId = document.getElementById('address-form-zone-id').value || null;
+                // Required — see zoneSearchPickerHtml's own comment: a
+                // saved address' zone now drives real checkout delivery-
+                // fee pricing, so it can no longer be saved without one
+                // (the server enforces this too — this is just the
+                // faster, friendlier check).
+                if (!zoneId) {
+                    errorEl.textContent = 'Search for and select a delivery zone.';
+                    errorEl.style.display = 'block';
+                    return;
+                }
                 const body = JSON.stringify({
                     label: document.getElementById('address-form-label').value.trim(),
                     address: document.getElementById('address-form-address').value.trim(),
                     isDefault: document.getElementById('address-form-default').checked,
-                    zoneId: document.getElementById('address-form-zone-id').value || null,
+                    zoneId,
                 });
                 btn.disabled = true;
                 btn.textContent = 'Saving…';
@@ -26982,10 +26985,15 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 document.getElementById('checkout-modal').classList.remove('active');
                 document.getElementById('cart-modal').classList.add('active');
             });
+            // Picking a real saved address applies it; picking "+ Add a
+            // new address" opens the inline mini-form instead — there's
+            // no more free-typing a dropoff address directly (see this
+            // form-group's own comment in the HTML above).
             document.getElementById('checkout-saved-address-select').addEventListener('change', (e) => {
-                const selected = savedAddressesCache.find(a => a.id === e.target.value);
-                if (selected) document.getElementById('checkout-dropoff-address').value = selected.address;
+                if (e.target.value === '__new__') showCheckoutNewAddressForm();
+                else applyCheckoutSelectedAddress(e.target.value);
             });
+            document.getElementById('checkout-new-address-save-btn').addEventListener('click', saveCheckoutNewAddress);
             document.getElementById('checkout-form').addEventListener('submit', handleCheckoutSubmit);
             document.getElementById('checkout-payment-method-options').addEventListener('change', (e) => {
                 if (e.target.name !== 'checkout-payment-method') return;
@@ -27203,195 +27211,6 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 if (answer) submitPdpAnswer(form.dataset.questionId, answer);
             });
         }
-
-        /* ==========================================================
-           TAOBAO-STYLE HOME — behaviour for the pieces the skin adds
-           (see "TAOBAO-STYLE SKIN" in the stylesheet): the hot-word
-           rail, the desktop category rail and account card, and the
-           Flash Deals strip with its countdown.
-
-           Everything here reads data the marketplace has already
-           loaded (storefrontProducts, currentUser) — no new endpoints
-           and no new state, so these render as soon as loadStorefront()
-           resolves and stay in step with it afterwards.
-           ========================================================== */
-
-        // Taobao sets the currency symbol and the cents small against a
-        // large whole number — that contrast is most of what makes a
-        // price read as a Taobao price. Used by the product cards and
-        // the Flash Deals strip; .tb-cur/.tb-dec are styled only inside
-        // #home-screen, so the same markup renders as a plain price
-        // anywhere else productCardHtml is reused.
-        function formatTbPrice(amount) {
-            const [whole, cents] = Number(amount).toFixed(2).split('.');
-            return `<span class="tb-cur">$</span>${whole}<span class="tb-dec">.${cents}</span>`;
-        }
-
-        // Hot search words — the equivalent of the suggestions Taobao
-        // parks under its search bar. Real signal rather than a hard-
-        // coded list: the best sellers currently on the storefront
-        // (trimmed to their first couple of words, which is how a
-        // shopper would actually type them) followed by the live
-        // categories, deduped.
-        function renderTbHotwords() {
-            const el = document.getElementById('tb-hotwords');
-            if (!el) return;
-            const bestSellers = [...storefrontProducts]
-                .sort((a, b) => (b.unitsSold || 0) - (a.unitsSold || 0))
-                .slice(0, 4)
-                .map(p => (p.name || '').split(/\s+/).slice(0, 2).join(' ').trim())
-                .filter(Boolean);
-            const categories = storefrontProducts.map(p => p.category).filter(Boolean);
-            const words = [...new Set([...bestSellers, ...categories])].slice(0, 8);
-            el.innerHTML = words.map((w, i) => `
-                <button type="button" class="tb-hotword${i === 0 ? ' is-hot' : ''}" data-word="${escapeHtmlAttr(w)}">${escapeHtmlAttr(w)}</button>
-            `).join('');
-        }
-
-        // Desktop-only vertical category rail — Taobao's left column.
-        // Shares selectedStorefrontCategory with the mobile icon grid,
-        // so whichever one you use, both stay in sync.
-        function renderTbCategoryRail(categories) {
-            const rail = document.getElementById('tb-cat-rail');
-            if (!rail) return;
-            const chevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
-            rail.innerHTML = [
-                `<button type="button" class="tb-cat-rail-item" data-category=""><span>All Categories</span>${chevron}</button>`,
-                ...categories.map(c => `<button type="button" class="tb-cat-rail-item" data-category="${escapeHtmlAttr(c)}"><span>${escapeHtmlAttr(c)}</span>${chevron}</button>`)
-            ].join('');
-        }
-
-        // Flash Deals — the steepest live discounts on the storefront,
-        // in Taobao's horizontal seckill strip. Purely a different view
-        // of products that are already in the feed; the section hides
-        // itself entirely when nothing is discounted rather than
-        // showing an empty module.
-        function renderTbFlashDeals() {
-            const section = document.getElementById('tb-flash-section');
-            const row = document.getElementById('tb-flash-row');
-            if (!section || !row) return;
-            const deals = storefrontProducts
-                .filter(p => p.discountPercent > 0 && (p.stockQuantity || 0) > 0)
-                .sort((a, b) => b.discountPercent - a.discountPercent)
-                .slice(0, 12);
-            section.style.display = deals.length ? 'block' : 'none';
-            if (!deals.length) {
-                stopTbFlashCountdown();
-                return;
-            }
-            row.innerHTML = deals.map(p => `
-                <button type="button" class="tb-flash-card open-product-detail-btn" data-id="${p.id}">
-                    <img src="${p.imageDataUrl || 'assets/logo.png'}" alt="${escapeHtmlAttr(p.name)}">
-                    <div class="tb-flash-price">${formatTbPrice(p.price)}<span class="tb-flash-was">$${p.originalPrice.toFixed(2)}</span></div>
-                    <div class="tb-flash-name">${escapeHtmlAttr(p.name)}</div>
-                </button>
-            `).join('');
-            startTbFlashCountdown();
-        }
-
-        // The strip's countdown runs to local midnight — the same "today
-        // only" framing Taobao's daily deals use. Only ticks while there
-        // are deals on screen (see renderTbFlashDeals).
-        let tbFlashCountdownTimer = null;
-
-        function startTbFlashCountdown() {
-            const el = document.getElementById('tb-flash-countdown');
-            if (!el) return;
-            const pad = n => String(n).padStart(2, '0');
-            const tick = () => {
-                const now = new Date();
-                const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-                const left = Math.max(0, Math.floor((midnight - now) / 1000));
-                el.innerHTML = `<i>Ends in&nbsp;</i><b>${pad(Math.floor(left / 3600))}</b><i>:</i><b>${pad(Math.floor((left % 3600) / 60))}</b><i>:</i><b>${pad(left % 60)}</b>`;
-            };
-            tick();
-            if (tbFlashCountdownTimer) clearInterval(tbFlashCountdownTimer);
-            tbFlashCountdownTimer = setInterval(tick, 1000);
-        }
-
-        function stopTbFlashCountdown() {
-            if (tbFlashCountdownTimer) clearInterval(tbFlashCountdownTimer);
-            tbFlashCountdownTimer = null;
-        }
-
-        // Desktop-only account card in the hero's right column — Taobao
-        // puts the sign-in / "my stuff" panel there. Re-rendered from
-        // setMarketplaceHeaderState so it follows login and logout.
-        const TB_USER_LINKS = [
-            ['orders', 'Orders', '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path>'],
-            ['wishlist', 'Wishlist', '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>'],
-            ['stores', 'Stores', '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>'],
-            ['deals', 'Deals', '<path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line>']
-        ];
-
-        function renderTbUserCard() {
-            const card = document.getElementById('tb-user-card');
-            if (!card) return;
-            const hour = new Date().getHours();
-            const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-            const name = currentUser ? (currentUser.businessName || '') : '';
-            const head = currentUser
-                ? `<div class="tb-user-avatar">${escapeHtmlAttr((name || '?').charAt(0).toUpperCase())}</div>
-                   <div class="tb-user-greet">${greeting}</div>
-                   <div class="tb-user-name">${escapeHtmlAttr(name)}</div>
-                   <button type="button" class="tb-user-btn" data-mp-tab="orders">My Orders</button>
-                   <button type="button" class="tb-user-btn ghost" data-mp-tab="settings">Account Settings</button>`
-                : `<div class="tb-user-avatar">?</div>
-                   <div class="tb-user-greet">${greeting}</div>
-                   <div class="tb-user-name">Welcome to ONLib</div>
-                   <button type="button" class="tb-user-btn" id="tb-user-login-btn">Sign in</button>
-                   <button type="button" class="tb-user-btn ghost" data-mp-tab="stores">Browse stores</button>`;
-            card.innerHTML = `${head}
-                <div class="tb-user-links">
-                    ${TB_USER_LINKS.map(([tab, label, path]) => `
-                        <button type="button" class="tb-user-link" data-mp-tab="${tab}">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>${label}
-                        </button>
-                    `).join('')}
-                </div>`;
-        }
-
-        // Delegated wiring for the three containers above. Delegation
-        // (rather than the per-element listeners the static nav uses) is
-        // what these need — their contents are re-rendered on every
-        // storefront load and on every login/logout.
-        document.getElementById('tb-hotwords').addEventListener('click', (e) => {
-            const btn = e.target.closest('.tb-hotword');
-            if (!btn) return;
-            document.getElementById('storefront-search-input').value = btn.dataset.word;
-            renderStorefrontProducts();
-            document.getElementById('storefront-products-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-
-        document.getElementById('tb-cat-rail').addEventListener('click', (e) => {
-            const btn = e.target.closest('.tb-cat-rail-item');
-            if (!btn) return;
-            selectedStorefrontCategory = btn.dataset.category;
-            renderStorefrontProducts();
-        });
-
-        document.getElementById('tb-user-card').addEventListener('click', (e) => {
-            if (e.target.closest('#tb-user-login-btn')) {
-                document.getElementById('mp-topbar-login-btn').click();
-                return;
-            }
-            const tabBtn = e.target.closest('[data-mp-tab]');
-            if (tabBtn) setMarketplaceTab(tabBtn.dataset.mpTab);
-        });
-
-        document.getElementById('tb-flash-row').addEventListener('click', (e) => {
-            const card = e.target.closest('.tb-flash-card');
-            if (card) openProductDetail(card.dataset.id);
-        });
-
-        // The pill "Search" button the Taobao search bar ends in. The
-        // input already filters as you type, so this is the explicit
-        // commit — dismiss the keyboard, apply, jump to the results.
-        document.getElementById('mp-search-go-btn').addEventListener('click', () => {
-            document.getElementById('storefront-search-input').blur();
-            renderStorefrontProducts();
-            document.getElementById('storefront-products-container').scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
 
         // PWA install support — safe no-op in browsers that don't support it.
         if ('serviceWorker' in navigator) {
