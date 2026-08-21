@@ -4229,12 +4229,15 @@
                 </div>
             </div>
 
-            <!-- Payment Methods — no payment gateway exists; pay on delivery only -->
+            <!-- Payment Methods — rendered dynamically by
+                 renderPaymentMethodsPanel() (see setMarketplaceTab), since
+                 which methods are actually available depends on whether a
+                 Super Admin currently has any Mobile Money provider
+                 enabled (publicPlatformConfig.momoProviders). -->
             <div id="mp-view-payment-methods" style="display:none;">
-                <div class="mobile-section" style="margin-top:0; text-align:center; padding: 3rem 1rem; color: var(--slate-light);">
-                    <div style="font-size:2rem; margin-bottom:0.75rem;">💳</div>
-                    <div style="font-weight:700; color:var(--slate); margin-bottom:0.375rem;">Payment Methods — Coming Soon</div>
-                    <div style="font-size:0.875rem;">There's no online payment gateway yet — every order is pay on delivery.</div>
+                <div class="mobile-section" style="margin-top:0;">
+                    <div class="mobile-section-header"><div class="mobile-section-title">Payment Methods</div></div>
+                    <div id="mp-payment-methods-content"></div>
                 </div>
             </div>
 
@@ -4424,7 +4427,7 @@
                              instead of its own destination here. -->
                         <button type="button" class="mp-account-menu-item" id="mp-account-menu-payment">
                             <div class="mp-account-menu-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg></div>
-                            <div><div class="mp-account-menu-title">Payment Methods</div><div class="mp-account-menu-sub">Coming soon — pay on delivery for now</div></div>
+                            <div><div class="mp-account-menu-title">Payment Methods</div><div class="mp-account-menu-sub">View available payment options</div></div>
                             <div class="mp-account-menu-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></div>
                         </button>
                         <button type="button" class="mp-account-menu-item" id="mp-account-menu-disputes">
@@ -6173,6 +6176,16 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="M20 8v6M23 11h-6"></path></svg>
                     Customers
                 </button>
+                <!-- Real reviews on this vendor's own products/store, previously
+                     only reachable by previewing your own storefront as a
+                     shopper would (openVendorStorefront). Free for every
+                     vendor — unlike Customers/Leads/Messages above, this
+                     isn't a Premium perk, since a review is public storefront
+                     content a vendor should always be able to see. -->
+                <button type="button" class="desktop-sidebar-item" data-vendor-tab="reviews">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                    Reviews
+                </button>
                 <button type="button" class="desktop-sidebar-item" data-vendor-tab="promotions">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
                     Promotions
@@ -6484,6 +6497,16 @@
                 <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Your Customers</div></div>
                 <div id="vendor-customers-locked" style="display:none;"></div>
                 <div id="vendor-customers-container"></div>
+            </div>
+
+            <!-- Reviews — real, backed by the same vendor_reviews the public
+                 storefront page reads (GET /api/marketplace/vendors/:id/reviews),
+                 just surfaced directly in-dashboard instead of only via
+                 "preview my own storefront." -->
+            <div id="vendor-view-reviews" style="display:none;">
+                <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Your Reviews</div></div>
+                <div id="vendor-reviews-summary" style="margin-bottom:1rem;"></div>
+                <div id="vendor-reviews-list"></div>
             </div>
 
             <!-- Promotions — real, backed by the promotions table -->
@@ -6849,6 +6872,7 @@
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="settings" style="width:100%; margin-top:1.5rem;">Store Settings</button>
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="disputes" style="width:100%; margin-top:0.75rem;">Disputes</button>
                 <button type="button" class="quick-access-btn secondary" data-vendor-tab="returns" style="width:100%; margin-top:0.75rem;">Returns</button>
+                <button type="button" class="quick-access-btn secondary" data-vendor-tab="reviews" style="width:100%; margin-top:0.75rem;">Reviews</button>
                 <!-- The "Upgrade to Premium" button (#premium-upgrade-btn,
                      see renderVendorPremiumStatus()) has always existed
                      and worked — but it only ever rendered inside the
@@ -12656,6 +12680,8 @@ Z03  9.00  11.00 1.50</pre>
                 document.getElementById('mp-messages-thread-view').style.display = 'none';
                 document.getElementById('mp-messages-list-view').style.display = 'block';
                 loadConversations('mp');
+            } else if (tab === 'payment-methods') {
+                renderPaymentMethodsPanel();
             } else if (tab === 'settings' && currentUser) {
                 document.getElementById('mp-settings-name-input').value = currentUser.businessName || '';
                 splitPhoneNumber(currentUser.phone, 'mp-settings-phone-country', 'mp-settings-phone-input');
@@ -16349,10 +16375,29 @@ Z03  9.00  11.00 1.50</pre>
             document.getElementById('vendors-modal-content').addEventListener('change', async (e) => {
                 const select = e.target.closest('.vendor-zone-select');
                 if (!select) return;
+                const newZoneId = select.value || null;
+                // The rendered <option selected> attribute (as opposed to
+                // the .selected DOM property, which the browser updates on
+                // interaction) still reflects what was picked at render
+                // time — a cheap way to tell "had a zone before this
+                // change" without a separate tracked variable.
+                const hadZoneBefore = !!select.querySelector('option[selected]');
+                if (!newZoneId && hadZoneBefore) {
+                    // "+ Add Vendor" requires a zone up front precisely so
+                    // delivery fees never silently price at $0 — clearing
+                    // it back out here would quietly reopen that same gap
+                    // for an existing vendor, so this needs the same
+                    // explicit warning the Delivery Zones panel already
+                    // gives before a removal that has the same effect.
+                    if (!confirm(`Clear ${select.dataset.name}'s delivery zone? Every customer's delivery fee for this vendor will show as $0.00 until a zone is assigned again.`)) {
+                        loadVendors();
+                        return;
+                    }
+                }
                 try {
                     await apiFetch(`/api/super-admin/vendors/${select.dataset.id}/delivery-zone`, {
                         method: 'PUT',
-                        body: JSON.stringify({ zoneId: select.value || null }),
+                        body: JSON.stringify({ zoneId: newZoneId }),
                     });
                     showToast('Delivery zone updated', 'success');
                 } catch (err) {
@@ -17212,7 +17257,7 @@ Z03  9.00  11.00 1.50</pre>
                             <td>${v.vendorType === 'restaurant' ? '<span style="background:#fde68a; color:#92400e; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Restaurant</span>' : '<span style="background:#e0e7ff; color:#4338ca; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Store</span>'}</td>
                             <td>${v.email}</td>
                             <td>
-                                <select class="form-input vendor-zone-select" data-id="${v.id}" style="padding:0.3rem 0.5rem; font-size:0.8125rem;">
+                                <select class="form-input vendor-zone-select" data-id="${v.id}" data-name="${v.businessName.replace(/"/g, '&quot;')}" style="padding:0.3rem 0.5rem; font-size:0.8125rem;">
                                     <option value="">— No zone —</option>
                                     ${deliveryRegionsCache.map(r => {
                                         const zonesInRegion = deliveryZonesCache.filter(z => z.regionId === r.id);
@@ -18638,16 +18683,27 @@ Z03  9.00  11.00 1.50</pre>
                     return;
                 }
                 container.innerHTML = '<table class="settings-table"><thead><tr><th>Customer</th><th>Category</th><th>Against</th><th>Filed</th><th>Status</th><th></th></tr></thead><tbody>' +
-                    disputes.map(d => `
+                    disputes.map(d => {
+                        // Same "Voided" override viewDisputeModal() already
+                        // applies once you open a resolved dispute — surfaced
+                        // here too so a voided resolution is visible while
+                        // scanning the list, not just after clicking into
+                        // each one individually.
+                        const wasVoided = d.status === 'resolved' && d.purchase && d.purchase.excludedFromRevenue;
+                        const statusCell = wasVoided
+                            ? '<span style="background:#f3f4f6; color:#374151; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Voided</span>'
+                            : (DISPUTE_STATUS_PILLS[d.status] || d.status);
+                        return `
                         <tr>
                             <td style="font-weight:700;">${d.customerName}<div style="font-size:0.75rem; color:var(--slate-light); font-weight:400;">${d.customerEmail}</div></td>
                             <td>${DISPUTE_CATEGORY_LABELS[d.category] || d.category}</td>
                             <td style="font-size:0.8125rem;">${d.purchase ? `${d.purchase.vendorName} (vendor)` : d.order && d.order.deliveryCompanyName ? `${d.order.deliveryCompanyName} (delivery)` : '—'}</td>
                             <td style="white-space:nowrap; font-size:0.8125rem; color:var(--slate-light);">${new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
-                            <td>${DISPUTE_STATUS_PILLS[d.status] || d.status}</td>
+                            <td>${statusCell}</td>
                             <td>${d.status === 'open' ? `<button type="button" class="btn-small btn-secondary resolve-dispute-btn" data-id="${d.id}">Resolve</button>` : `<button type="button" class="btn-small btn-secondary view-dispute-btn" data-id="${d.id}">View</button>`}</td>
                         </tr>
-                    `).join('') + '</tbody></table>';
+                    `;
+                    }).join('') + '</tbody></table>';
             } catch (err) {
                 container.innerHTML = `<p style="text-align: center; color: #dc2626; padding: 2rem 0;">${err.message}</p>`;
             }
@@ -20780,10 +20836,25 @@ Z03  9.00  11.00 1.50</pre>
         // payment status, delivery status) rather than pickup/dropoff
         // routes. Reuses the same filterByDate/cleanText helpers.
         function generateVendorMonthlyReportPDF(year, month, vendorPurchases) {
-            const monthPurchases = filterByDate(vendorPurchases, p => p.createdAt, year, month, null);
+            // Same "Voided (not counted)" exclusion as every other revenue
+            // figure in the app (see generatePlatformReportPDF above) — a
+            // voided purchase shouldn't count toward the vendor's own
+            // reported sales total either.
+            const monthPurchases = filterByDate(vendorPurchases, p => p.createdAt, year, month, null)
+                .filter(p => !p.excludedFromRevenue);
+            // Same realized-payment rule as generatePlatformReportPDF
+            // above: a purchase only counts toward Total Sales / Completed
+            // Payments once its payment is actually settled (COD is
+            // settled the moment it's placed; Mobile Money only once
+            // payment_status is 'successful') — matching db.js's own
+            // "(payment_method = 'cod' OR payment_status = 'successful')"
+            // revenue condition. This also fixes "Completed Payments"
+            // always reading 0, since it was checking for paymentStatus
+            // values ('completed'/'paid') that don't exist in this app.
+            const realizedPurchases = monthPurchases.filter(p => p.paymentMethod === 'cod' || p.paymentStatus === 'successful');
             const totalOrders = monthPurchases.length;
-            const totalAmount = monthPurchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-            const completedCount = monthPurchases.filter(p => p.paymentStatus === 'completed' || p.paymentStatus === 'paid').length;
+            const totalAmount = realizedPurchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+            const completedCount = realizedPurchases.length;
             const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
             const { jsPDF } = window.jspdf;
@@ -20867,14 +20938,37 @@ Z03  9.00  11.00 1.50</pre>
             const monthOrders = period.mode === 'monthly'
                 ? filterByDate(deliveryOrders, o => o.createdAt, period.year, period.month, null)
                 : filterByDateRange(deliveryOrders, o => o.createdAt, period.start, period.end);
-            const monthPurchases = period.mode === 'monthly'
+            // Voided purchases (excludedFromRevenue, set via Super Admin
+            // dispute resolution) are excluded here for the same reason
+            // every other revenue figure in this app excludes them server-
+            // side (see db.js's "AND NOT excluded_from_revenue" — vendor
+            // sales overview, super admin overview stats, etc.): a voided
+            // sale isn't real revenue, so it shouldn't inflate the
+            // platform's official Marketplace Revenue, daily breakdown, or
+            // Top Vendors ranking either.
+            const monthPurchases = (period.mode === 'monthly'
                 ? filterByDate(marketplacePurchases, p => p.createdAt, period.year, period.month, null)
-                : filterByDateRange(marketplacePurchases, p => p.createdAt, period.start, period.end);
+                : filterByDateRange(marketplacePurchases, p => p.createdAt, period.start, period.end))
+                .filter(p => !p.excludedFromRevenue);
+            // A purchase only becomes real revenue once its payment is
+            // actually settled — COD the moment it's placed (paid on
+            // delivery), Mobile Money only once payment_status flips to
+            // 'successful'. This mirrors the exact "(payment_method =
+            // 'cod' OR payment_status = 'successful')" condition every SQL
+            // revenue query in db.js already applies (see
+            // getMarketplacePlatformStats, getBusinessOverviewStats,
+            // getPayoutSummary) — a still-pending or rejected Mobile Money
+            // purchase isn't revenue yet and shouldn't be summed as if it
+            // were. (This also fixes "Completed Payments" always reading
+            // 0 — it was checking for paymentStatus values, 'completed'/
+            // 'paid', that don't exist in this app's vocabulary; the real
+            // values are not_applicable/pending/successful/failed.)
+            const realizedPurchases = monthPurchases.filter(p => p.paymentMethod === 'cod' || p.paymentStatus === 'successful');
 
             const deliveryRevenue = monthOrders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + (o.amount || 0), 0);
             const deliveredCount = monthOrders.filter(o => o.status === 'delivered').length;
-            const marketplaceRevenue = monthPurchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
-            const completedCount = monthPurchases.filter(p => p.paymentStatus === 'completed' || p.paymentStatus === 'paid').length;
+            const marketplaceRevenue = realizedPurchases.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+            const completedCount = realizedPurchases.length;
 
             const periodLabel = period.mode === 'monthly'
                 ? new Date(period.year, period.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -20927,7 +21021,7 @@ Z03  9.00  11.00 1.50</pre>
             doc.setFontSize(14); doc.setFont('helvetica', 'bold');
             doc.text('Marketplace — Daily Breakdown', pageMargin, yPosition); yPosition += 10;
             doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-            const marketplaceDays = sumByDay(monthPurchases, p => p.createdAt, p => p.totalAmount);
+            const marketplaceDays = sumByDay(realizedPurchases, p => p.createdAt, p => p.totalAmount);
             if (marketplaceDays.length === 0) {
                 doc.text('No marketplace purchases in this period.', pageMargin, yPosition); yPosition += 8;
             } else {
@@ -20945,7 +21039,7 @@ Z03  9.00  11.00 1.50</pre>
             doc.text('Marketplace — Top Vendors', pageMargin, yPosition); yPosition += 10;
             doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
             const vendorTotals = {};
-            monthPurchases.forEach(p => {
+            realizedPurchases.forEach(p => {
                 const name = p.vendorName || 'Unknown vendor';
                 if (!vendorTotals[name]) vendorTotals[name] = { count: 0, amount: 0 };
                 vendorTotals[name].count += 1;
@@ -21326,12 +21420,24 @@ Z03  9.00  11.00 1.50</pre>
                     // "Cancelled" look a genuinely-cancelled delivery
                     // order already gets.
                     const isDeadPayment = !purchase.deliveryStatus && purchase.paymentStatus === 'failed';
-                    const statusClass = purchase.deliveryStatus
-                        ? `status-${purchase.deliveryStatus.replace(' ', '-')}`
-                        : (isDeadPayment ? 'status-cancelled' : 'status-pending');
-                    const statusText = purchase.deliveryStatus
-                        ? purchase.deliveryStatus.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-                        : (isDeadPayment ? 'Cancelled' : 'Processing');
+                    // Same "Voided overrides everything else" rule just
+                    // applied to the vendor's own Order History pill
+                    // (see vendorOrderRowHtml) — a voided purchase
+                    // (excludedFromRevenue) could be sitting at any
+                    // underlying delivery status depending on when a
+                    // Super Admin voided it (mid-delivery, after
+                    // fulfillment, etc.), which without this would show
+                    // the customer an arbitrary, inconsistent pill
+                    // ("Processing" for one voided order, "Fulfilled" for
+                    // another) instead of one clear, consistent answer.
+                    const statusClass = purchase.excludedFromRevenue
+                        ? 'status-cancelled'
+                        : (purchase.deliveryStatus ? `status-${purchase.deliveryStatus.replace(' ', '-')}` : (isDeadPayment ? 'status-cancelled' : 'status-pending'));
+                    const statusText = purchase.excludedFromRevenue
+                        ? 'Voided'
+                        : (purchase.deliveryStatus
+                            ? purchase.deliveryStatus.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+                            : (isDeadPayment ? 'Cancelled' : 'Processing'));
                     const itemsHtml = purchase.items.map(item => `
                         <div class="mp-purchase-item">
                             <img src="${item.imageDataUrl || 'assets/logo.png'}" alt="${item.productName}">
@@ -21357,7 +21463,7 @@ Z03  9.00  11.00 1.50</pre>
                                 </div>
                                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                                     ${purchase.deliveryOrderId ? `<button type="button" class="btn-small btn-secondary track-purchase-delivery-btn" data-order-id="${purchase.deliveryOrderId}">Track Delivery</button>` : ''}
-                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') && purchase.paymentStatus !== 'pending' && !isDeadPayment ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
+                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') && purchase.paymentStatus !== 'pending' && !isDeadPayment && !purchase.excludedFromRevenue ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
                                     <button type="button" class="btn-small btn-secondary report-purchase-dispute-btn" data-purchase-id="${purchase.id}">Report a Problem</button>
                                 </div>
                             </div>
@@ -21556,14 +21662,24 @@ Z03  9.00  11.00 1.50</pre>
                     renderEmptyState(listEl, "You haven't reported any problems.");
                     return;
                 }
-                listEl.innerHTML = disputes.map(d => `
+                listEl.innerHTML = disputes.map(d => {
+                    // Same "Voided" override the admin Disputes list and
+                    // viewDisputeModal() already apply — a dispute resolved
+                    // by voiding the purchase shouldn't look like an
+                    // ordinary "Resolved" here either, this is the
+                    // customer's own copy of the exact same gap.
+                    const wasVoided = d.status === 'resolved' && d.purchase && d.purchase.excludedFromRevenue;
+                    const statusCell = wasVoided
+                        ? '<span style="background:#f3f4f6; color:#374151; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Voided</span>'
+                        : (DISPUTE_STATUS_PILLS[d.status] || d.status);
+                    return `
                     <div style="border:1px solid var(--border); border-radius:0.875rem; padding:1rem 1.25rem; margin-bottom:0.875rem;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.5rem;">
                             <div>
                                 <div style="font-weight:700; color:var(--slate);">${DISPUTE_CATEGORY_LABELS[d.category] || d.category}</div>
                                 <div style="font-size:0.75rem; color:var(--slate-light);">${new Date(d.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}${d.order ? ` · Order for ${d.order.itemDescription}` : ''}${d.purchase ? ` · Purchase from ${d.purchase.vendorName}` : ''}</div>
                             </div>
-                            ${DISPUTE_STATUS_PILLS[d.status] || d.status}
+                            ${statusCell}
                         </div>
                         <div style="font-size:0.875rem; color:var(--slate); margin-bottom:${d.resolutionNote ? '0.625rem' : '0'};">${d.description}</div>
                         ${d.resolutionNote ? `
@@ -21573,7 +21689,8 @@ Z03  9.00  11.00 1.50</pre>
                             </div>
                         ` : ''}
                     </div>
-                `).join('');
+                `;
+                }).join('');
             } catch (err) {
                 listEl.innerHTML = `<p style="text-align:center; color:#dc2626; padding:2rem 0;">${err.message}</p>`;
             }
@@ -22318,17 +22435,23 @@ Z03  9.00  11.00 1.50</pre>
         // ============================================================
         async function loadVendorDashboard() {
             try {
-                const [overview, dailySalesData, productsData, purchasesData] = await Promise.all([
+                const [overview, dailySalesData, productsData, purchasesData, customersData] = await Promise.all([
                     apiFetch('/api/vendor/sales-overview'),
                     apiFetch('/api/vendor/daily-sales'),
                     apiFetch('/api/vendor/products'),
                     apiFetch('/api/vendor/purchases'),
+                    apiFetch('/api/vendor/customers'),
                 ]);
                 document.getElementById('vendor-total-sales').textContent = `$${overview.totalSales.toFixed(2)}`;
                 document.getElementById('vendor-total-orders').textContent = overview.totalOrders;
 
                 const purchases = purchasesData.purchases || [];
-                const uniqueCustomers = new Set(purchases.map(p => p.customerId)).size;
+                // Same dataset the Customers tab itself uses (db.getVendorCustomers,
+                // one row per distinct customer, no cap) — NOT derived from the
+                // capped 50-purchase Recent Orders list above, which under/over-
+                // counts once a vendor has more than 50 purchases or repeat buyers
+                // sitting past that cap.
+                const uniqueCustomers = (customersData.customers || []).length;
                 document.getElementById('vendor-unique-customers').textContent = uniqueCustomers;
 
                 vendorProducts = productsData.products || [];
@@ -22446,8 +22569,8 @@ Z03  9.00  11.00 1.50</pre>
                 renderVendorSalesChart(dailySalesData.days || [], 'vendor-reports-sales-chart', null);
 
                 const breakdown = statusData.breakdown || [];
-                const statusColors = { delivered: '#10b981', pending: '#f59e0b', accepted: '#3b82f6', 'picked-up': '#8b5cf6', cancelled: '#ef4444', placed: '#94a3b8' };
-                const statusLabels = { delivered: 'Delivered', pending: 'Pending', accepted: 'Accepted', 'picked-up': 'Picked Up', cancelled: 'Cancelled', placed: 'Placed' };
+                const statusColors = { delivered: '#10b981', pending: '#f59e0b', accepted: '#3b82f6', 'picked-up': '#8b5cf6', cancelled: '#ef4444', placed: '#94a3b8', voided: '#6b7280' };
+                const statusLabels = { delivered: 'Delivered', pending: 'Pending', accepted: 'Accepted', 'picked-up': 'Picked Up', cancelled: 'Cancelled', placed: 'Placed', voided: 'Voided' };
                 const canvas = document.getElementById('vendor-order-status-chart');
                 if (canvas && typeof Chart !== 'undefined') {
                     if (vendorOrderStatusChartInstance) vendorOrderStatusChartInstance.destroy();
@@ -22501,6 +22624,45 @@ Z03  9.00  11.00 1.50</pre>
             }
         }
 
+        // Same public GET /api/marketplace/vendors/:id/reviews the storefront
+        // preview page already uses (see loadStorefrontReviews) — reads it
+        // for the vendor's own id, no separate backend route needed. Not
+        // Premium-gated: unlike Customers/Leads/Messages, a review is
+        // public storefront content the vendor could already see by
+        // browsing their own store as a shopper; this just saves that trip.
+        async function loadVendorReviewsTab() {
+            const summaryEl = document.getElementById('vendor-reviews-summary');
+            const listEl = document.getElementById('vendor-reviews-list');
+            try {
+                const data = await apiFetch(`/api/marketplace/vendors/${currentUser.id}/reviews`);
+                const reviews = data.reviews || [];
+                if (reviews.length === 0) {
+                    summaryEl.innerHTML = '';
+                    renderEmptyState(listEl, 'No reviews yet — they\'ll show up here once customers start leaving them.');
+                    return;
+                }
+                const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+                summaryEl.innerHTML = `
+                    <div class="pdp-review-summary-row">
+                        <span class="pdp-review-summary-avg">${avg.toFixed(1)}</span>
+                        ${renderStars(avg, reviews.length)}
+                    </div>
+                `;
+                listEl.innerHTML = reviews.map(r => `
+                    <div class="pdp-review-item">
+                        <div class="pdp-review-item-head">
+                            <span class="pdp-review-author">${r.customerName}</span>
+                            <span class="pdp-review-date">${new Date(r.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        ${renderStars(r.rating, 1)}
+                        ${r.comment ? `<div class="pdp-review-comment">${r.comment}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (err) {
+                listEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
+            }
+        }
+
         function renderVendorProducts() {
             const container = document.getElementById('vendor-products-container');
             if (vendorProducts.length === 0) {
@@ -22521,10 +22683,60 @@ Z03  9.00  11.00 1.50</pre>
                         <button type="button" class="btn-small btn-danger delete-product-btn" data-id="${p.id}" style="flex:1;">Delete</button>
                     </div>
                     <div class="product-card-actions" style="margin-top:0.5rem;">
+                        <!-- Self-service pause, distinct from Delete — previously the
+                             only way to temporarily take a listing off the storefront
+                             (a vendor out of stock at a supplier, say) was to permanently
+                             delete it or ask a Super Admin to flip their own moderation
+                             toggle. Same PUT /api/vendor/products/:id route the Edit
+                             form already uses, just isActive alone. -->
+                        <button type="button" class="btn-small toggle-vendor-product-active-btn" data-id="${p.id}" data-name="${p.name.replace(/"/g, '&quot;')}" data-active="${p.isActive}" style="flex:1; background:${p.isActive ? '#fef3c7' : '#dcfce7'}; color:${p.isActive ? '#92400e' : '#15803d'};">${p.isActive ? 'Hide' : 'Unhide'}</button>
                         <button type="button" class="btn-small btn-secondary notify-followers-btn" data-id="${p.id}" style="flex:1;" title="Announce this product to everyone following your store">📣 Notify Followers</button>
                     </div>
+                    ${p.isActive ? `
+                    <div class="product-card-actions" style="margin-top:0.5rem;">
+                        <!-- Opens this exact listing the way a customer sees
+                             it — including its Q&A section, previously only
+                             reachable by separately browsing to your own
+                             storefront as a shopper would. That made a
+                             customer's question easy to miss entirely. -->
+                        <button type="button" class="btn-small btn-secondary view-vendor-listing-btn" data-id="${p.id}" style="flex:1;">🔗 View Listing</button>
+                    </div>
+                    ` : ''}
                 </div>
             `).join('')}</div>`;
+        }
+
+        async function toggleVendorProductActive(id, name, currentlyActive) {
+            const confirmed = confirm(
+                currentlyActive
+                    ? `Hide "${name}" from your storefront? It stays in your product list — unhide it any time, no need to delete it.`
+                    : `Unhide "${name}"? It'll show up on your storefront again immediately (as long as it's still in stock).`
+            );
+            if (!confirmed) return;
+            try {
+                await apiFetch(`/api/vendor/products/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ isActive: !currentlyActive }),
+                });
+                showToast(currentlyActive ? 'Product hidden' : 'Product unhidden', 'success');
+                const data = await apiFetch('/api/vendor/products');
+                vendorProducts = data.products || [];
+                renderVendorProducts();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // Reuses the exact "browse my own store as a shopper" path that
+        // was previously the ONLY way to reach this — openVendorStorefront
+        // fetches the real storefront feed (server-authoritative product
+        // shape, matching what openProductDetail expects) and populates
+        // productCache for every product in it, then opens straight to
+        // this one listing instead of leaving the vendor to find it in
+        // the grid themselves.
+        async function viewOwnProductListing(productId) {
+            await openVendorStorefront(currentUser.id);
+            openProductDetail(productId);
         }
 
         async function notifyFollowersAboutProduct(productId) {
@@ -22926,6 +23138,19 @@ Z03  9.00  11.00 1.50</pre>
                 renderVendorPremiumStatus();
                 const reportBtn = document.getElementById('open-vendor-report-btn');
                 if (reportBtn) reportBtn.textContent = vendorIsPremium ? '📥 Download Monthly Report PDF' : '🔒 Download Monthly Report PDF (Premium)';
+                // A Mobile Money charge left 'pending' (initiated, then the
+                // vendor reloaded or navigated away before it resolved) used
+                // to just vanish — the waiting page only ever showed right
+                // after submitPremiumSubscribe(), so there was no way back
+                // to check on it or cancel it short of contacting support.
+                // `charges` is already returned by this same endpoint
+                // (getSubscriptionChargesForVendor, newest first); resuming
+                // the same waiting page + polling used right after initiation
+                // re-attaches to it — the first poll immediately reflects
+                // whatever actually happened while the vendor was away.
+                const pendingMomoCharge = (vendorPremiumData.charges || [])
+                    .find(c => c.paymentStatus === 'pending' && c.paymentMethod === 'momo');
+                if (pendingMomoCharge) showPremiumMomoWaitingPage(pendingMomoCharge.id);
             } catch (err) {
                 statusEl.innerHTML = `<p style="text-align:center; color:#dc2626;">${err.message}</p>`;
             }
@@ -23244,14 +23469,22 @@ Z03  9.00  11.00 1.50</pre>
                 renderEmptyState(listEl, 'No disputes against your purchases — real ones will show up here.');
                 return;
             }
-            listEl.innerHTML = disputes.map(d => `
+            listEl.innerHTML = disputes.map(d => {
+                // Same "Voided" override the admin and customer dispute
+                // lists already apply — the third and last copy of this
+                // pill-building pattern in the app.
+                const wasVoided = d.status === 'resolved' && d.purchase && d.purchase.excludedFromRevenue;
+                const statusCell = wasVoided
+                    ? '<span style="background:#f3f4f6; color:#374151; padding:0.1875rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700;">Voided</span>'
+                    : (DISPUTE_STATUS_PILLS[d.status] || d.status);
+                return `
                 <div style="border:1px solid var(--border); border-radius:0.875rem; padding:1rem 1.25rem; margin-bottom:0.875rem;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.5rem;">
                         <div>
                             <div style="font-weight:700; color:var(--slate);">${DISPUTE_CATEGORY_LABELS[d.category] || d.category}</div>
                             <div style="font-size:0.75rem; color:var(--slate-light);">${new Date(d.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · Filed by ${d.customerName}${d.purchase ? ` · $${d.purchase.amount.toFixed(2)} purchase` : ''}</div>
                         </div>
-                        ${DISPUTE_STATUS_PILLS[d.status] || d.status}
+                        ${statusCell}
                     </div>
                     <div style="font-size:0.875rem; color:var(--slate); margin-bottom:${d.resolutionNote ? '0.625rem' : '0'};">${d.description}</div>
                     ${d.resolutionNote ? `
@@ -23261,7 +23494,8 @@ Z03  9.00  11.00 1.50</pre>
                         </div>
                     ` : ''}
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
 
         // Vendor-side self-service returns queue — the vendor decides
@@ -24123,7 +24357,7 @@ Z03  9.00  11.00 1.50</pre>
             `).join('') || '<p style="color:var(--slate-light);">No rows processed.</p>';
         }
 
-        const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'promotions', 'disputes', 'returns', 'settings', 'account'];
+        const VENDOR_TAB_VIEWS = ['home', 'products', 'orders', 'messages', 'leads', 'reports', 'customers', 'reviews', 'promotions', 'disputes', 'returns', 'settings', 'account'];
         async function setVendorTab(tab) {
             document.querySelectorAll('#vendor-app .mobile-nav-item, #vendor-app .desktop-sidebar-item[data-vendor-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.vendorTab === tab));
             VENDOR_TAB_VIEWS.forEach(v => {
@@ -24182,6 +24416,8 @@ Z03  9.00  11.00 1.50</pre>
                 } else {
                     renderVendorPremiumLock('vendor-leads-locked', 'Leads', 'Track real high-intent buyer interactions — messages, checkout attempts, phone views — once you upgrade.');
                 }
+            } else if (tab === 'reviews') {
+                loadVendorReviewsTab();
             } else if (tab === 'disputes') {
                 loadVendorDisputes();
             } else if (tab === 'returns') {
@@ -24487,6 +24723,18 @@ Z03  9.00  11.00 1.50</pre>
                 const errorEl = document.getElementById('vendor-settings-error');
                 const btn = document.getElementById('vendor-settings-save-btn');
                 errorEl.style.display = 'none';
+                const newZoneId = document.getElementById('vendor-settings-zone-id').value || null;
+                // Same "Clear delivery zone?" warning Super Admin's own
+                // vendor-zone editor gives (see the .vendor-zone-select
+                // handler above) — clearing it here silently reintroduces
+                // the exact same $0.00 delivery-fee gap, just from the
+                // vendor's own Settings page instead of Admin's.
+                if (!newZoneId && currentUser.deliveryZoneId) {
+                    if (!confirm("Clear your delivery zone? Every customer's delivery fee for your store will show as $0.00 until a zone is assigned again.")) {
+                        presetZoneForPicker('vendor-settings', currentUser.deliveryZoneId);
+                        return;
+                    }
+                }
                 btn.disabled = true;
                 btn.textContent = 'Saving…';
                 try {
@@ -24496,7 +24744,7 @@ Z03  9.00  11.00 1.50</pre>
                             businessName: document.getElementById('vendor-settings-name-input').value,
                             phone: combinePhoneNumber('vendor-settings-phone-country', 'vendor-settings-phone-input'),
                             storeAddress: document.getElementById('vendor-settings-address-input').value.trim(),
-                            deliveryZoneId: document.getElementById('vendor-settings-zone-id').value || null,
+                            deliveryZoneId: newZoneId,
                             avgPrepTimeMinutes: currentUser.vendorType === 'restaurant'
                                 ? (document.getElementById('vendor-settings-prep-time-input').value.trim() || null)
                                 : undefined,
@@ -24570,7 +24818,9 @@ Z03  9.00  11.00 1.50</pre>
             document.getElementById('vendor-products-container').addEventListener('click', (e) => {
                 if (e.target.classList.contains('edit-product-btn')) openProductModal(e.target.dataset.id);
                 if (e.target.classList.contains('delete-product-btn')) deleteProduct(e.target.dataset.id);
+                if (e.target.classList.contains('toggle-vendor-product-active-btn')) toggleVendorProductActive(e.target.dataset.id, e.target.dataset.name, e.target.dataset.active === 'true');
                 if (e.target.classList.contains('notify-followers-btn')) notifyFollowersAboutProduct(e.target.dataset.id);
+                if (e.target.classList.contains('view-vendor-listing-btn')) viewOwnProductListing(e.target.dataset.id);
             });
 
             document.getElementById('product-gallery-upload-btn').addEventListener('click', () => {
@@ -26691,6 +26941,42 @@ Z03  9.00  11.00 1.50</pre>
             const p = (publicPlatformConfig.momoProviders || []).find(mp => mp.id === id);
             return p ? p.phone : null;
         }
+        // Account → Payment Methods — reads the same real, live provider
+        // list Checkout itself uses (publicPlatformConfig.momoProviders)
+        // instead of a hardcoded "Coming Soon — pay on delivery only"
+        // message, which had gone stale the moment Mobile Money checkout
+        // shipped and was left telling customers a payment option they
+        // could already use didn't exist. Still correctly falls back to
+        // "pay on delivery only" in the one case where that's actually
+        // true — no Mobile Money provider currently enabled.
+        function renderPaymentMethodsPanel() {
+            const container = document.getElementById('mp-payment-methods-content');
+            if (!container) return;
+            const providers = publicPlatformConfig.momoProviders || [];
+            const codRow = `
+                <div style="display:flex; align-items:flex-start; gap:0.875rem; padding:1rem 0; border-bottom:1px solid var(--border);">
+                    <div style="font-size:1.5rem;">💵</div>
+                    <div>
+                        <div style="font-weight:700; color:var(--slate);">Pay on Delivery</div>
+                        <div style="font-size:0.8125rem; color:var(--slate-light); margin-top:0.125rem;">Pay in cash when your order arrives. Always available.</div>
+                    </div>
+                </div>
+            `;
+            const momoRow = providers.length > 0 ? `
+                <div style="display:flex; align-items:flex-start; gap:0.875rem; padding:1rem 0;">
+                    <div style="font-size:1.5rem;">📱</div>
+                    <div>
+                        <div style="font-weight:700; color:var(--slate);">Mobile Money</div>
+                        <div style="font-size:0.8125rem; color:var(--slate-light); margin-top:0.125rem;">Pay via ${providers.map(p => p.label).join(' or ')} at checkout — you'll get a reference code to send with your transfer.</div>
+                    </div>
+                </div>
+            ` : `
+                <div style="text-align:center; padding: 2rem 1rem; color: var(--slate-light);">
+                    <div style="font-size:0.875rem;">Mobile Money isn't available right now — every order is pay on delivery.</div>
+                </div>
+            `;
+            container.innerHTML = codRow + momoRow;
+        }
         // Builds the checkout's Mobile Money provider radio list from the
         // real enabled-provider list instead of two hardcoded options —
         // an empty list here (Super Admin hasn't configured any yet, or
@@ -27262,6 +27548,23 @@ Z03  9.00  11.00 1.50</pre>
             });
             document.getElementById('pdp-add-to-cart-btn').addEventListener('click', addToCartFromPdp);
             document.getElementById('pdp-buy-now-btn').addEventListener('click', () => {
+                // Buy Now adds this item to the SAME shared cart Checkout
+                // always operates on (see groupCartByVendor/
+                // handleCheckoutSubmit) — it was never a separate
+                // single-item purchase path. If the cart already has
+                // something else in it, checking out silently bundles it
+                // all into one order with no heads-up that "Buy Now"
+                // wasn't just this item. Warn instead of surprising the
+                // customer at the order-confirmation screen; proceeding
+                // is still one click away, same as every other
+                // consequential-but-legitimate action elsewhere in this
+                // app (e.g. clearing a vendor's delivery zone).
+                if (!currentPdpProductId) return;
+                const otherItemCount = cart.filter(c => c.productId !== currentPdpProductId).length;
+                if (otherItemCount > 0) {
+                    const proceed = confirm(`Buy Now will check out this item together with the ${otherItemCount} other item${otherItemCount > 1 ? 's' : ''} already in your cart, as one order. Continue?`);
+                    if (!proceed) return;
+                }
                 if (!addToCartFromPdp()) return;
                 closeProductDetail();
                 openCheckoutModal();

@@ -1643,6 +1643,17 @@ app.delete('/api/super-admin/delivery-zones/:id', requireAuth, requireSuperAdmin
 // editing, since this is set from the Vendors table row, not a form.
 app.put('/api/super-admin/vendors/:id/delivery-zone', requireAuth, requireSuperAdmin, async (req, res) => {
   const { zoneId } = req.body || {};
+  // Clearing (zoneId: null/omitted) is intentionally still allowed here —
+  // unlike vendor creation, which requires a zone up front (see POST
+  // /api/super-admin/vendors above), this route also has to support
+  // un-assigning a vendor mid-reassignment. But a non-empty zoneId must
+  // still be real, same "if given, it must exist" check every other
+  // zone-accepting route already applies (validateOptionalZoneId) —
+  // this route was the one place that skipped it and just let a bad ID
+  // fall through to the database's foreign key as an opaque 500.
+  if (!(await validateOptionalZoneId(zoneId))) {
+    return res.status(400).json({ error: 'Selected delivery zone was not found' });
+  }
   try {
     const ok = await db.setVendorDeliveryZone(req.params.id, zoneId || null);
     if (!ok) return res.status(404).json({ error: 'Vendor not found' });
@@ -3487,7 +3498,7 @@ app.delete('/api/vendor/promotions/:id', requireAuth, requireVendor, async (req,
 // (create/list/toggle/delete) plus a read-only preview for the cart.
 // ============================================================
 
-function validateCouponFields({ code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, endsAt }) {
+function validateCouponFields({ code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, startsAt, endsAt }) {
   if (!code || !code.trim()) return 'A coupon code is required';
   if (!/^[A-Za-z0-9_-]{3,20}$/.test(code.trim())) return 'Coupon codes must be 3-20 letters, numbers, hyphens, or underscores';
   if (!['percent', 'fixed'].includes(discountType)) return 'Discount type must be "percent" or "fixed"';
@@ -3504,6 +3515,13 @@ function validateCouponFields({ code, discountType, discountValue, minOrderAmoun
     if (!Number.isInteger(Number(perCustomerLimit)) || Number(perCustomerLimit) <= 0) return 'Per-customer limit must be a positive whole number';
   }
   if (endsAt && new Date(endsAt) <= new Date()) return 'End date must be in the future';
+  // A vendor could otherwise submit a start date after (or equal to) the
+  // end date — the coupon would then validate at creation but never once
+  // be redeemable, silently, with no error telling them why. Only checked
+  // when a start date was actually supplied — an omitted startsAt defaults
+  // to "now" below, which is always before any endsAt that already passed
+  // the future-date check above.
+  if (startsAt && endsAt && new Date(startsAt) >= new Date(endsAt)) return 'Start date must be before end date';
   return null;
 }
 
@@ -3519,7 +3537,7 @@ app.get('/api/vendor/coupons', requireAuth, requireVendor, async (req, res) => {
 
 app.post('/api/vendor/coupons', requireAuth, requireVendor, async (req, res) => {
   const { code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, startsAt, endsAt } = req.body || {};
-  const validationError = validateCouponFields({ code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, endsAt });
+  const validationError = validateCouponFields({ code, discountType, discountValue, minOrderAmount, maxUses, perCustomerLimit, startsAt, endsAt });
   if (validationError) return res.status(400).json({ error: validationError });
   try {
     const coupon = await db.createCoupon({
@@ -3725,6 +3743,22 @@ app.put('/api/vendor/products/:id', requireAuth, requireVendor, async (req, res)
     if (req.body.imageDataUrl && req.body.imageDataUrl.length > MAX_PRODUCT_IMAGE_BYTES) {
       return res.status(400).json({ error: 'Product image is too large — please use an image under ~500KB.' });
     }
+    // Same "name and a valid non-negative price are required" guard
+    // POST /api/vendor/products already has — only enforced when the
+    // field is actually part of THIS request (a vendor updating just
+    // stock or colors/sizes shouldn't be forced to resend name/price),
+    // matching the "omitted = leave unchanged" convention this route
+    // already uses for every other field. The product form always sends
+    // both together, so this only ever bites a malformed direct request.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'name') && (!req.body.name || !req.body.name.trim())) {
+      return res.status(400).json({ error: 'A name and a valid non-negative price are required' });
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'price')
+      && (req.body.price === null || req.body.price === '' || isNaN(Number(req.body.price)) || Number(req.body.price) < 0)) {
+      return res.status(400).json({ error: 'A name and a valid non-negative price are required' });
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'name')) req.body.name = req.body.name.trim();
+    if (Object.prototype.hasOwnProperty.call(req.body, 'price')) req.body.price = Number(req.body.price);
     const variantError = validateProductVariantFields(req.body || {});
     if (variantError) return res.status(400).json({ error: variantError });
     // Validate variantStock against whichever colors/sizes this update
@@ -4571,6 +4605,16 @@ app.post('/api/returns', requireAuth, async (req, res) => {
   try {
     const purchase = await db.getPurchaseById(purchaseId);
     if (!purchase || purchase.customerId !== req.user.id) return res.status(404).json({ error: 'Purchase not found' });
+    // A voided purchase (excludedFromRevenue, set via Super Admin dispute
+    // resolution) is already settled outside the normal order lifecycle —
+    // same reasoning as the vendor-side dispatch/deletion-request guards
+    // (see canDispatch/canRequestDeletion in index.html), just never
+    // applied to returns. Checked server-side too, not just hiding the
+    // button, since the client-only check alone can always be bypassed by
+    // a direct API call.
+    if (purchase.excludedFromRevenue) {
+      return res.status(400).json({ error: 'This purchase has already been voided and is not eligible for a return' });
+    }
     if (purchase.deliveryOrderId) {
       const order = await db.getOrder(purchase.deliveryOrderId);
       if (!order || order.status !== 'delivered') {

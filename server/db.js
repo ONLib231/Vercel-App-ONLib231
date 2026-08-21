@@ -2705,6 +2705,15 @@ const db = {
         const product = productRes.rows[0];
         if (!product) throw new Error(`Product not found: ${item.productId}`);
         if (product.vendor_id !== vendorId) throw new Error('All items in a checkout must be from the same vendor');
+        // A product a Super Admin has hidden via moderation (is_active =
+        // false — see PUT /api/super-admin/marketplace/products/:id/
+        // moderation) is already kept out of every browse query
+        // (getActiveProductsForStorefront and friends), but a customer
+        // who wishlisted it or already had it sitting in their local cart
+        // before it was hidden could still reach this far. Block it here
+        // too, at the one place that actually creates the sale, so a
+        // moderation hide can't be silently bypassed by a stale link.
+        if (!product.is_active) throw new Error(`${product.name} is no longer available`);
 
         // Never trust the client's claimed color/size — re-check against
         // this product's CURRENT option lists, fetched fresh inside the
@@ -4293,7 +4302,7 @@ const db = {
         FROM purchase_items
         GROUP BY product_id
       ) sold ON sold.product_id = p.id
-      WHERE w.customer_id = $1
+      WHERE w.customer_id = $1 AND p.is_active = true
       GROUP BY p.id, u.business_name, u.store_address, u.delivery_zone_id, w.created_at, sold.units_sold
       ORDER BY w.created_at DESC
     `, [customerId]);
@@ -4824,12 +4833,21 @@ const db = {
   // which this app has no way to track (no traffic-source attribution
   // exists). Status IS real, tracked data.
   async getVendorOrderStatusBreakdown(vendorId) {
+    // A voided purchase (excluded_from_revenue) buckets under its own
+    // 'voided' status regardless of the underlying delivery status —
+    // same "Voided overrides everything" rule vendorOrderRowHtml's pill
+    // already applies — instead of silently counting toward whatever
+    // status ('delivered', 'cancelled', etc.) it happened to be at when
+    // it was voided, which made this donut disagree with the Orders tab
+    // for the exact same purchase.
     const { rows } = await pool.query(`
-      SELECT COALESCE(o.status, 'placed') AS status, COUNT(*)::int AS count
+      SELECT
+        CASE WHEN p.excluded_from_revenue THEN 'voided' ELSE COALESCE(o.status, 'placed') END AS status,
+        COUNT(*)::int AS count
       FROM purchases p
       LEFT JOIN orders o ON o.id = p.delivery_order_id
       WHERE p.vendor_id = $1
-      GROUP BY COALESCE(o.status, 'placed')
+      GROUP BY CASE WHEN p.excluded_from_revenue THEN 'voided' ELSE COALESCE(o.status, 'placed') END
     `, [vendorId]);
     return rows.map(r => ({ status: r.status, count: r.count }));
   },
