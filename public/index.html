@@ -21308,10 +21308,30 @@ Z03  9.00  11.00 1.50</pre>
                     return;
                 }
                 container.innerHTML = purchases.map(purchase => {
-                    const statusClass = purchase.deliveryStatus ? `status-${purchase.deliveryStatus.replace(' ', '-')}` : 'status-pending';
+                    // A Mobile Money purchase whose payment was rejected/
+                    // cancelled before ever being confirmed never gets a
+                    // real delivery order created (see checkout()'s own
+                    // comment on that deferred-order-creation design) —
+                    // so deliveryStatus stays null for it FOREVER, not
+                    // just "for now." Falling back to "Processing" for
+                    // every null-deliveryStatus purchase therefore showed
+                    // a dead order (payment_status = 'failed', whether
+                    // from the customer's own Cancel action, a vendor's
+                    // approved cancellation request, or a Super Admin
+                    // rejecting the payment) as if it were still being
+                    // worked on. paymentStatusBadgeHtml below already
+                    // says "Payment Failed"/"Payment Not Confirmed"
+                    // correctly — this makes the main status pill agree
+                    // with it instead of contradicting it, using the same
+                    // "Cancelled" look a genuinely-cancelled delivery
+                    // order already gets.
+                    const isDeadPayment = !purchase.deliveryStatus && purchase.paymentStatus === 'failed';
+                    const statusClass = purchase.deliveryStatus
+                        ? `status-${purchase.deliveryStatus.replace(' ', '-')}`
+                        : (isDeadPayment ? 'status-cancelled' : 'status-pending');
                     const statusText = purchase.deliveryStatus
                         ? purchase.deliveryStatus.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-                        : 'Processing';
+                        : (isDeadPayment ? 'Cancelled' : 'Processing');
                     const itemsHtml = purchase.items.map(item => `
                         <div class="mp-purchase-item">
                             <img src="${item.imageDataUrl || 'assets/logo.png'}" alt="${item.productName}">
@@ -21337,7 +21357,7 @@ Z03  9.00  11.00 1.50</pre>
                                 </div>
                                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
                                     ${purchase.deliveryOrderId ? `<button type="button" class="btn-small btn-secondary track-purchase-delivery-btn" data-order-id="${purchase.deliveryOrderId}">Track Delivery</button>` : ''}
-                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') && purchase.paymentStatus !== 'pending' ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
+                                    ${(!purchase.deliveryOrderId || purchase.deliveryStatus === 'delivered') && purchase.paymentStatus !== 'pending' && !isDeadPayment ? `<button type="button" class="btn-small btn-secondary request-return-btn" data-purchase-id="${purchase.id}">Request a Return</button>` : ''}
                                     <button type="button" class="btn-small btn-secondary report-purchase-dispute-btn" data-purchase-id="${purchase.id}">Report a Problem</button>
                                 </div>
                             </div>
