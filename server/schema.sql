@@ -1454,13 +1454,30 @@ ALTER TABLE disputes ADD CONSTRAINT disputes_category_check CHECK (category IN (
 -- list, the customer's Order History, and every report exactly as
 -- before — every revenue query in db.js just adds
 -- "AND NOT excluded_from_revenue" so it stops being counted. This
--- deliberately does NOT touch orders.amount/orders.delivery_fee (a
--- completely separate table/column) — the delivery company already
--- did the delivery work and keeps that fee no matter why the vendor's
--- own product revenue is later voided.
+-- deliberately never touches orders.amount/orders.delivery_fee (a
+-- completely separate table/column) — a delivery company that already
+-- did the delivery work keeps that fee no matter why the vendor's own
+-- product revenue is later voided. It DOES now also cancel the linked
+-- orders row (see db.excludePurchaseFromRevenue), but only when that
+-- order is still 'pending' — never accepted by any agent, so there's
+-- no delivery work/fee to protect in the first place.
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue_reason TEXT;
 ALTER TABLE purchases ADD COLUMN IF NOT EXISTS excluded_from_revenue_at TIMESTAMPTZ;
+
+-- One-time cleanup for the above: db.excludePurchaseFromRevenue only
+-- started cancelling a still-pending linked order going forward — any
+-- purchase that was ALREADY voided before that fix shipped left its
+-- delivery order stuck at 'pending' forever, with no agent ever going
+-- to accept it, cluttering the "Pending Assignment" dashboard stat and
+-- every future daily report's "Unassigned Orders" section for a sale
+-- that's already dead. Runs on every boot (schema.sql is executed in
+-- full on every db.init(), see db.js) but is naturally idempotent —
+-- once an order is cancelled here, this WHERE clause never matches it
+-- again (its status is no longer 'pending').
+UPDATE orders o SET status = 'cancelled'
+    FROM purchases p
+    WHERE p.delivery_order_id = o.id AND p.excluded_from_revenue = true AND o.status = 'pending';
 
 -- Zone-pair delivery fees. Supersedes the "does NOT feed into delivery
 -- fee calculation" note on saved_addresses.zone_id above: the founder
