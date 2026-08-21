@@ -23428,8 +23428,13 @@ Z03  9.00  11.00 1.50</pre>
             // order exists and hasn't been accepted yet (status ===
             // 'pending' on the ORDER, not the purchase) — dispatching an
             // order nobody's accepted is meaningful; re-dispatching one
-            // already picked up isn't.
-            const canDispatch = status === 'pending';
+            // already picked up isn't. A voided order (excludedFromRevenue
+            // — see schema.sql's comment) is a closed matter a Super Admin
+            // has already decided not to count; dispatching it to a
+            // delivery company for a real pickup/delivery makes no sense
+            // once that's happened, so the button never shows for one,
+            // regardless of what the underlying delivery status still says.
+            const canDispatch = status === 'pending' && !p.excludedFromRevenue;
             const dispatchHtml = canDispatch ? (
                 p.requestedDeliveryCompanyId
                     ? `<button type="button" class="btn-small btn-secondary vendor-order-dispatch-btn" data-id="${p.id}" data-order-id="${p.deliveryOrderId}" title="Sent to ${p.requestedDeliveryCompanyName || 'a delivery company'} — click to change">✓ Sent to ${p.requestedDeliveryCompanyName || 'a company'}</button>`
@@ -23511,10 +23516,15 @@ Z03  9.00  11.00 1.50</pre>
         // Fulfilled or Cancelled); the Orders tab is everything that's
         // been resolved one way or the other. Mutually exclusive on
         // purpose, so a vendor never has to check both places for the
-        // same order.
+        // same order. A voided order (excludedFromRevenue) counts as
+        // resolved too, even if its underlying delivery status never
+        // reached Delivered/Cancelled — a Super Admin has already closed
+        // the matter, so there's nothing left pending about it from the
+        // vendor's side; it belongs in Order History alongside the button
+        // that's hidden for it (see vendorOrderRowHtml's canDispatch).
         function isVendorOrderPending(p) {
             const status = p.deliveryStatus || 'placed';
-            return status !== 'delivered' && status !== 'cancelled';
+            return status !== 'delivered' && status !== 'cancelled' && !p.excludedFromRevenue;
         }
         function renderVendorOrders(purchases) {
             const preview = document.getElementById('vendor-orders-preview');
