@@ -1798,6 +1798,110 @@ app.get('/api/delivery-zone-pair-fees', async (req, res) => {
   }
 });
 
+// Bulk import — lets the Super Admin paste a whole zone-pair fee chart
+// (e.g. built in a spreadsheet) instead of setting each pair one at a
+// time in the panel. Expected shape — a header row of customer zone
+// codes, then one row per vendor zone code followed by that row's fees,
+// tab- or comma-separated (a straight paste from Excel/Google Sheets is
+// tab-separated):
+//   <blank>  Z01    Z02    Z03
+//   Z01      2.00   12.50  8.00
+//   Z02      15.00  3.00   10.00
+// A blank cell means "skip this pair" (leave whatever's already set, or
+// leave it unset) rather than being treated as a $0 fee — only a cell
+// that actually has a number in it gets imported. Re-importing later
+// updates existing pairs (matched by the same vendor/customer zone
+// code pair) in place rather than duplicating them — see
+// db.importZonePairFees. Zone codes are matched against
+// delivery_zones.code, same stable-key convention as the Delivery
+// Zones bulk importer above.
+function parseZonePairFeesImportText(text) {
+  const lines = String(text || '').split(/\r?\n/).filter(l => l.trim() !== '');
+  const errors = [];
+  if (lines.length < 2) {
+    errors.push('Paste a header row of customer zone codes, then at least one row for a vendor zone.');
+    return { pairs: [], errors };
+  }
+  const splitLine = (line) => (line.includes('\t') ? line.split('\t') : line.split(','));
+  const header = splitLine(lines[0]).map((c) => c.trim());
+  const customerCodes = header.slice(1);
+  if (customerCodes.length === 0) {
+    errors.push('The header row (line 1) must list customer zone codes after the first, blank column.');
+    return { pairs: [], errors };
+  }
+  const pairs = [];
+  const seenPairs = new Set();
+  for (let i = 1; i < lines.length; i++) {
+    const lineNo = i + 1;
+    const cells = splitLine(lines[i]).map((c) => c.trim());
+    const vendorCode = cells[0];
+    if (!vendorCode) {
+      errors.push(`Line ${lineNo}: missing vendor zone code in the first column.`);
+      continue;
+    }
+    for (let col = 0; col < customerCodes.length; col += 1) {
+      const raw = cells[col + 1];
+      if (raw === undefined || raw === '') continue; // blank cell — skip this pair, not a $0 fee
+      const customerCode = customerCodes[col];
+      const fee = Number(String(raw).replace(/[$,]/g, ''));
+      if (!Number.isFinite(fee) || fee < 0) {
+        errors.push(`Line ${lineNo}, column "${customerCode}": invalid fee "${raw}".`);
+        continue;
+      }
+      const key = `${vendorCode} ${customerCode}`;
+      if (seenPairs.has(key)) {
+        errors.push(`Line ${lineNo}: duplicate pair "${vendorCode} → ${customerCode}" in this import.`);
+        continue;
+      }
+      seenPairs.add(key);
+      pairs.push({ vendorCode, customerCode, fee });
+    }
+  }
+  return { pairs, errors };
+}
+
+app.post('/api/super-admin/zone-pair-fees/import', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Paste the zone-pair fee chart to import.' });
+  const { pairs, errors } = parseZonePairFeesImportText(text);
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Could not parse the pasted chart.', details: errors });
+  }
+  if (pairs.length === 0) {
+    return res.status(400).json({ error: 'No fees found in the pasted chart.' });
+  }
+  try {
+    // Resolve every code to a real zone id before touching the database
+    // at all — same "validate the whole batch first, apply nothing if
+    // anything's wrong" posture as the Delivery Zones importer below,
+    // so a typo'd code can never leave a half-applied import behind.
+    const zones = await db.getAllDeliveryZones();
+    const zoneIdByCode = new Map(zones.filter((z) => z.code).map((z) => [z.code, z.id]));
+    const resolved = [];
+    const codeErrors = new Set();
+    pairs.forEach((p) => {
+      const vendorZoneId = zoneIdByCode.get(p.vendorCode);
+      const customerZoneId = zoneIdByCode.get(p.customerCode);
+      if (!vendorZoneId) codeErrors.add(`Unknown vendor zone code "${p.vendorCode}" — check the Delivery Zones panel above for the real code.`);
+      if (!customerZoneId) codeErrors.add(`Unknown customer zone code "${p.customerCode}" — check the Delivery Zones panel above for the real code.`);
+      if (vendorZoneId && customerZoneId) resolved.push({ vendorZoneId, customerZoneId, fee: p.fee });
+    });
+    if (codeErrors.size > 0) {
+      return res.status(400).json({ error: 'Could not match every zone code to an existing zone.', details: [...codeErrors] });
+    }
+    const summary = await db.importZonePairFees(resolved);
+    await logAudit(req, 'zone_pair_fee.import', {
+      targetType: 'zone_pair_fee',
+      targetLabel: `${summary.created + summary.updated} pair(s)`,
+    });
+    const pairsList = await db.getAllZonePairFees();
+    res.json({ ok: true, summary, pairs: pairsList });
+  } catch (err) {
+    console.error('POST /api/super-admin/zone-pair-fees/import failed', err);
+    res.status(500).json({ error: 'Import failed' });
+  }
+});
+
 // Bulk import — lets the Super Admin paste a whole Region/Zone list
 // (e.g. copied from a planning doc) instead of adding each zone one at
 // a time. Expected format, one region header followed by its zones:

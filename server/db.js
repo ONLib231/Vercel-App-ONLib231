@@ -1782,6 +1782,43 @@ const db = {
     return zone ? zone.fee : 0;
   },
 
+  // Bulk import for the zone-pair fee chart (see server.js's
+  // parseZonePairFeesImportText for the pasted-text format and the
+  // route that resolves zone codes to ids before calling this). Each
+  // entry is already a resolved { vendorZoneId, customerZoneId, fee }
+  // triple by this point — this function's only job is the upsert
+  // itself, one transaction so a mid-import failure never leaves a
+  // partially-applied chart behind. Matches (and updates in place)
+  // existing pairs the same way setZonePairFee's single-pair upsert
+  // does, so re-importing the same chart later is always safe to repeat.
+  async importZonePairFees(resolvedPairs) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: existingRows } = await client.query('SELECT vendor_zone_id, customer_zone_id FROM zone_pair_fees');
+      const existingKeys = new Set(existingRows.map((r) => `${r.vendor_zone_id} ${r.customer_zone_id}`));
+      const summary = { created: 0, updated: 0 };
+      for (const p of resolvedPairs) {
+        const key = `${p.vendorZoneId} ${p.customerZoneId}`;
+        await client.query(
+          `INSERT INTO zone_pair_fees (id, vendor_zone_id, customer_zone_id, fee)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (vendor_zone_id, customer_zone_id)
+           DO UPDATE SET fee = EXCLUDED.fee, updated_at = now()`,
+          [crypto.randomUUID(), p.vendorZoneId, p.customerZoneId, p.fee]
+        );
+        if (existingKeys.has(key)) summary.updated += 1; else summary.created += 1;
+      }
+      await client.query('COMMIT');
+      return summary;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
   // ---- Login history ---------------------------------------------------
 
   async recordLogin({ id, userId, ipAddress, device, browser }) {

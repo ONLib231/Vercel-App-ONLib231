@@ -9406,6 +9406,9 @@
                     </div>
                     <button type="button" class="btn-small btn-secondary" id="zone-pair-fee-add-btn">Set Fee</button>
                 </div>
+                <div style="margin-bottom:0.75rem;">
+                    <button type="button" class="btn-small btn-secondary" id="zone-pair-fees-import-btn">⬆ Import Zone Pair Fees</button>
+                </div>
                 <div id="zone-pair-fees-list"></div>
                 <div class="auth-error" id="zone-pair-fees-error" style="display:none; margin-top:0.75rem;"></div>
             </div>
@@ -9445,6 +9448,39 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
             <div class="modal-footer">
                 <button type="button" class="btn-small btn-secondary" id="cancel-delivery-zones-import-btn">Cancel</button>
                 <button type="button" class="btn-small btn-success" id="submit-delivery-zones-import-btn">Import</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Zone-pair delivery fees bulk import — lets the Super Admin paste
+         a whole fee chart (rows = vendor zones, columns = customer
+         zones — exactly how it'd naturally be laid out in a spreadsheet)
+         instead of setting each pair one at a time in the panel above.
+         See parseZonePairFeesImportText in server.js for the exact
+         expected format. Re-importing later updates existing pairs in
+         place rather than duplicating them — see db.importZonePairFees.
+         Same DOM-ordering reasoning as delivery-zones-import-modal
+         above (placed after the modal it's opened from, so it stacks on
+         top and receives clicks). -->
+    <div class="modal-overlay" id="zone-pair-fees-import-modal">
+        <div class="modal" style="max-width: 620px; max-height: 85vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Import Zone Pair Fees</h3>
+                <button class="close-btn" id="close-zone-pair-fees-import-modal">&times;</button>
+            </div>
+            <div style="padding:1.25rem;">
+                <p style="font-size:0.8125rem; color:var(--slate-light); margin-bottom:0.75rem;">Paste a chart like this — a header row of customer zone codes, then one row per vendor zone (the same codes you use on the Delivery Zones panel above). Tab-separated (straight from Excel/Google Sheets) or comma-separated both work; leave a cell blank to skip that pair:</p>
+                <pre style="background:#f8fafc; border:1px solid var(--border); border-radius:0.5rem; padding:0.625rem; font-size:0.75rem; overflow-x:auto; margin-bottom:0.75rem; white-space:pre-wrap;">     Z01   Z02   Z03
+Z01  2.00  12.50 8.00
+Z02  15.00 3.00  10.00
+Z03  9.00  11.00 1.50</pre>
+                <textarea id="zone-pair-fees-import-text" class="form-input" rows="10" placeholder="Paste your zone-pair fee chart here..." style="width:100%; font-family:monospace; font-size:0.8125rem;"></textarea>
+                <div class="auth-error" id="zone-pair-fees-import-error" style="display:none; margin-top:0.75rem; white-space:pre-line;"></div>
+                <div id="zone-pair-fees-import-summary" style="display:none; margin-top:0.75rem; font-weight:700; color:#15803d;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-small btn-secondary" id="cancel-zone-pair-fees-import-btn">Cancel</button>
+                <button type="button" class="btn-small btn-success" id="submit-zone-pair-fees-import-btn">Import</button>
             </div>
         </div>
     </div>
@@ -16550,6 +16586,19 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                     deleteZonePairFeeRow(row.dataset.id);
                 }
             });
+            document.getElementById('zone-pair-fees-import-btn').addEventListener('click', () => {
+                document.getElementById('zone-pair-fees-import-text').value = '';
+                document.getElementById('zone-pair-fees-import-error').style.display = 'none';
+                document.getElementById('zone-pair-fees-import-summary').style.display = 'none';
+                document.getElementById('zone-pair-fees-import-modal').classList.add('active');
+            });
+            document.getElementById('close-zone-pair-fees-import-modal').addEventListener('click', () => {
+                document.getElementById('zone-pair-fees-import-modal').classList.remove('active');
+            });
+            document.getElementById('cancel-zone-pair-fees-import-btn').addEventListener('click', () => {
+                document.getElementById('zone-pair-fees-import-modal').classList.remove('active');
+            });
+            document.getElementById('submit-zone-pair-fees-import-btn').addEventListener('click', submitZonePairFeesImport);
 
             // ---- Help & Support ----
             document.getElementById('open-help-support-btn').addEventListener('click', () => {
@@ -19296,6 +19345,43 @@ Z11 — Old Road, Congo Town (Nigeria House) — $2.00</pre>
                 loadZonePairFeesPanel();
             } catch (err) {
                 showToast(err.message, 'error');
+            }
+        }
+
+        // Bulk import for the zone-pair fee chart — see this modal's own
+        // comment in the HTML above, and parseZonePairFeesImportText in
+        // server.js for the exact expected chart format. Same shape as
+        // submitDeliveryZonesImport above.
+        async function submitZonePairFeesImport() {
+            const btn = document.getElementById('submit-zone-pair-fees-import-btn');
+            const errorEl = document.getElementById('zone-pair-fees-import-error');
+            const summaryEl = document.getElementById('zone-pair-fees-import-summary');
+            errorEl.style.display = 'none';
+            summaryEl.style.display = 'none';
+            const text = document.getElementById('zone-pair-fees-import-text').value;
+            if (!text || !text.trim()) {
+                errorEl.textContent = 'Paste the zone-pair fee chart to import.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = 'Importing…';
+            try {
+                const result = await apiFetch('/api/super-admin/zone-pair-fees/import', {
+                    method: 'POST',
+                    body: JSON.stringify({ text }),
+                });
+                const { summary } = result;
+                summaryEl.textContent = `Imported: ${summary.created} pair(s) added, ${summary.updated} updated.`;
+                summaryEl.style.display = 'block';
+                document.getElementById('zone-pair-fees-import-text').value = '';
+                loadZonePairFeesPanel();
+            } catch (err) {
+                errorEl.textContent = (err.details && err.details.length) ? err.details.join('\n') : err.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Import';
             }
         }
 
