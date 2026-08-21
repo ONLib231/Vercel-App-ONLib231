@@ -2373,7 +2373,7 @@ app.get('/api/super-admin/vendors', requireAuth, requireSuperAdmin, async (req, 
 // Super Admin creating this account IS the approval. Skips the
 // pending-review queue entirely.
 app.post('/api/super-admin/vendors', requireAuth, requireSuperAdmin, async (req, res) => {
-  const { businessName, email, phone, password, vendorType } = req.body || {};
+  const { businessName, email, phone, password, vendorType, deliveryZoneId } = req.body || {};
   if (!businessName || !email || !password) {
     return res.status(400).json({ error: 'Business name, email, and password are required' });
   }
@@ -2383,7 +2383,19 @@ app.post('/api/super-admin/vendors', requireAuth, requireSuperAdmin, async (req,
   if (vendorType !== undefined && vendorType !== 'store' && vendorType !== 'restaurant') {
     return res.status(400).json({ error: 'Invalid business type' });
   }
+  // Required — a vendor with no delivery zone prices every order at $0
+  // (zonePairFeeFor's/resolveDeliveryFee's guard for "no zone assigned")
+  // with nothing in the storefront to explain why. A Super Admin creating
+  // a vendor directly IS the approval step (no later review queue to
+  // catch this the way self-registration still has), so this can't be
+  // deferred the way the vendor's own optional Home Base zone in
+  // Settings can.
+  if (!deliveryZoneId) {
+    return res.status(400).json({ error: 'A delivery zone is required' });
+  }
   try {
+    const zone = await db.getDeliveryZoneById(deliveryZoneId);
+    if (!zone) return res.status(400).json({ error: 'That delivery zone no longer exists — pick another.' });
     const existing = await db.getUserByEmail(email);
     if (existing) return res.status(409).json({ error: 'An account with that email already exists' });
 
@@ -2397,6 +2409,7 @@ app.post('/api/super-admin/vendors', requireAuth, requireSuperAdmin, async (req,
       role: 'vendor',
       approvalStatus: 'approved',
       vendorType: vendorType === 'restaurant' ? 'restaurant' : 'store',
+      deliveryZoneId,
     });
     await logAudit(req, 'vendor.create', { targetType: 'user', targetId: vendor.id, targetLabel: vendor.businessName });
     res.json({ vendor });

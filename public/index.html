@@ -6321,8 +6321,8 @@
 
                 <div class="mobile-section">
                     <div class="mobile-section-header">
-                        <div class="mobile-section-title">Recent Orders</div>
-                        <a class="mobile-view-all" data-vendor-tab="orders">View All ›</a>
+                        <div class="mobile-section-title">Pending Orders</div>
+                        <a class="mobile-view-all" data-vendor-tab="orders">Order History ›</a>
                     </div>
                     <div id="vendor-orders-preview"></div>
                 </div>
@@ -6380,9 +6380,13 @@
                 <div id="vendor-products-container"></div>
             </div>
 
-            <!-- Orders -->
+            <!-- Orders — order HISTORY specifically: Fulfilled/Cancelled
+                 orders only. Still-open orders (Placed/Processing) live on
+                 the Dashboard's Pending Orders panel instead — see
+                 renderVendorOrders()'s comment for why the split is
+                 mutually exclusive. -->
             <div id="vendor-view-orders" style="display:none;">
-                <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">All Orders</div></div>
+                <div class="mobile-section-header" style="margin-top:0;"><div class="mobile-section-title">Order History</div></div>
                 <div id="vendor-orders-container"></div>
             </div>
 
@@ -7855,6 +7859,15 @@
                         <option value="restaurant">Restaurant — food menu</option>
                     </select>
                 </div>
+                <!-- Required — a vendor with no delivery zone prices every
+                     order at $0 (see zonePairFeeFor's guard in the
+                     Checkout code) with no obvious cause from the
+                     storefront side, so a Super Admin creating a vendor
+                     directly can no longer skip this the way the vendor's
+                     own self-registration flow still optionally can.
+                     Populated by initZoneSearchPickers() with prefix
+                     "add-vendor". -->
+                <div id="add-vendor-zone-picker-container"></div>
                 <div class="form-group">
                     <label class="form-label">Email</label>
                     <input type="email" class="form-input" id="add-vendor-email-input" required>
@@ -11035,6 +11048,13 @@ Z03  9.00  11.00 1.50</pre>
                 ['register-vendor', 'Delivery Zone', false],
                 ['register-delivery-company', 'Delivery Zone (Home Base)', false],
                 ['register-customer', 'Delivery Zone', false],
+                // Required — see this container's own comment in the +
+                // Add Vendor modal's HTML above. Unlike register-vendor
+                // above (still optional — that's a vendor applying for
+                // themselves, reviewed later), a Super Admin creating a
+                // vendor account directly IS the approval step, so
+                // there's no later review to catch a missing zone.
+                ['add-vendor', 'Delivery Zone', true],
                 ['vendor-settings', 'Delivery Zone', false],
                 ['dc-settings', 'Delivery Zone (Home Base)', false],
                 // Required — see zoneSearchPickerHtml's own comment: a
@@ -14725,6 +14745,11 @@ Z03  9.00  11.00 1.50</pre>
             document.getElementById('add-vendor-form').reset();
             document.getElementById('add-vendor-form-error').style.display = 'none';
             populateCountryCodeSelects();
+            // form.reset() only restores the hidden zone-id input to its
+            // default (empty) value — it doesn't undo the picker's own
+            // "you picked this" chip UI from a previous open, so clear it
+            // explicitly (same call showCheckoutNewAddressForm makes).
+            clearZoneForPicker('add-vendor');
             document.getElementById('add-vendor-modal').classList.add('active');
         }
 
@@ -14745,9 +14770,23 @@ Z03  9.00  11.00 1.50</pre>
                 const password = document.getElementById('add-vendor-password-input').value;
                 const phone = combinePhoneNumber('add-vendor-phone-country', 'add-vendor-phone-input');
                 const vendorType = document.getElementById('add-vendor-type-input').value === 'restaurant' ? 'restaurant' : 'store';
+                const deliveryZoneId = document.getElementById('add-vendor-zone-id').value || null;
+                // Client-side enforcement of the required picker — the
+                // server rejects a missing zone independently too (see
+                // POST /api/super-admin/vendors), same "never trust the
+                // client alone" posture as every other required field
+                // this session added (Checkout's forced zone pick, the
+                // Saved Addresses zone requirement).
+                if (!deliveryZoneId) {
+                    errorEl.textContent = 'Search for and select a delivery zone.';
+                    errorEl.style.display = 'block';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Create Vendor';
+                    return;
+                }
                 await apiFetch('/api/super-admin/vendors', {
                     method: 'POST',
-                    body: JSON.stringify({ businessName, email, phone, password, vendorType }),
+                    body: JSON.stringify({ businessName, email, phone, password, vendorType, deliveryZoneId }),
                 });
                 closeAddVendorModal();
                 showToast('Vendor created — share the password with them directly', 'success');
@@ -23465,16 +23504,27 @@ Z03  9.00  11.00 1.50</pre>
             `;
         }
 
+        // Split by the same statusClass logic vendorOrderRowHtml already
+        // uses for its status pill ('fulfilled'/'cancelled' vs. the
+        // default 'processing') — Dashboard's Pending Orders panel is
+        // everything still open (Placed or Processing, i.e. not yet
+        // Fulfilled or Cancelled); the Orders tab is everything that's
+        // been resolved one way or the other. Mutually exclusive on
+        // purpose, so a vendor never has to check both places for the
+        // same order.
+        function isVendorOrderPending(p) {
+            const status = p.deliveryStatus || 'placed';
+            return status !== 'delivered' && status !== 'cancelled';
+        }
         function renderVendorOrders(purchases) {
             const preview = document.getElementById('vendor-orders-preview');
             const full = document.getElementById('vendor-orders-container');
-            if (purchases.length === 0) {
-                renderEmptyState(preview, 'No orders yet.');
-                renderEmptyState(full, 'No orders yet.');
-                return;
-            }
-            preview.innerHTML = purchases.slice(0, 3).map(vendorOrderRowHtml).join('');
-            full.innerHTML = purchases.map(vendorOrderRowHtml).join('');
+            const pending = purchases.filter(isVendorOrderPending);
+            const completed = purchases.filter(p => !isVendorOrderPending(p));
+            if (pending.length === 0) renderEmptyState(preview, "No pending orders — you're all caught up.");
+            else preview.innerHTML = pending.map(vendorOrderRowHtml).join('');
+            if (completed.length === 0) renderEmptyState(full, 'No completed or cancelled orders yet.');
+            else full.innerHTML = completed.map(vendorOrderRowHtml).join('');
         }
 
         // ---- Vendor: dispatch an order to a delivery company ----------
