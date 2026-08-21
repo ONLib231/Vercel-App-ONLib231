@@ -23433,6 +23433,21 @@ Z03  9.00  11.00 1.50</pre>
                     : canRequestDeletion
                         ? `<button type="button" class="btn-small vendor-order-request-deletion-btn" data-id="${p.id}" style="background:#fee2e2; color:#991b1b;">🗑️ Request Deletion</button>`
                         : '';
+            // Real items bought — image/name/quantity (+ color/size when
+            // the product has variants), same card strip Order History
+            // already shows the customer (see renderMarketplacePurchases'
+            // itemsHtml) — a vendor previously had no way to see what was
+            // actually ordered from this row, just a total and a buyer
+            // name. Given its own full-width line (flex-basis:100%) since
+            // the row is flex-wrap:wrap, so it never squeezes into the
+            // narrow vendor-order-main column.
+            const itemsHtml = (p.items || []).map(item => `
+                <div class="mp-purchase-item">
+                    <img src="${item.imageDataUrl || 'assets/logo.png'}" alt="${item.productName}">
+                    <div class="mp-purchase-item-name">${item.productName}</div>
+                    <div class="mp-purchase-item-qty">Qty ${item.quantity}${(item.selectedColor || item.selectedSize) ? ` · ${[item.selectedColor, item.selectedSize].filter(Boolean).join(', ')}` : ''}</div>
+                </div>
+            `).join('');
             return `
                 <div class="vendor-order-row" data-id="${p.id}" style="flex-wrap:wrap;">
                     <div class="vendor-order-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg></div>
@@ -23445,6 +23460,7 @@ Z03  9.00  11.00 1.50</pre>
                         <span class="vendor-order-status-pill ${statusClass}">${statusLabel}</span>
                         <div class="vendor-order-price">$${p.totalAmount.toFixed(2)}</div>
                     </div>
+                    ${itemsHtml ? `<div class="mp-purchase-items-scroll" style="flex-basis:100%; margin-top:0.625rem;">${itemsHtml}</div>` : ''}
                 </div>
             `;
         }

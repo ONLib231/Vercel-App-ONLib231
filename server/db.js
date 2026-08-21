@@ -2889,7 +2889,27 @@ const db = {
     const { rows } = await pool.query(`
       SELECT p.*, u.business_name AS customer_name, o.status AS delivery_status,
         o.requested_delivery_company_id, o.dispatch_requested_at, dc.business_name AS requested_delivery_company_name,
-        vdr.status AS deletion_request_status
+        vdr.status AS deletion_request_status,
+        -- Real items bought — name/price/quantity + the product's
+        -- CURRENT image (no image snapshot at purchase time, same
+        -- reasoning as getPurchasesByCustomer's identical subquery
+        -- below), so a vendor can actually see what was ordered
+        -- (including which color/size, when the product has variants)
+        -- instead of just a total and a buyer name.
+        (
+          SELECT json_agg(json_build_object(
+            'productId', pi.product_id,
+            'productName', pi.product_name,
+            'unitPrice', pi.unit_price,
+            'quantity', pi.quantity,
+            'imageDataUrl', prod.image_data_url,
+            'selectedColor', pi.selected_color,
+            'selectedSize', pi.selected_size
+          ) ORDER BY pi.id)
+          FROM purchase_items pi
+          LEFT JOIN products prod ON prod.id = pi.product_id
+          WHERE pi.purchase_id = p.id
+        ) AS items
       FROM purchases p
       JOIN users u ON u.id = p.customer_id
       LEFT JOIN orders o ON o.id = p.delivery_order_id
@@ -2914,6 +2934,11 @@ const db = {
       requestedDeliveryCompanyName: r.requested_delivery_company_name || null,
       dispatchRequestedAt: r.dispatch_requested_at || null,
       deletionRequestStatus: r.deletion_request_status || null,
+      items: (r.items || []).map(i => ({
+        productId: i.productId, productName: i.productName,
+        unitPrice: Number(i.unitPrice), quantity: i.quantity, imageDataUrl: i.imageDataUrl,
+        selectedColor: i.selectedColor, selectedSize: i.selectedSize,
+      })),
     }));
   },
 
@@ -3473,7 +3498,8 @@ const db = {
   // without ever having visited the Home tab first.
   async getRelatedVendorProducts(vendorId, excludeProductId, limit = 8) {
     const { rows } = await pool.query(`
-      SELECT p.*, u.business_name AS vendor_name,
+      SELECT p.*, u.business_name AS vendor_name, u.store_address AS vendor_store_address,
+        u.delivery_zone_id AS vendor_delivery_zone_id,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         COALESCE(sold.units_sold, 0)::int AS units_sold,
@@ -3489,13 +3515,20 @@ const db = {
         FROM purchase_items GROUP BY product_id
       ) sold ON sold.product_id = p.id
       WHERE p.vendor_id = $1 AND p.id != $2 AND p.is_active = true AND p.stock_quantity > 0
-      GROUP BY p.id, u.business_name, sold.units_sold
+      GROUP BY p.id, u.business_name, u.store_address, u.delivery_zone_id, sold.units_sold
       ORDER BY p.created_at DESC
       LIMIT $3
     `, [vendorId, excludeProductId, limit]);
     return rows.map(r => ({
       ...rowToProduct(r),
       vendorName: r.vendor_name,
+      // Same fields getActiveProductsForStorefront joins in — see that
+      // query's comment. A product clicked into from this "More from
+      // this store" strip needs them too, or add-to-cart from here loses
+      // the delivery fee/pickup address the same way Wishlist/vendor-
+      // storefront products did before this fix.
+      vendorStoreAddress: r.vendor_store_address,
+      vendorDeliveryZoneId: r.vendor_delivery_zone_id || null,
       avgRating: Number(r.avg_rating),
       reviewCount: r.review_count,
       unitsSold: r.units_sold,
@@ -3553,7 +3586,8 @@ const db = {
   // for the PDP's small "more from this store" strip).
   async getVendorStorefrontProducts(vendorId) {
     const { rows } = await pool.query(`
-      SELECT p.*, u.business_name AS vendor_name,
+      SELECT p.*, u.business_name AS vendor_name, u.store_address AS vendor_store_address,
+        u.delivery_zone_id AS vendor_delivery_zone_id,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         COALESCE(sold.units_sold, 0)::int AS units_sold,
@@ -3576,7 +3610,7 @@ const db = {
         ORDER BY product_id, ends_at ASC
       ) promo ON promo.product_id = p.id
       WHERE p.vendor_id = $1 AND p.is_active = true AND p.stock_quantity > 0
-      GROUP BY p.id, u.business_name, sold.units_sold, promo.discount_percent, promo.ends_at
+      GROUP BY p.id, u.business_name, u.store_address, u.delivery_zone_id, sold.units_sold, promo.discount_percent, promo.ends_at
       ORDER BY p.created_at DESC
     `, [vendorId]);
     return rows.map(r => {
@@ -3586,6 +3620,13 @@ const db = {
       return {
         ...rowToProduct(r),
         vendorName: r.vendor_name,
+        // Same two fields getActiveProductsForStorefront joins in — a
+        // customer who opens a vendor's Store page directly (rather than
+        // finding the product on the Home feed first) needs these on the
+        // product object too, since add-to-cart carries them straight
+        // from here (see addToCart() in index.html).
+        vendorStoreAddress: r.vendor_store_address,
+        vendorDeliveryZoneId: r.vendor_delivery_zone_id || null,
         avgRating: Number(r.avg_rating),
         reviewCount: r.review_count,
         unitsSold: r.units_sold,
@@ -3610,7 +3651,8 @@ const db = {
   // in index.html).
   async getCoPurchasedProducts(productId, limit = 8) {
     const { rows } = await pool.query(`
-      SELECT p.*, u.business_name AS vendor_name,
+      SELECT p.*, u.business_name AS vendor_name, u.store_address AS vendor_store_address,
+        u.delivery_zone_id AS vendor_delivery_zone_id,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         COALESCE(sold.units_sold, 0)::int AS units_sold,
@@ -3634,13 +3676,19 @@ const db = {
         FROM purchase_items GROUP BY product_id
       ) sold ON sold.product_id = p.id
       WHERE p.is_active = true AND p.stock_quantity > 0
-      GROUP BY p.id, u.business_name, co.co_count, sold.units_sold
+      GROUP BY p.id, u.business_name, u.store_address, u.delivery_zone_id, co.co_count, sold.units_sold
       ORDER BY co.co_count DESC, p.created_at DESC
       LIMIT $2
     `, [productId, limit]);
     return rows.map(r => ({
       ...rowToProduct(r),
       vendorName: r.vendor_name,
+      // Same fields getActiveProductsForStorefront joins in — see that
+      // query's comment; kept consistent across every product-listing
+      // query so add-to-cart never depends on which feed the customer
+      // happened to click the product from.
+      vendorStoreAddress: r.vendor_store_address,
+      vendorDeliveryZoneId: r.vendor_delivery_zone_id || null,
       avgRating: Number(r.avg_rating),
       reviewCount: r.review_count,
       unitsSold: r.units_sold,
@@ -4227,7 +4275,8 @@ const db = {
   // rendering the actual Wishlist tab — not just a list of IDs.
   async getWishlist(customerId) {
     const { rows } = await pool.query(`
-      SELECT p.*, u.business_name AS vendor_name, w.created_at AS wishlisted_at,
+      SELECT p.*, u.business_name AS vendor_name, u.store_address AS vendor_store_address,
+        u.delivery_zone_id AS vendor_delivery_zone_id, w.created_at AS wishlisted_at,
         COALESCE(AVG(r.rating), 0)::numeric AS avg_rating,
         COUNT(DISTINCT r.id)::int AS review_count,
         COALESCE(sold.units_sold, 0)::int AS units_sold,
@@ -4245,12 +4294,21 @@ const db = {
         GROUP BY product_id
       ) sold ON sold.product_id = p.id
       WHERE w.customer_id = $1
-      GROUP BY p.id, u.business_name, w.created_at, sold.units_sold
+      GROUP BY p.id, u.business_name, u.store_address, u.delivery_zone_id, w.created_at, sold.units_sold
       ORDER BY w.created_at DESC
     `, [customerId]);
     return rows.map(r => ({
       ...rowToProduct(r),
       vendorName: r.vendor_name,
+      // Same two fields every other product-listing query joins in (see
+      // getActiveProductsForStorefront) — without these, a product added
+      // to the cart from the Wishlist tab silently priced its delivery
+      // fee at $0 and lost its pickup address, since neither the zone-
+      // pair fee lookup nor the vendor-address auto-fill had anything to
+      // read (both are cart-line fields carried straight from the
+      // product object at add-to-cart time — see addToCart()).
+      vendorStoreAddress: r.vendor_store_address,
+      vendorDeliveryZoneId: r.vendor_delivery_zone_id || null,
       avgRating: Number(r.avg_rating),
       reviewCount: r.review_count,
       unitsSold: r.units_sold,
