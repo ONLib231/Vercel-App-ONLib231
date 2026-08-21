@@ -23442,8 +23442,22 @@ Z03  9.00  11.00 1.50</pre>
             // falls back to a neutral "Placed" label rather than a
             // fabricated one either way.
             const status = p.deliveryStatus || 'placed';
-            const statusLabel = { pending: 'Processing', accepted: 'Processing', 'picked-up': 'Processing', delivered: 'Fulfilled', cancelled: 'Cancelled', placed: 'Placed' }[status] || 'Placed';
-            const statusClass = { delivered: 'fulfilled', cancelled: 'cancelled' }[status] || 'processing';
+            // A voided order (excludedFromRevenue) overrides whatever the
+            // underlying delivery status still says — a Super Admin has
+            // already closed the matter, and the raw status could be
+            // anything depending on when it was voided (e.g. still
+            // "Processing" if voided before it ever shipped, or
+            // "Cancelled" if it happened to be delivery-cancelled too),
+            // which showed up as two voided orders displaying two
+            // different, inconsistent-looking pills. One consistent
+            // "Voided" pill here — reusing the same red 'cancelled' style,
+            // since both mean "this order isn't going anywhere" — always
+            // wins once a row is voided, matching the "Voided (not
+            // counted)" badge already shown lower in the row.
+            const statusLabel = p.excludedFromRevenue
+                ? 'Voided'
+                : ({ pending: 'Processing', accepted: 'Processing', 'picked-up': 'Processing', delivered: 'Fulfilled', cancelled: 'Cancelled', placed: 'Placed' }[status] || 'Placed');
+            const statusClass = p.excludedFromRevenue ? 'cancelled' : ({ delivered: 'fulfilled', cancelled: 'cancelled' }[status] || 'processing');
             // "Send to Delivery" only makes sense once a real delivery
             // order exists and hasn't been accepted yet (status ===
             // 'pending' on the ORDER, not the purchase) — dispatching an
