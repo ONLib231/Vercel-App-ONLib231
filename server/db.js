@@ -5396,17 +5396,46 @@ const db = {
   // never deleted or hidden — it stays in every order history exactly
   // as it always has; this just flags it so every revenue query in
   // this file (search "excluded_from_revenue" below) stops summing it
-  // in. Deliberately scoped to the purchases table alone — never
-  // touches orders/delivery_fee, so a delivery company keeps whatever
-  // it already earned delivering the order, regardless of why the
-  // vendor's own product revenue is later voided.
+  // in. Never touches delivery_fee — a delivery company that already
+  // did the work (accepted/picked-up/delivered) keeps whatever it
+  // earned regardless of why the vendor's own product revenue is later
+  // voided.
+  //
+  // The one exception: if the linked delivery order is STILL 'pending'
+  // (no agent has accepted it — no delivery work has happened at all),
+  // it's cancelled in the same transaction. Leaving it alone here used
+  // to mean a voided purchase's delivery order sat in Pending
+  // Assignment — and every daily report's "Unassigned Orders" section —
+  // forever, since nothing else in the app ever revisits a dead
+  // purchase's delivery order once it's voided. There's no delivery
+  // fee to protect for work that was never started, so the same
+  // "keep the fee" reasoning above doesn't apply to this case.
   async excludePurchaseFromRevenue(purchaseId, { reason } = {}) {
-    const { rows } = await pool.query(
-      `UPDATE purchases SET excluded_from_revenue = true, excluded_from_revenue_reason = $2, excluded_from_revenue_at = now()
-       WHERE id = $1 RETURNING *`,
-      [purchaseId, reason || null]
-    );
-    return rows[0] ? rowToPurchase(rows[0]) : null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: purchaseRows } = await client.query(
+        `UPDATE purchases SET excluded_from_revenue = true, excluded_from_revenue_reason = $2, excluded_from_revenue_at = now()
+         WHERE id = $1 RETURNING *`,
+        [purchaseId, reason || null]
+      );
+      const purchase = purchaseRows[0] ? rowToPurchase(purchaseRows[0]) : null;
+      let cancelledOrder = null;
+      if (purchase && purchase.deliveryOrderId) {
+        const { rows: orderRows } = await client.query(
+          `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending' RETURNING *`,
+          [purchase.deliveryOrderId]
+        );
+        if (orderRows[0]) cancelledOrder = rowToOrder(orderRows[0]);
+      }
+      await client.query('COMMIT');
+      return { purchase, cancelledOrder };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   },
 
   // ---- Audit log ------------------------------------------------------

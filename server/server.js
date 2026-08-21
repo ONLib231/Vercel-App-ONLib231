@@ -3268,10 +3268,18 @@ app.put('/api/super-admin/disputes/:id/resolve', requireAuth, requireSuperAdmin,
       // "Void it, keep it" — the purchase row stays exactly where it
       // is, in every order history, forever; this only stops it
       // counting toward vendor/Super-Admin revenue from here on. Never
-      // touches orders/delivery_fee — a delivery company already did
-      // the delivery work and keeps that fee no matter why the
-      // vendor's own product revenue is later voided.
-      await db.excludePurchaseFromRevenue(existing.purchaseId, { reason: resolutionNote.trim() });
+      // touches delivery_fee — a delivery company that already did the
+      // work keeps that fee no matter why the vendor's own product
+      // revenue is later voided. The one exception (see
+      // excludePurchaseFromRevenue's own comment): a still-pending,
+      // never-accepted delivery order gets cancelled in the same
+      // transaction, instead of sitting in Pending Assignment forever
+      // for a purchase that's now dead — broadcast the same way any
+      // other order cancellation already is, so an admin watching the
+      // dashboard live sees it drop out of Pending Assignment
+      // immediately, not just on the next report generation.
+      const { cancelledOrder } = await db.excludePurchaseFromRevenue(existing.purchaseId, { reason: resolutionNote.trim() });
+      if (cancelledOrder) orderRooms(cancelledOrder).forEach((r) => io.to(r).emit('order:updated', cancelledOrder));
     }
     await logAudit(req, 'dispute.resolve', {
       targetType: 'dispute', targetId: dispute.id, targetLabel: existing.customerName,
