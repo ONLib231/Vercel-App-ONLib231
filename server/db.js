@@ -596,6 +596,23 @@ async function restockPurchaseItemsInTx(client, purchaseId) {
   }
 }
 
+// Shared by excludePurchaseFromRevenue (the 'void' dispute decision) and
+// cancelPendingDeliveryOrderForPurchase (the 'refund' decision) — both
+// end a purchase in a way that means its delivery, if it hasn't started
+// yet, is never going to happen either. Scoped to status = 'pending' so
+// it's a safe no-op for anything already accepted/picked-up/delivered —
+// a delivery company that already started the work keeps whatever it's
+// owed, same reasoning either decision documents at its own call site.
+// Must be called from inside an already-open transaction (client).
+async function cancelPendingDeliveryOrderInTx(client, deliveryOrderId) {
+  if (!deliveryOrderId) return null;
+  const { rows } = await client.query(
+    `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending' RETURNING *`,
+    [deliveryOrderId]
+  );
+  return rows[0] ? rowToOrder(rows[0]) : null;
+}
+
 const db = {
   async init() {
     const fs = require('fs');
@@ -5420,16 +5437,37 @@ const db = {
         [purchaseId, reason || null]
       );
       const purchase = purchaseRows[0] ? rowToPurchase(purchaseRows[0]) : null;
-      let cancelledOrder = null;
-      if (purchase && purchase.deliveryOrderId) {
-        const { rows: orderRows } = await client.query(
-          `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'pending' RETURNING *`,
-          [purchase.deliveryOrderId]
-        );
-        if (orderRows[0]) cancelledOrder = rowToOrder(orderRows[0]);
-      }
+      const cancelledOrder = purchase ? await cancelPendingDeliveryOrderInTx(client, purchase.deliveryOrderId) : null;
       await client.query('COMMIT');
       return { purchase, cancelledOrder };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  // The 'refund' dispute decision's counterpart to excludePurchaseFromRevenue
+  // above — a refunded purchase isn't flagged excluded_from_revenue (that's
+  // a distinct, separate concept: whether it still counts toward vendor/
+  // platform revenue totals, unchanged by this fix), but it's just as
+  // "over" from a delivery standpoint. Before this, resolving a dispute
+  // with a refund left a still-pending, never-accepted delivery order
+  // exactly as stuck as the 'void' bug this mirrors — refund was the one
+  // other dispute decision that plausibly means "this order is done,"
+  // and the only one of the three (refund/reject/void) that had no path
+  // at all to clearing it. 'reject' deliberately still does nothing here:
+  // a rejected dispute means the original order stands, unaffected.
+  async cancelPendingDeliveryOrderForPurchase(purchaseId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query('SELECT delivery_order_id FROM purchases WHERE id = $1', [purchaseId]);
+      const deliveryOrderId = rows[0] ? rows[0].delivery_order_id : null;
+      const cancelledOrder = await cancelPendingDeliveryOrderInTx(client, deliveryOrderId);
+      await client.query('COMMIT');
+      return cancelledOrder;
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

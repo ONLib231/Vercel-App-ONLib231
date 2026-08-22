@@ -1479,6 +1479,20 @@ UPDATE orders o SET status = 'cancelled'
     FROM purchases p
     WHERE p.delivery_order_id = o.id AND p.excluded_from_revenue = true AND o.status = 'pending';
 
+-- Same one-time cleanup, for the 'refund' dispute decision's matching
+-- gap (see db.cancelPendingDeliveryOrderForPurchase) — a refund never
+-- sets excluded_from_revenue (that's a different concept), so it isn't
+-- covered by the cleanup above. A refund-resolved dispute is
+-- identified by status = 'resolved' with a refund_amount set — only
+-- the 'refund' decision ever sets one; 'void' never does, and 'reject'
+-- sets status = 'rejected'. Same idempotency reasoning as above: a
+-- cancelled order's status no longer matches 'pending', so re-running
+-- this on every future boot is a no-op once it's already applied.
+UPDATE orders o SET status = 'cancelled'
+    FROM purchases p, disputes d
+    WHERE d.purchase_id = p.id AND p.delivery_order_id = o.id
+      AND d.status = 'resolved' AND d.refund_amount IS NOT NULL AND o.status = 'pending';
+
 -- Zone-pair delivery fees. Supersedes the "does NOT feed into delivery
 -- fee calculation" note on saved_addresses.zone_id above: the founder
 -- asked for the delivery fee to be based on the CUSTOMER's (dropoff)

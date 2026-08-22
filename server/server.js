@@ -3280,6 +3280,15 @@ app.put('/api/super-admin/disputes/:id/resolve', requireAuth, requireSuperAdmin,
       // immediately, not just on the next report generation.
       const { cancelledOrder } = await db.excludePurchaseFromRevenue(existing.purchaseId, { reason: resolutionNote.trim() });
       if (cancelledOrder) orderRooms(cancelledOrder).forEach((r) => io.to(r).emit('order:updated', cancelledOrder));
+    } else if (decision === 'refund' && existing.purchaseId) {
+      // A refund is the one other decision that plausibly means "this
+      // order is over" — same still-pending-order cleanup as 'void'
+      // above, minus the revenue-exclusion flag (a refund isn't a
+      // dispute-driven exclusion from revenue reporting, just money
+      // going back). See cancelPendingDeliveryOrderForPurchase's own
+      // comment for why 'reject' doesn't get this treatment.
+      const cancelledOrder = await db.cancelPendingDeliveryOrderForPurchase(existing.purchaseId);
+      if (cancelledOrder) orderRooms(cancelledOrder).forEach((r) => io.to(r).emit('order:updated', cancelledOrder));
     }
     await logAudit(req, 'dispute.resolve', {
       targetType: 'dispute', targetId: dispute.id, targetLabel: existing.customerName,
